@@ -299,8 +299,13 @@ def build_unified_tool_list(
         return classify_tool(name, signals=signals)
 
     out: list[dict[str, Any]] = list(mcp_tools or [])
+    from platform_app.player.meter import current as _player_run
+    if _player_run():
+        out = []  # Managed play has no external MCP or creator/account tools.
     disp: list[dict[str, Any]] = []
     for spec in get_registry().list_for_origin(origin):
+        if _player_run() and classify_tool(spec.name) in (3, 6):
+            continue
         if mode == "tavern_gm":
             if _tavern_drops_tool(spec.name, bound_script_id=bound_script_id):
                 continue
@@ -351,6 +356,10 @@ def build_tool_call_router(
     )
 
     def _router(server_id: str, tool_name: str, arguments: dict) -> dict[str, Any]:
+        from platform_app.player.meter import current as _player_run
+        if _player_run(user_id):
+            if (server_id or '') not in ('', DISPATCHER_SENTINEL) or classify_tool(tool_name) in (3, 6):
+                return {'ok': False, 'error': '此工具不属于玩家游玩权限'}
         if (server_id or "") == DISPATCHER_SENTINEL or (not (server_id or "") and get_registry().has(tool_name)):
             env = ToolCallEnvelope(
                 user_id=user_id,

@@ -38,11 +38,13 @@ function PanelRules({ state }) {
   async function doAction(body) { await runRules("action", body); }
   async function startEncounter(encId) { await runRules("encounterStart", encId); }
   async function nextTurn() { await runRules("encounterNext"); }
-  async function enemyAttack(attackerId) { await runRules("encounterEnemy", attackerId); }
 
   const moduleLoaded = !!scene.module_id;
   const currentRoom = scene.current_room || {};
   const hpPct = pc.max_hp > 0 ? Math.max(0, Math.min(100, Math.round(100 * (pc.hp || 0) / pc.max_hp))) : 0;
+  const turnToken = `${encounter.encounter_id}:${encounter.round}:${encounter.turn_index}`;
+  const playerTurn = (encounter.initiative_order || [])[encounter.turn_index]?.id === 'player'
+    && encounter.action_used !== turnToken && pc.hp > 0;
 
   // 非 module_adventure 剧本（小说 / freeform）显式说明此 tab 不适用，
   // 避免在小说存档里误显示一套不属于该剧本的 5E 默认角色卡 + 模组按钮。
@@ -138,6 +140,14 @@ function PanelRules({ state }) {
               </ul>
             </div>
           ) : null}
+          {Object.values(scene.unlocked_facts || {}).length > 0 && (
+            <div style={{marginTop:8}}>
+              <div className="muted-2" style={{fontSize:11}}>{t('game.rules.unlocked_clues')}</div>
+              <ul style={{margin:0,paddingLeft:16}}>{Object.entries(scene.unlocked_facts).map(([id, fact]) => (
+                <li key={id} style={{fontSize:12}}>{fact}</li>
+              ))}</ul>
+            </div>
+          )}
           {Array.isArray(currentRoom.exits) && currentRoom.exits.length ? (
             <div style={{marginTop:6}}>
               <div className="muted-2" style={{fontSize:11,marginBottom:3}}>{t('game.rules.exits_label')}</div>
@@ -157,11 +167,7 @@ function PanelRules({ state }) {
                 {currentRoom.checks.map((c,i) => (
                   <button key={i} disabled={busy} onClick={() => doAction({
                     kind: c.kind || "skill_check",
-                    skill: c.skill,
-                    ability: c.ability,
-                    dc: c.dc,
-                    reason: c.fact || c.reveals,
-                    sets_flag: c.sets_flag,
+                    check_id: c.id || `check_${i}`,
                   })} style={{fontSize:12}}>
                     {c.kind === "saving_throw" ? t('game.rules.saving_throw', { ability: (c.ability||"").toUpperCase(), dc: c.dc }) : t('game.rules.skill_check', { skill: c.skill, dc: c.dc })}
                   </button>
@@ -174,10 +180,10 @@ function PanelRules({ state }) {
               <button disabled={busy} onClick={() => doAction({kind:"short_rest"})}>{t('game.rules.short_rest')}</button>
             </div>
           ) : null}
-          {Array.isArray(currentRoom.enemies) && currentRoom.enemies.length && !encounter.active ? (
+          {Array.isArray(currentRoom.enemies) && currentRoom.enemies.some(e => scene.entity_outcomes?.[e.id] !== 'defeated') && !encounter.active ? (
             <div style={{marginTop:8}}>
               <div className="muted-2" style={{fontSize:11,marginBottom:3}}>{t('game.rules.encounter_label')}</div>
-              <button disabled={busy} className="primary" onClick={() => startEncounter(`${scene.location_id}_combat`)} style={{fontSize:12}}>
+              <button disabled={busy || pc.hp <= 0} className="primary" onClick={() => startEncounter(`${scene.location_id}_combat`)} style={{fontSize:12}}>
                 {t('game.rules.start_combat')}
               </button>
             </div>
@@ -209,17 +215,13 @@ function PanelRules({ state }) {
           </div>
           <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:8}}>
             {(encounter.combatants||[]).filter(c => c.side === "enemy" && !c.defeated).map(e => (
-              <button key={e.id} disabled={busy} className="primary" onClick={() => doAction({kind:"attack", target: e.id})} style={{fontSize:12}}>
+              <button key={e.id} disabled={busy || !playerTurn} className="primary" onClick={() => doAction({kind:"attack", target: e.id, turn_token: turnToken})} style={{fontSize:12}}>
                 {t('game.rules.attack', { name: e.name })}
               </button>
             ))}
-            <button disabled={busy} onClick={nextTurn} style={{fontSize:12}}>{t('game.rules.next_turn')}</button>
-            {(encounter.combatants||[]).filter(c => c.side === "enemy" && !c.defeated).map(e => (
-              <button key={`enemy-${e.id}`} disabled={busy} onClick={() => enemyAttack(e.id)} style={{fontSize:12,background:"var(--panel-3)"}}>
-                {t('game.rules.let_attack', { name: e.name })}
-              </button>
-            ))}
+            <button disabled={busy} onClick={nextTurn} style={{fontSize:12}}>{t(playerTurn ? 'game.rules.end_my_action' : 'game.rules.continue_combat')}</button>
           </div>
+          <p className="muted-2" style={{fontSize:12}}>{t('game.rules.automatic_enemy_turns')}</p>
         </div>
       ) : null}
 

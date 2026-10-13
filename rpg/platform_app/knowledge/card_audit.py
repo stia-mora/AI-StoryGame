@@ -172,6 +172,7 @@ def audit_character_cards(user_id: int, script_id: int, api_id: str = "", model:
     cards_by_id = {int(c["id"]): c for c in cards}
     agg: dict[str, Any] = {"merged": [], "protagonist": None, "dropped": []}
     protagonist_id: int | None = None
+    global_merged_into: dict[int, int] = {}
     parse_failures = 0
 
     for idx, chunk in enumerate(chunks):
@@ -198,6 +199,7 @@ def audit_character_cards(user_id: int, script_id: int, api_id: str = "", model:
                 part = _apply_verdicts(db, script_id, chunk_by_id, verdict, apply_protagonist=False)
             agg["merged"].extend(part["merged"])
             agg["dropped"].extend(part["dropped"])
+            global_merged_into.update(part.get("merged_into") or {})
         if progress_cb:
             try:
                 progress_cb(idx + 1, total)
@@ -207,7 +209,9 @@ def audit_character_cards(user_id: int, script_id: int, api_id: str = "", model:
     if total and parse_failures == total:
         raise ValueError("AI 复核返回无法解析,请重试或换一个模型")
 
-    # 全局主角:取自第 0 批(若该卡已在某批被并走则跳过,保守)。
+    # 全局主角:取自第 0 批(若该卡已在某批被并走 → 用保留卡)。
+    while protagonist_id in global_merged_into:
+        protagonist_id = global_merged_into[protagonist_id]
     if protagonist_id and protagonist_id in cards_by_id:
         with connect() as db:
             _require_script_owner(db, user_id, script_id)
@@ -314,9 +318,9 @@ def _apply_verdicts(db, script_id: int, cards_by_id: dict, verdict: dict,
 
     apply_protagonist=False:分批送审时由调用方在全局只采纳第 0 批的主角并统一应用,这里跳过主角锁定。
     """
-    out: dict[str, Any] = {"merged": [], "protagonist": None, "dropped": []}
-    deleted: set[int] = set()
     merged_into: dict[int, int] = {}
+    out: dict[str, Any] = {"merged": [], "protagonist": None, "dropped": [], "merged_into": merged_into}
+    deleted: set[int] = set()
 
     # 1) 合并同一人
     for grp in (verdict.get("merges") or []):

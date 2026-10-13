@@ -59,6 +59,9 @@ def _game_opening_policy(steering_strength: str) -> tuple[str | None, int]:
 async def api_opening(
     api_user: dict[str, Any] | None = Depends(get_current_user),
 ) -> StreamingResponse:
+    from platform_app.player.catalog import require_metered_legacy
+    from platform_app.player.meter import current as _player_run
+    require_metered_legacy((api_user or {}).get('id'))
     from app import (
         _active_script_id,
         _build_turn_context,
@@ -129,10 +132,26 @@ async def api_opening(
         yield _sse("status", _payload_sse(api_user))
         yield _sse("stage", {"phase": "generating", "label": "GM 构思开场中…"})
         text = ""
+        result_intro = ""
+        intro_sent = False
         try:
             # P0-1: generate_opening_stream 是同步 generator,通过 bridge 异步化
             # stop_event 在 SSE 断开时由 bridge finally 设置,让 sync generator 提前退出
+            _billing_run = _player_run((api_user or {}).get('id'))
+            # The bridge sets its own stop event on normal cleanup as well as cancellation.
+            # Keep it separate from the player's explicit stop signal used by accounting.
             _opening_stop = threading.Event()
+            if _billing_run:
+                from platform_app.player import pacing
+                from platform_app.player.character_creation import opening_instructions
+
+                _open_tokens = min(2048, int(_billing_run.profile['max_output']))
+                _open_prompt = (_open_prompt or "生成开场，并在本次回复中完成起点的首个日常事件。") + "\n" + pacing.instructions(_billing_run)
+                if getattr(_billing_run, 'character_setup', None):
+                    from platform_app.player.character_creation import prime_opening_result
+
+                    result_intro = prime_opening_result(state.data, _billing_run.character_setup)
+                    _open_prompt += "\n" + opening_instructions(_billing_run.character_setup)
             # 流式 ops 围栏抑制(与 chat 主循环同一 StreamFenceGuard):开场同样是
             # 「裸转发 + 落库前清洗」,半截 ```json 会漏给玩家。text 累积不受影响。
             from state import StreamFenceGuard
@@ -155,11 +174,17 @@ async def api_opening(
                 text += chunk
                 _fence_fw = _fence_guard.feed(chunk)
                 if _fence_fw:
+                    if result_intro and not intro_sent and _fence_fw.strip():
+                        yield _sse("token", {"text": result_intro})
+                        intro_sent = True
                     yield _sse("token", {"text": _fence_fw})
             _fence_tail = _fence_guard.flush()
             if _fence_tail:
+                if result_intro and not intro_sent and _fence_tail.strip():
+                    yield _sse("token", {"text": result_intro})
+                    intro_sent = True
                 yield _sse("token", {"text": _fence_tail})
-            opening = text
+            opening = (result_intro if intro_sent else "") + text
             yield _sse("stage", {"phase": "done", "label": ""})
             opening_for_history, opening_options = _extract_trailing_markdown_options(opening)
             # 剥掉 ops JSON 围栏 / 工具元叙述 / 泄漏脚手架,得到给玩家看 + 落历史的干净正文。
@@ -179,10 +204,16 @@ async def api_opening(
             after_questions = len((state.data.get("permissions") or {}).get("pending_questions") or [])
             if opening_options and after_questions == before_questions:
                 state.add_pending_question("你想怎么行动？", source="gm:opening_options", options=opening_options)
-            state.save()
+            if not _billing_run:
+                state.save()
             try:
                 persist_user_id, active_save_id = _resolve_persist_target(api_user)
                 if api_user and persist_user_id and active_save_id:
+                    if _billing_run:
+                        if not opening_visible.strip():
+                            raise ValueError('开场没有有效正文')
+                        _billing_run.partial = _billing_run.stop.is_set()
+                        _billing_run.committing = True
                     _open_rt = platform_branches.record_runtime_turn(
                         "",
                         opening_visible,
@@ -214,6 +245,8 @@ async def api_opening(
                 else:
                     _persist_runtime_checkpoint(state, api_user)
             except Exception:
+                if _billing_run:
+                    raise
                 _persist_runtime_checkpoint(state, api_user)
             # 渠道健康门控:开场也走成功即清零(与主 chat 流程 persist_turn_phase 同口径)。
             try:
@@ -233,4 +266,6 @@ async def api_opening(
             ), "partial": text})
             yield _sse("done", {"interrupted": True, "status": _payload_sse(api_user)})
 
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    from core.sse import SSE_HEADERS, with_keepalive
+
+    return StreamingResponse(with_keepalive(stream()), media_type="text/event-stream", headers=SSE_HEADERS)

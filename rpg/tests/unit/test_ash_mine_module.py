@@ -218,6 +218,7 @@ class CombatIntegrationTests(unittest.TestCase):
     def setUp(self):
         self.g = GameState.new()
         start_module(self.g, "ash_mine")
+        self.g.data["player_character"].update(hp=100, max_hp=100)
         # 移动到深层矿厅
         for loc in ["minecart_track", "rest_cavern", "fissure", "ash_camp", "deep_hall"]:
             enter_room(self.g, loc)
@@ -285,6 +286,9 @@ class CombatIntegrationTests(unittest.TestCase):
         attacker = next(c for c in self.g.data["encounter"]["combatants"] if c.get("side") == "enemy")
         hp_before = self.g.data["player_character"]["hp"]
         for seed in range(30):
+            enc = self.g.data["encounter"]
+            enc["turn_index"] = next(i for i, actor in enumerate(enc["initiative_order"]) if actor["id"] == attacker["id"])
+            enc.pop("action_used", None)
             self.g.data["player_character"]["hp"] = hp_before
             for c in self.g.data["encounter"]["combatants"]:
                 if c.get("id") == "player":
@@ -307,7 +311,8 @@ class CombatIntegrationTests(unittest.TestCase):
                 c["hp"] = 9
         advance_turn(self.g)
         comb_hp = next(c["hp"] for c in self.g.data["encounter"]["combatants"] if c["id"] == "player")
-        self.assertEqual(comb_hp, 4)
+        self.assertEqual(comb_hp, self.g.data["player_character"]["hp"])
+        self.assertLessEqual(comb_hp, 4)  # Ending the player turn now also resolves enemy attacks.
 
 
 class TrapTests(unittest.TestCase):

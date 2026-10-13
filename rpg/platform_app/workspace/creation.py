@@ -54,6 +54,8 @@ def create_save(
     story_intent: str | None = None,
     player_origin: str | None = None,
     identity_known: bool | None = None,
+    player_story_id: int | None = None,
+    player_setup: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """创建新存档。
 
@@ -81,7 +83,11 @@ def create_save(
         # task 74: 接受 owner OR subscriber(公开剧本订阅)— 存档是 per-user 的活态层,
         # 不影响剧本本身的 immutability,所以订阅者也能建存档。
         # 读级归属判定收敛到 perms.script_readable(返 select s.* 整行)。
-        script = script_readable(db, script_id, user_id)
+        if player_story_id is not None:
+            from ..perms import script_playable
+            script = script_playable(db, script_id, user_id, player_story_id)
+        else:
+            script = script_readable(db, script_id, user_id)
         if not script:
             raise ValueError("无权访问该剧本")
         # 复核闸:KB 提取/复核未完成的剧本不允许开局,避免 GM 拿到错章节/未审实体/未消歧别名
@@ -89,13 +95,20 @@ def create_save(
         if (script.get("review_status") or "unreviewed") == "unreviewed":
             raise ValueError("剧本尚未通过 KB 复核,请先在剧本复核页 (script-review) 检查实体/时间线/世界观无误后点击「标记已复核」")
         snapshot = _build_initial_snapshot(user_id, script_id, new_card, character, birthpoint=birthpoint, identity=identity, story_intent=story_intent, player_origin=player_origin, identity_known=identity_known)
+        if player_story_id is not None:
+            settings = db.execute('select defaults from player_stories where id=%s', (player_story_id,)).fetchone()['defaults']
+            snapshot.setdefault('permissions', {})['mode'] = 'full_access'
+            snapshot.setdefault('worldline', {})['steering_strength'] = settings.get('steering_strength', 'free')
+            if player_setup is not None:
+                from copy import deepcopy
+                snapshot['player_setup'] = deepcopy(player_setup)
         save = db.execute(
             """
-            insert into game_saves(user_id, script_id, title, state_path, state_snapshot)
-            values (%s, %s, %s, %s, %s)
+            insert into game_saves(user_id, script_id, title, state_path, state_snapshot, player_story_id)
+            values (%s, %s, %s, %s, %s, %s)
             returning *
             """,
-            (user_id, script_id, title.strip() or "新存档", str(SAVE_FILE), Jsonb(snapshot)),
+            (user_id, script_id, title.strip() or "新存档", str(SAVE_FILE), Jsonb(snapshot), player_story_id),
         ).fetchone()
         # v27: 持久化身份卡 + 角色↔身份绑定。身份卡是 save 级独立实体,不修改角色卡行。
         # 注意:仅当 identity 至少有 role 或 background 才落库;否则视为"没身份,直接用角色卡"。

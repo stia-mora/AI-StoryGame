@@ -219,6 +219,8 @@ async def api_chat(
     api_user: dict[str, Any] | None = Depends(get_current_user),
 ) -> StreamingResponse:
     import time
+    from platform_app.player.catalog import require_metered_legacy
+    require_metered_legacy((api_user or {}).get('id'), body.save_id)
 
     import app as _self_mod
     from app import (
@@ -355,6 +357,22 @@ async def api_chat(
 
     state = _ensure_loaded(api_user)
     gm = _get_gm(api_user)
+    from uuid import uuid4
+    action_id = str(body_dict.get("action_id") or uuid4().hex)[:128]
+    pending = state.data.get("pending_action") or {}
+    completed = state.data.get("completed_action") or {}
+    resume_action = None
+    if pending.get("id") == action_id or body_dict.get("retry"):
+        if (pending.get("id") == action_id and pending.get("message") == message_for_model
+                and pending.get("base_turn") == state.data.get("turn", 0)):
+            resume_action = pending
+        elif not (completed.get("id") == action_id and completed.get("message") == message_for_model
+                  and completed.get("turn") == state.data.get("turn", 0)) and (
+                      pending or completed.get("id") == action_id
+                      or action_id in (state.data.get("invalidated_action_ids") or [])
+                      or (body_dict.get("action_turn") is not None
+                          and body_dict["action_turn"] != state.data.get("turn", 0))):
+            return json_response({"ok": False, "error": "本轮裁定已失效，请刷新存档后继续"}, status_code=409)
 
     async def stream():
         # task #51: chat 主流程拆到 chat_pipeline.py 5 个 phase。
@@ -372,6 +390,10 @@ async def api_chat(
         )
 
         response = ""
+        if completed.get("id") == action_id and completed.get("message") == message_for_model:
+            yield _sse("token", {"text": completed.get("response") or ""})
+            yield _sse("done", {"status": _payload_sse(api_user), "replayed": True})
+            return
         _done_streamed = False  # 已发过 done(正常完成或已打断落库)→ 断连兜底绝不二次落库
         command_text, changed = ("", False) if attachments else _command_response(message, state)
         if command_text:
@@ -395,6 +417,8 @@ async def api_chat(
             run_id=run_id,
             stop_event=stop_event,
             chat_start_time=_chat_start_time,
+            action_id=action_id,
+            resume_action=resume_action,
         )
 
         try:
@@ -610,23 +634,30 @@ async def api_chat(
         # 圆环/思考流也因 applyState 不跑而出不来。done 走 _sse 前缀 "event: done\n" 可靠识别。
         _done_seen = False
         _disconnected = False
+        _inner_stream = stream()
         try:
-            async for _chunk in stream():
+            async for _chunk in _inner_stream:
                 if isinstance(_chunk, str) and _chunk.startswith("event: done\n"):
                     _done_seen = True
                 yield _chunk
-        except GeneratorExit:
+        except (GeneratorExit, asyncio.CancelledError):
             # 客户端断开 → 不能在 finally 里再 yield(否则 "generator ignored GeneratorExit")
             _disconnected = True
             raise
         finally:
+            if _disconnected:
+                # Close while the managed request context is still active so partial save and
+                # credit settlement share the same transaction as a completed reply.
+                await _inner_stream.aclose()
             if not _done_seen and not _disconnected:
                 try:
                     yield _sse("done", {"status": _payload_sse(api_user), "interrupted": True})
                 except Exception:
                     yield _sse("done", {"interrupted": True})
 
-    return StreamingResponse(_stream_with_done_guard(), media_type="text/event-stream")
+    from core.sse import SSE_HEADERS, with_keepalive
+
+    return StreamingResponse(with_keepalive(_stream_with_done_guard()), media_type="text/event-stream", headers=SSE_HEADERS)
 
 
 @router.post("/api/stop", response_model=OkResponse, responses=COMMON_ERROR_RESPONSES)

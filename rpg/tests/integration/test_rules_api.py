@@ -40,9 +40,9 @@ class RulesApiSmoke(unittest.TestCase):
         # 移动到 minecart_track
         r = self.client.post("/api/v1/rules/move", json={"to": "minecart_track"}, cookies=self.cookies)
         self.assertEqual(r.status_code, 200, r.text)
-        # 执行 stealth 检定
+        # 模组定义决定 DC 和解锁标记；客户端不得伪造规则效果。
         r = self.client.post("/api/v1/rules/action", json={
-            "kind": "skill_check", "skill": "stealth", "dc": 13, "seed": 7,
+            "kind": "skill_check", "check_id": "check_0", "skill": "stealth", "dc": 1, "seed": 7,
             "reason": "悄悄翻越矿车", "sets_flag": "sneak_pass",
         }, cookies=self.cookies)
         self.assertEqual(r.status_code, 200, r.text)
@@ -50,7 +50,9 @@ class RulesApiSmoke(unittest.TestCase):
         self.assertTrue(body["ok"])
         self.assertTrue(body["result"]["success"])
         self.assertEqual(len(body["rules"]["dice_log"]), 1)
-        self.assertTrue(body["rules"]["scene"]["flags"].get("sneak_pass"))
+        self.assertEqual(body["result"]["dc"], 13)
+        self.assertTrue(body["rules"]["scene"]["flags"].get("stealth_pass"))
+        self.assertNotIn("sneak_pass", body["rules"]["scene"]["flags"])
 
     def test_state_payload_includes_rules_block(self):
         """/api/v1/state 必须包含 ruleset / player_character / scene / encounter / dice_log。"""

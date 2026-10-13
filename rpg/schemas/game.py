@@ -26,3 +26,6 @@ class ChatRequest(_BaseRequest):
     text: str | None = ""
     attachments: list[Any] | None = None
     save_id: int | None = None  # task #61: 多 tab 冲突检测 — 前端带上当前持有的 save_id
+    action_id: str | None = None
+    retry: bool = False
+    action_turn: int | None = None

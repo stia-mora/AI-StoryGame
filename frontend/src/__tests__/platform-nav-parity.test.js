@@ -53,7 +53,10 @@ describe('平台内跳转不准再走 hash 路由', () => {
     for (const file of walk(SRC)) {
       const code = stripComments(readFileSync(file, 'utf-8'));
       // href="#" (占位) 放行;href="#settings-models" 这种指向 page id 的不放行
-      const m = code.match(/href=["']#[a-z][a-z0-9-]+["']/gi);
+      // The separate player document has an accessibility skip link to its actual main element.
+      // It is an in-document fragment, not a Platform page route.
+      const checked = file.endsWith('PlayerApp.jsx') ? code.replace(/href="#player-main"/g, '') : code;
+      const m = checked.match(/href=["']#[a-z][a-z0-9-]+["']/gi);
       if (m) offenders.push(`${file.replace(SRC, 'src')}: ${m.join(', ')}`);
     }
     expect(offenders, `裸 hash 锚点点了不换页,改 plGoto:\n  ${offenders.join('\n  ')}`).toEqual([]);

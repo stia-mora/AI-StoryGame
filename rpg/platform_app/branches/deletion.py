@@ -19,6 +19,7 @@ from platform_app.branches.refs import (
 )
 from platform_app.branches.tree_ops import (
     _opening_offset_from_history,
+    message_fork_turn,
     collect_ids,
     round_start_node,
     tree,
@@ -203,15 +204,23 @@ def rollback_to_message(
         _active_for_offset = int(current_commit_id or 0)
         if _active_for_offset:
             _r0 = db.execute(
-                "select state_snapshot->'history'->0 as h0 from branch_commits where id = %s and save_id = %s",
+                "select state_snapshot->'history'->0 as h0, state_snapshot->'history' as history, "
+                "turn_index from branch_commits where id = %s and save_id = %s",
                 (_active_for_offset, save_id),
             ).fetchone()
             opening_offset = _opening_offset_from_history(
                 [_r0["h0"]] if (_r0 and _r0.get("h0") is not None) else []
             )
         target_turn = max(0, (msg_index - opening_offset) // 2)
+        if _active_for_offset and (_r0 or {}).get("history"):
+            target_turn = message_fork_turn(msg_index, opening_offset, _r0["history"],
+                                            _r0.get("turn_index"), delete_round=True)
         deleted_turn = target_turn + 1
         target_message_role = "user" if (msg_index - opening_offset) % 2 == 0 else "assistant"
+        if _active_for_offset and (_r0 or {}).get("history"):
+            history = _r0["history"]
+            if msg_index < len(history):
+                target_message_role = history[msg_index].get("role") or target_message_role
 
         # 沿**活跃 commit 血缘**定位 turn=target_turn 的 commit(多分支隔离,内联 resolve_commit_id_by_message
         # 同款递归查询——不可直接调用它:会在本 advisory 锁内嵌套开连接致连接池死锁,见 5f0319a73)。

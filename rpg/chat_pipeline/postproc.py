@@ -13,6 +13,31 @@ from state import GameState
 from ._common import PipelineContext, log
 
 
+def _response_with_recorder_ops(response: str, recorder_ops: list[dict]) -> str:
+    """Keep recorder state writes authoritative without losing GM interaction choices."""
+    if not recorder_ops:
+        return response
+    from state.json_ops import _extract_json_state_ops, dedupe_json_ops, strip_json_state_ops
+
+    gm_ops, _ = _extract_json_state_ops(response)
+    questions = [
+        op for op in gm_ops
+        if str(op.get("op", "")).lower() == "question"
+        and isinstance(op.get("question") or op.get("text"), str)
+        and isinstance(op.get("options"), list)
+        and len(op["options"]) >= 2
+        and all(isinstance(option, str) and option.strip() for option in op["options"])
+    ]
+    # Choices belong to the narrator's latest scene; extraction may omit or paraphrase them.
+    ops = [
+        op for op in recorder_ops
+        if not questions or str(op.get("op", "")).lower() != "question"
+    ] + questions
+    return strip_json_state_ops(response) + "\n\n```json\n" + json.dumps(
+        dedupe_json_ops(ops), ensure_ascii=False,
+    ) + "\n```"
+
+
 async def _run_anchor_reconcile(ctx: Any, api_user: dict | None, response: str) -> int:
     """每回合确定性「世界线锚点」兜底判定(task: anchor auto-reconcile)。
 

@@ -55,6 +55,7 @@ rpg/platform_data/scripts/
 #  本地虚拟环境
 # ──────────────────────────────────────────────────────────────────
 rpg_env/
+.venv/
 
 # ──────────────────────────────────────────────────────────────────
 #  小说工作区数据库（体积大且可重建，不入库）
@@ -186,3 +187,5 @@ rpg/config/*.private.json
 # 运行时生成的用户 AI 图(不入库,误 add 防护)
 rpg/platform_data/ai_images/
 node_modules
+.player-backend*.log
+.player-frontend*.log

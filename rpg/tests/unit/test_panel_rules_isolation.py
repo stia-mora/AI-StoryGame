@@ -109,8 +109,9 @@ class PanelRulesFrontendBranchTests(unittest.TestCase):
 
     def test_panel_keeps_module_runtime_actions(self):
         """模组进行中仍需要 move/doAction/encounter 控制按钮（不被本次重构误删）。"""
-        for keep in ("move(", "doAction(", "startEncounter(", "nextTurn(", "enemyAttack("):
+        for keep in ("move(", "doAction(", "startEncounter(", "nextTurn("):
             self.assertIn(keep, self.text, f"PanelRules 缺少 {keep} 控制函数")
+        self.assertNotIn("enemyAttack(", self.text, "敌方回合由规则引擎自动结算")
 
 
 class StateGateStillProtectsAfterDefaultChangeTests(unittest.TestCase):

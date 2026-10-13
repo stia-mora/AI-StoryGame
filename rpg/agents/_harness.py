@@ -47,6 +47,9 @@ def _no_redirect_urlopen(req, *, timeout, proxy=None):
     from core.outbound import proxy_kwargs, safe_urlopen
 
     try:
+        from platform_app.player.meter import current, metered_urlopen
+        if current():
+            return metered_urlopen(safe_urlopen, req, timeout=timeout, **proxy_kwargs(proxy))
         return safe_urlopen(req, timeout=timeout, **proxy_kwargs(proxy))
     except urllib.error.HTTPError as exc:
         attach_http_error_body(exc)
@@ -67,14 +70,20 @@ def micro_task_anthropic_client(resolved: dict, *, timeout_sec: float):
 
     from core.outbound import credential_proxy, safe_httpx_client
     t = float(timeout_sec)
-    return Anthropic(
+    client = Anthropic(
         api_key=resolved.get("key"),
         timeout=httpx.Timeout(t, connect=10.0),
         max_retries=0,
         http_client=safe_httpx_client(timeout=t, proxy=credential_proxy(resolved)),
     )
+    from platform_app.player.meter import wrap_sdk
+    return wrap_sdk(client, 'anthropic', '')
 
 
+from platform_app.player.meter import metered_agent
+
+
+@metered_agent
 def call_agent_json(
     api_id: str,
     model: str,
@@ -299,6 +308,8 @@ def _anthropic_tool_use(
     if _base_url:
         _client_kwargs["base_url"] = _base_url
     client = Anthropic(**_client_kwargs)
+    from platform_app.player.meter import wrap_sdk
+    client = wrap_sdk(client, 'anthropic', model)
     tool_name = tool_schema.get("name") or "emit_payload"
     resp = client.messages.create(
         model=model,
@@ -797,10 +808,12 @@ def resolve_api_and_model(
     # 但用户没传 SA / 没配该 provider 的 key)→ 回退到用户配过 key 的第一个模型。
     # 否则所有 harness 子代理(curator / acceptance / extractor / 黑天鹅)对没 SA 的
     # 用户都会抛「未找到 Vertex SA」而整段失败。显式 override 不受此守卫影响。
-    return _guard_byok_usable(
+    api_id, model = _guard_byok_usable(
         user_id, api_id, model,
         allow_override=bool(api_id_override or model_override),
     )
+    from core.llm_backend import resolve_text_model
+    return resolve_text_model(user_id, api_id, model)
 
 
 def call_agent_tool_loop(

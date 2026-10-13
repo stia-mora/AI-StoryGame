@@ -1,0 +1,80 @@
+{
+  "script_key": "lemulina",
+  "novel_signature_tokens": [
+    "柏林",
+    "图卢兹",
+    "哈布斯堡",
+    "蛇信",
+    "薇瑟",
+    "扎兹巴鲁姆",
+    "蕾穆丽娜",
+    "斯雷因",
+    "伊奈帆",
+    "甲胄骑士",
+    "Kataphrakt"
+  ],
+  "setting_lock_tokens": [
+    "柏林",
+    "扎府"
+  ],
+  "setting_locked_text_tokens": [
+    "柏林",
+    "扎府"
+  ],
+  "rules": [
+    {
+      "score": 90,
+      "text": "摸清基地核心机密库，查证隐藏技术资料。",
+      "needles": [
+        "核心机密库",
+        "机密库"
+      ]
+    },
+    {
+      "score": 85,
+      "text": "召集特殊小队，建立柏林城内侦察与撤离预案。",
+      "needles": [
+        "特殊小队"
+      ]
+    }
+  ],
+  "default_novel_fallbacks": [
+    "要求一份柏林当前势力图和行动时限。"
+  ],
+  "phase_inference": {
+    "rules": [
+      {
+        "phase": "柏林暗流篇",
+        "chapter_min": 1,
+        "or_text_needles": [
+          "柏林",
+          "扎兹巴鲁姆"
+        ]
+      }
+    ],
+    "fallback_simple": "柏林暗流篇"
+  },
+  "time_label_inference": [
+    {
+      "label": "柏林暗流时期",
+      "needles_any": [
+        "柏林",
+        "扎府"
+      ]
+    }
+  ],
+  "time_label_fallback_template": "第{chapter}章",
+  "known_names": [
+    "蕾穆丽娜",
+    "斯雷因",
+    "扎兹巴鲁姆",
+    "娅赛兰",
+    "伊奈帆"
+  ],
+  "known_locations": [
+    "柏林",
+    "哈布斯堡",
+    "图卢兹",
+    "月球基地"
+  ]
+}

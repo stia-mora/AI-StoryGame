@@ -2397,6 +2397,16 @@ def _assert_migrations_monotonic() -> None:
         last = version
 
 
+# Player-only service is an append-only migration; existing accounts keep creator access.
+from platform_app.player.schema import STATEMENTS as _PLAYER_STATEMENTS
+MIGRATIONS.append((103, "player_service_and_credit_ledger", _PLAYER_STATEMENTS))
+MIGRATIONS.append((104, "player_stop_signal", [
+    "alter table player_requests add column stop_requested boolean not null default false",
+]))
+MIGRATIONS.append((105, "player_service_tool_policy", [
+    "alter table player_model_profiles add column tools_mode text not null default 'internal' check(tools_mode in ('internal','none'))",
+]))
+
 # 模块加载时立即自检，部署前就能发现列表写错
 _assert_migrations_monotonic()
 

@@ -336,24 +336,28 @@ def _load_script_overrides() -> dict:
 
     DB 不可用时 fallback 到 modules/_script_overrides/*.json（本地开发兜底）。
     """
+    out: dict[str, dict] = {}
+    # 1. 读本地 JSON 文件（本地开发 / 默认剧本兜底）
+    overrides_dir = BASE / "modules" / "_script_overrides"
+    if overrides_dir.is_dir():
+        for f in sorted(overrides_dir.glob("*.json")):
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                key = data.get("script_key")
+                if key:
+                    out[key] = data
+            except Exception:
+                continue
+
+    # 2. 从 DB script_overrides 表加载并补充/覆盖（支持多用户与线上更新）
     try:
         from platform_app.knowledge.script_overrides import load_all_overrides_by_key
-        return load_all_overrides_by_key()
+        db_overrides = load_all_overrides_by_key()
+        if db_overrides:
+            out.update(db_overrides)
     except Exception:
         pass
-    # fallback: 读 JSON 文件（本地开发 / DB 不可用时兜底）
-    overrides_dir = BASE / "modules" / "_script_overrides"
-    out: dict[str, dict] = {}
-    if not overrides_dir.is_dir():
-        return out
-    for f in sorted(overrides_dir.glob("*.json")):
-        try:
-            data = json.loads(f.read_text(encoding="utf-8"))
-            key = data.get("script_key")
-            if key:
-                out[key] = data
-        except Exception:
-            continue
+
     return out
 
 
@@ -468,7 +472,7 @@ class GameState(ApplyOpsMixin, RulesGameplayMixin, PendingMixin):
                 pp["story_intent"] = _wl_intent.strip()
         # 兼容旧存档：如果 player_character.hp 为空但 max_hp 有值，回填 hp=max_hp。
         pc = migrated.get("player_character") or {}
-        if pc and pc.get("max_hp") and not pc.get("hp"):
+        if pc and pc.get("max_hp") and (source.get("player_character") or {}).get("hp") in (None, ""):
             pc["hp"] = pc["max_hp"]
         # task 74：旧存档没有 memory.items，补一个空数组（不回填旧 facts，让 task 78
         # 在确定迁移策略后做。这里只是让新写入能落地）。
@@ -830,6 +834,17 @@ class GameState(ApplyOpsMixin, RulesGameplayMixin, PendingMixin):
 【当前回合】第 {self.data['turn']} 回合{_revealed_block}"""
 
     def status_payload(self) -> dict:
+        if (self.data.get("scene") or {}).get("module_id"):
+            from rules_bridge.checks import room_definition
+            from rules_bridge.conditions import repair_legacy_conditions
+            from rules_bridge.entity_sync import _sync_active_entities_to_scene
+            from rules_bridge.module_ops import _room_snapshot
+            room = room_definition(self)
+            if room:
+                self.data["scene"]["current_room"] = _room_snapshot(
+                    room, set(self.data["scene"].get("taken_loot") or []))
+                _sync_active_entities_to_scene(self)
+                repair_legacy_conditions(self)
         p = self.data["player"]
         w = self.data["world"]
         m = self.data["memory"]
@@ -869,6 +884,8 @@ class GameState(ApplyOpsMixin, RulesGameplayMixin, PendingMixin):
             "worldline": copy.deepcopy(self.data.get("worldline", {})),
             "memory": copy.deepcopy(m),
             "turn": self.data["turn"],
+            "pending_action": {k: v for k, v in (self.data.get("pending_action") or {}).items()
+                               if k in {"id", "message", "base_turn", "partial"}},
             "schema_version": self.data.get("schema_version", CURRENT_SCHEMA_VERSION),
             "is_new": self.data["is_new"],
             "created_at": self.data["created_at"],
@@ -898,6 +915,7 @@ class GameState(ApplyOpsMixin, RulesGameplayMixin, PendingMixin):
             "\n".join(memory.get("resources", [])),
             "\n".join(memory.get("abilities", [])),
             "\n".join(memory.get("facts", [])),
+            "\n".join(memory.get("pinned", [])),
         ])
 
         # 识别当前剧本 key (None 表示未识别 → 用通用 fallback)
@@ -950,7 +968,7 @@ class GameState(ApplyOpsMixin, RulesGameplayMixin, PendingMixin):
             "回顾当前剧本开场设定，校准核心动机。",
         ]
         fallback_novel = active_overrides.get("default_novel_fallbacks") or []
-        fallback = fallback_generic + fallback_novel
+        fallback = fallback_novel + fallback_generic
         for index, text in enumerate(fallback):
             add(20 - index, text)
 

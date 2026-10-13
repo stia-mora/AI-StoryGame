@@ -157,6 +157,7 @@ def public_user(user: dict | None, db=None) -> dict | None:
     if out.get("public_id") is not None:
         out["uid"] = str(out["public_id"])
     out["has_password"] = bool(user.get("password_hash"))
+    out['account_mode'] = user.get('account_mode', 'creator')
     # co_builder_opt_out 直接从 user 行读
     out["co_builder_opt_out"] = bool(user.get("co_builder_opt_out", False))
     # is_co_builder: 派生字段，需要 join registration_allowlist

@@ -42,6 +42,9 @@ async def apply_player_directives_phase(
     state = ctx.state
     api_user = ctx.api_user
     message_for_model = ctx.message_for_model
+    if ctx.resume_action:
+        ctx.early_persist_user_id, ctx.early_active_save_id = resolve_persist_target(api_user)
+        return
 
     # step 1: 过期上轮 GM 询问
     try:

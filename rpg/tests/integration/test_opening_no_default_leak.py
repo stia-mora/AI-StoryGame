@@ -110,6 +110,8 @@ class OpeningRetrievalNoDefaultLeak(unittest.TestCase):
             _backend = _B()
             def generate_opening(self, state, retrieved_context=""):
                 return "（测试存根开场：雾港码头雾色未散。）"
+            def generate_opening_stream(self, *a, **kw):
+                yield "（测试存根开场：雾港码头雾色未散。）"
             def respond_stream_with_tools(self, *a, **kw):
                 if False:
                     yield {}
@@ -203,15 +205,26 @@ class OpeningRetrievalNoDefaultLeak(unittest.TestCase):
         from platform_app.db import connect
         workspace.ensure_default(uid)
         with connect() as db:
-            sid = int(db.execute(
+            sid_row = db.execute(
                 "select id from scripts where owner_id = %s and source_path like 'rpg/indexes%%' limit 1",
                 (uid,),
-            ).fetchone()["id"])
-            save_row = db.execute(
-                "select id from game_saves where user_id = %s and script_id = %s order by id limit 1",
-                (uid, sid),
             ).fetchone()
-            save_id = int(save_row["id"])
+            if not sid_row:
+                sid = int(db.execute(
+                    "insert into scripts(owner_id, title, source_path) values (%s, %s, %s) returning id",
+                    (uid, "MuMu default", "rpg/indexes/mumu.json"),
+                ).fetchone()["id"])
+                save_id = None
+            else:
+                sid = int(sid_row["id"])
+                save_row = db.execute(
+                    "select id from game_saves where user_id = %s and script_id = %s order by id limit 1",
+                    (uid, sid),
+                ).fetchone()
+                save_id = int(save_row["id"]) if save_row else None
+        if save_id is None:
+            save = workspace.create_save(uid, sid, "MuMu default save")
+            save_id = int(save["id"])
         branches.activate_save(uid, save_id)
 
         ui_mod, orig_get = self._patch_gm_to_canned_opening()

@@ -157,6 +157,9 @@ def stream_with_channel_fallback(
     except Exception:
         if committed.is_set():
             raise  # 已有正文/工具副作用:切换=换人续写+双重副作用,绝不做
+        from platform_app.player.meter import current as _player_run
+        if _player_run(user_id):
+            raise  # Managed player requests use only their quoted service model.
         if stop_event is not None and getattr(stop_event, "is_set", lambda: False)():
             raise
         # 以下所有决策失败都必须回落到原始异常(bare raise 在 except 块内重抛原异常)

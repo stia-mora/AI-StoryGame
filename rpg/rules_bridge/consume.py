@@ -5,7 +5,8 @@ import re
 
 from core.clock import now_iso
 from rules import RulesEngine, get_engine
-from rules_bridge.combat import _sync_player_combatant
+from rules_bridge.combat import _sync_player_combatant, action_error, finish_player_action
+from rules_bridge.conditions import player_action
 
 # 中文/英文消耗动词
 _CONSUME_VERBS_CN = ("点燃", "使用", "消耗", "用掉", "喝", "饮", "服下", "服用",
@@ -93,8 +94,9 @@ def parse_consume_intent(text: str, character: dict) -> list[dict]:
     return out
 
 
+@player_action
 def consume_item_action(state, item_id: str, qty: int = 1,
-                        reason: str = "") -> dict:
+                        reason: str = "", seed: int | None = None) -> dict:
     """RulesEngine consume_item 入口（chat 流程 / /api/rules/action 都用）。
 
     返回 {ok, result, dice_log_entry?, error}。
@@ -104,14 +106,38 @@ def consume_item_action(state, item_id: str, qty: int = 1,
     if not item_id:
         return {"ok": False, "error": "缺少 item_id"}
     try:
-        qty = int(qty or 1)
+        qty = int(qty)
     except (TypeError, ValueError):
-        qty = 1
+        return {"ok": False, "error": "qty 必须是正整数"}
+    from rules.dnd5e.character import find_inventory_item, heal
+    pc = state.data.get("player_character") or {}
+    item = find_inventory_item(pc, item_id)
+    if not item or qty <= 0 or int(item.get("qty", 0)) < qty:
+        return {"ok": False, "error": "物品数量不足或消耗数量无效"}
+    import modules as module_registry
+    module_id = (state.data.get("scene") or {}).get("module_id")
+    definitions = module_registry.load_module(module_id).get("loot", []) if module_id else []
+    definition = next((d for d in definitions if d.get("id") == item.get("id")), {})
+    effect = definition.get("effect") or {}
+    healing = effect.get("kind") == "heal"
+    if healing and int(pc.get("hp", 0)) >= int(pc.get("max_hp", 0)):
+        return {"ok": False, "error": "生命值已满，无需消耗治疗药剂"}
+    in_combat = bool((state.data.get("encounter") or {}).get("active"))
+    if in_combat and (error := action_error(state)):
+        return {"ok": False, "error": error}
+    # Validate and roll before mutating inventory; healing and consumption share one checkpoint.
+    healing_roll = None
+    if healing:
+        rolls = [get_engine().damage_roll(effect["expression"], seed=seed + i if seed is not None else None)
+                 for i in range(qty)]
+        healing_roll = {"expression": effect["expression"], "total": sum(r["total"] for r in rolls),
+                        "rolls": rolls}
     result = state.consume_inventory_item(item_id, qty)
     if not result.get("ok"):
         return {"ok": False, "error": result.get("error") or "consume_item 失败"}
     # 记 dice_log（虽然没掷骰，但作为 rules action 留痕）
-    pc = state.data.get("player_character") or {}
+    healed = heal(pc, int(healing_roll["total"])) if healing_roll else 0
+    _sync_player_combatant(state)
     entry = {
         "kind": "consume_item",
         "actor": pc.get("name") or "player",
@@ -125,12 +151,21 @@ def consume_item_action(state, item_id: str, qty: int = 1,
         "reason": reason or f"消耗 {result.get('item_name')} ×{result.get('consumed')}",
         "ts": now_iso(),
         "extra": {
+            "healing": healing_roll,
+            "healed": healed,
+            "hp_after": pc.get("hp"),
             "item_id": result.get("item_id"),
             "qty_before": result.get("qty_before"),
             "qty_after": result.get("qty_after"),
         },
     }
     state.append_dice_log(entry)
+    enemy_results = finish_player_action(state) if in_combat else []
+    facts = [f"{entry['actor']} 消耗 {result.get('item_name')} ×{result.get('consumed')}（剩余 {result.get('qty_after')}）。"]
+    if healing_roll:
+        facts.append(f"恢复 {healed} 点生命值（HP {pc.get('hp')}/{pc.get('max_hp')}）。")
+    for enemy_result in enemy_results:
+        facts.extend((enemy_result.get("result") or {}).get("gm_facts") or [])
     return {
         "ok": True,
         "result": {
@@ -138,19 +173,20 @@ def consume_item_action(state, item_id: str, qty: int = 1,
             "actor": entry["actor"],
             "target": entry["target"],
             "success": True,
-            "gm_facts": [
-                f"{entry['actor']} 消耗 {result.get('item_name')} ×{result.get('consumed')}"
-                f"（剩余 {result.get('qty_after')}）。"
-            ],
+            "gm_facts": facts,
             "extra": entry["extra"],
         },
         "dice_log_entry": entry,
+        "enemy_actions": enemy_results,
     }
 
 
+@player_action
 def short_rest(state, seed: int | None = None) -> dict:
     """玩家短休：花生命骰回血。"""
     engine = get_engine()
+    if (state.data.get("encounter") or {}).get("active"):
+        return {"ok": False, "error": "战斗中无法短休"}
     scene = state.data.get("scene") or {}
     cur_room_flags = (scene.get("current_room") or {}).get("flags") or {}
     if not cur_room_flags.get("can_short_rest"):

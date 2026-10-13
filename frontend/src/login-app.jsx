@@ -67,7 +67,7 @@ function LoginApp() {
       try {
         const me = await window.api?.auth.me();
         if (!cancelled && me && me.user) {
-          location.replace(__resolveNextOrDefault());
+          window.api.auth.me().then(me => location.replace(__resolveNextOrDefault(me.user)));
         }
       } catch (_) { /* 未登录,正常停留 */ }
     })();
@@ -325,7 +325,7 @@ function LoginApp() {
       const j = await r.json();
       if (j.ok) {
         setNotice(t('auth.verify.verify_ok'));
-        setTimeout(() => location.replace(__resolveNextOrDefault()), 300);
+        setTimeout(() => window.api.auth.me().then(me => location.replace(__resolveNextOrDefault(me.user))), 300);
       } else {
         setErr(j.error || t('auth.verify.verify_fail'));
       }
@@ -350,7 +350,7 @@ function LoginApp() {
       const j = await window.api.auth.loginCodeVerify({ email: loginCodeEmail, code });
       if (!j || j.ok === false) throw new Error(j?.error || t('auth.login_code.verify_fail'));
       setNotice(t('auth.login_code.verify_ok'));
-      setTimeout(() => location.replace(__resolveNextOrDefault()), 200);
+      setTimeout(() => window.api.auth.me().then(me => location.replace(__resolveNextOrDefault(me.user))), 200);
     } catch (e) {
       setErr(e?.message || t('auth.login_code.verify_fail'));
     } finally {
@@ -383,7 +383,7 @@ function LoginApp() {
         setNotice(t('auth.app.magic_otp_needs_profile'));
       } else {
         setNotice(t('auth.app.login_redirect'));
-        setTimeout(() => location.replace(__resolveNextOrDefault()), 300);
+        setTimeout(() => window.api.auth.me().then(me => location.replace(__resolveNextOrDefault(me.user))), 300);
       }
     } catch (e) {
       setErr(e?.message || t('auth.app.magic_otp_verify_fail_retry'));
@@ -417,7 +417,7 @@ function LoginApp() {
       const j = await r.json();
       if (!j.ok) throw new Error(j.error || t('auth.app.profile_save_fail'));
       setNotice(t('auth.app.profile_save_ok'));
-      setTimeout(() => location.replace(__resolveNextOrDefault()), 300);
+      setTimeout(() => window.api.auth.me().then(me => location.replace(__resolveNextOrDefault(me.user))), 300);
     } catch (e) {
       setErr(e?.message || t('auth.app.profile_save_fail_retry'));
     } finally {
@@ -552,7 +552,7 @@ function LoginApp() {
         // 本地/自托管模式：后端已自动完成注册并登录(免邮箱验证)→ 直接进入,不走验证码页
         if (j.auto_verified) {
           setNotice(t('auth.login_ok'));
-          setTimeout(() => location.replace(__resolveNextOrDefault()), 200);
+          setTimeout(() => window.api.auth.me().then(me => location.replace(__resolveNextOrDefault(me.user))), 200);
           return;
         }
         // server 模式两步流程：进入验证码步骤
@@ -565,7 +565,7 @@ function LoginApp() {
       } else {
         await window.api.auth.login(body);
         setNotice(t('auth.login_ok'));
-        setTimeout(() => location.replace(__resolveNextOrDefault()), 200);
+        setTimeout(() => window.api.auth.me().then(me => location.replace(__resolveNextOrDefault(me.user))), 200);
       }
     } catch (e) {
       // 后端返回 error_key 时展示对应文案
@@ -602,7 +602,7 @@ function LoginApp() {
       const j = await r.json();
       if (j.ok) {
         try { history.replaceState(null, '', location.pathname); } catch (_) {}
-        location.href = j.next || '/Platform.html';
+        location.href = j.user?.account_mode === 'player' ? '/play' : j.next || '/play';
       } else { setInviteErr(j.error || t('auth.invite.failed')); }
     } catch (err) { setInviteErr(err?.message || t('auth.invite.failed')); }
     finally { setInviteBusy(false); }

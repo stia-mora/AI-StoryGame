@@ -52,7 +52,7 @@ def cleanup_test_users() -> int:
     return len(row)
 
 
-def register_user(client, username: str | None = None, password: str = "Test12345!") -> dict[str, Any]:
+def _register_user(client, username: str | None = None, password: str = "Test12345!") -> dict[str, Any]:
     """注册并返回 (username, password, body)。"""
     uname = username or integtest_username()
     email = f"{uname}@example.test"
@@ -95,6 +95,18 @@ def register_user(client, username: str | None = None, password: str = "Test1234
         "body": resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {},
         "cookies": dict(resp.cookies),
     }
+
+
+def register_user(client, username=None, password="Test12345!", *, account_mode="creator"):
+    """Legacy creator tests explicitly provision creator access. Pass player for registration tests."""
+    result = _register_user(client, username, password)
+    user = result.get('body', {}).get('user')
+    if user and account_mode == 'creator':
+        from platform_app.db import connect
+        with connect() as db:
+            db.execute("update users set account_mode='creator' where id=%s", (user['id'],))
+        user['account_mode'] = 'creator'
+    return result
 
 
 def login_user(client, username: str, password: str = "Test12345!") -> dict[str, Any]:

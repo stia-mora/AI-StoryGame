@@ -13,6 +13,8 @@ from tests.helpers import cleanup_test_users, make_client, register_user
 class RulesChatPipeline(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        from platform_app.db import init_db
+        init_db()
         cleanup_test_users()
         cls.client = make_client()
 
@@ -181,7 +183,118 @@ class RulesChatPipeline(unittest.TestCase):
         self.assertEqual(state["scene"]["location_id"], "minecart_track")
         self.assertEqual(state["dice_log"][0]["dc"], 13)
 
+    def test_failed_narration_checkpoint_survives_cold_kb_reload(self):
+        self._assert_cold_checkpoint(stopped=False)
+
+    def test_stopped_narration_checkpoint_survives_cold_kb_reload(self):
+        self._assert_cold_checkpoint(stopped=True)
+
+    def test_checkpoint_survives_optional_kb_import_failure(self):
+        self._assert_cold_checkpoint(stopped=False, kb_unavailable=True)
+
+    def _assert_cold_checkpoint(self, *, stopped, kb_unavailable=False):
+        """Real DB/KB loading must preserve a settled potion across worker restarts."""
+        from contextlib import nullcontext
+        from unittest.mock import patch
+
+        import app as ui_mod
+        import chat_pipeline
+
+        user = register_user(self.client)
+        cookies, api_user = user["cookies"], user["body"]["user"]
+        launch = self.client.post("/api/v1/rules/module/launch", json={"module_id": "ash_mine"}, cookies=cookies)
+        self.assertEqual(launch.status_code, 200, launch.text)
+        state = ui_mod._ensure_loaded(api_user, ensure_gm=False)
+        state.data["player_character"]["hp"] = 1
+        ui_mod._persist_runtime_checkpoint(state, api_user)
+        context_calls = []
+
+        async def context(ctx, **kwargs):
+            if ctx.resume_action:
+                async for event in original_context(ctx, **kwargs):
+                    yield event
+                return
+            context_calls.append(ctx)
+            ctx.bundle = {"prompt": "stub", "debug": {}}
+            ctx.agent_result = {"steps": [], "curator_plan": {}}
+            yield "agent", {"phase": "context", "status": "done"}
+
+        attempts = []
+
+        async def gm(ctx, **kwargs):
+            attempts.append(ctx)
+            if len(attempts) == 1:
+                if stopped:
+                    self.client.post("/api/v1/stop", cookies=cookies)
+                    ui_mod._persist_chat_turn(api_user, ctx.state, ctx.message_for_model, "部分叙事",
+                                              persist_user_id=ctx.persist_user_id,
+                                              active_save_id=ctx.active_save_id, interrupted=True)
+                    ctx.early_return = True
+                    yield "done", {"interrupted": True, "status": ui_mod._payload_sse(api_user)}
+                    return
+                raise ConnectionError("synthetic narration failure")
+            ctx.response = "伤口逐渐闭合。"
+            yield "token", {"text": ctx.response}
+
+        original_context = chat_pipeline.run_context_phase
+        stub = type("GM", (), {"api_id": "stub"})()
+        body = {"message": "我喝一瓶急救药剂", "action_id": "cold-retry", "action_turn": 0}
+        with patch.object(ui_mod, "_get_gm", return_value=stub), \
+                patch.object(ui_mod, "_get_sub_gm", return_value=stub), \
+                patch.object(ui_mod, "_is_set_parser_enabled", return_value=False), \
+                patch.object(chat_pipeline, "run_context_phase", context), \
+                patch.object(chat_pipeline, "run_gm_phase", gm):
+            kb_failure = patch("kb.save_kb.import_state", side_effect=RuntimeError("synthetic KB import failure"))
+            with kb_failure if kb_unavailable else nullcontext():
+                with self.client.stream("POST", "/api/v1/chat", json=body, cookies=cookies) as response:
+                    events = self._consume(response)
+            if not stopped:
+                self.assertIn("error", [e["event"] for e in events], events)
+            settled = self.client.get("/api/v1/state", cookies=cookies).json()
+            self.assertGreater(settled["player_character"]["hp"], 1)
+            self.assertEqual(settled["pending_action"]["id"], "cold-retry")
+            ui_mod._invalidate_user_cache(api_user)
+            cold = self.client.get("/api/v1/state", cookies=cookies).json()
+            for key in ("pending_action", "player_character", "dice_log"):
+                self.assertEqual(cold[key], settled[key], key)
+            with self.client.stream("POST", "/api/v1/chat", json={**body, "retry": True}, cookies=cookies) as response:
+                events = self._consume(response)
+            self.assertNotIn("error", [e["event"] for e in events], events)
+            final = self.client.get("/api/v1/state", cookies=cookies).json()
+            self.assertEqual(final["player_character"]["hp"], settled["player_character"]["hp"])
+            self.assertEqual(final["dice_log"], settled["dice_log"])
+            self.assertEqual(final["turn"], 1)
+            self.assertEqual(len(context_calls), 1)
+            state = ui_mod._ensure_loaded(api_user, ensure_gm=False)
+            state.data["player_character"]["hp"] = 0
+            ui_mod._persist_runtime_checkpoint(state, api_user)
+            ui_mod._invalidate_user_cache(api_user)
+            dead = self.client.get("/api/v1/state", cookies=cookies).json()
+            self.assertEqual(dead["player_character"]["hp"], 0)
+            fork = self.client.post("/api/v1/branches/continue", json={
+                "save_id": launch.json()["save_id"], "message_index": 2,
+            }, cookies=cookies)
+            self.assertEqual(fork.status_code, 200, fork.text)
+            restored = self.client.get("/api/v1/state", cookies=cookies).json()
+            self.assertEqual(restored["player_character"], final["player_character"])
+            self.assertEqual(restored["dice_log"], final["dice_log"])
+            self.assertEqual(restored["turn"], 1)
+            self.assertEqual(restored["history"][-1]["content"], "伤口逐渐闭合。")
+
     def test_gm_json_ops_are_not_saved_as_player_visible_text(self):
+        self._assert_gm_json_options_persist()
+
+    def test_unified_recorder_retains_narrator_choices(self):
+        from unittest.mock import patch
+
+        with patch("chat_pipeline.gm._POSTPROC_MODE", "async"), patch(
+            "chat_pipeline.gm._recorder_unified", return_value=True,
+        ), patch("gm_serving.recorder_bridge.run_unified_recorder", return_value={
+            "ops": [{"op": "set", "path": "player.current_location", "value": "矿车旁"}],
+        }):
+            self._assert_gm_json_options_persist()
+
+    def _assert_gm_json_options_persist(self):
         import app as ui_mod
 
         user = register_user(self.client)
@@ -250,11 +363,11 @@ class RulesChatPipeline(unittest.TestCase):
         self.assertEqual(state["permissions"]["pending_questions"][0]["options"], ["继续搜索", "返回入口"])
 
     def test_game_console_keeps_rules_state_in_react_state(self):
-        html = Path(__file__).resolve().parents[3] / "frontend" / "Game Console.html"
-        text = html.read_text(encoding="utf-8")
+        entry = Path(__file__).resolve().parents[3] / "frontend" / "src" / "entries" / "game-console.jsx"
+        text = entry.read_text(encoding="utf-8")
         for key in ("ruleset", "player_character", "scene", "encounter", "dice_log"):
-            self.assertIn(f'"{key}"', text)
-        self.assertIn('"game-state-refresh"', text)
+            self.assertIn(f"'{key}'", text)
+        self.assertIn("'game-state-refresh'", text)
         self.assertIn("getRightTabForLocation", text)
         self.assertIn("location.hash", text)
         self.assertIn("if (nextAction) startRun(nextAction)", text)
@@ -293,7 +406,7 @@ class RulesChatPipeline(unittest.TestCase):
             + [_p.read_text(encoding="utf-8")
                for _p in sorted((_src / "components" / "game").glob("*.jsx"))])
         self.assertIn("stripStateOpsForDisplay", text)
-        self.assertIn("json|state-ops|state", text)
+        self.assertIn("return stripNarrativeOps(text)", text)
         self.assertIn("const displayText = stripStateOpsForDisplay(text)", text)
 
     def test_gm_system_prompt_keeps_literal_json_examples(self):

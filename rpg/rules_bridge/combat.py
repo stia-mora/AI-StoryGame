@@ -4,7 +4,65 @@ from __future__ import annotations
 import modules as module_registry
 from core.clock import now_iso
 from rules import RulesEngine, get_engine
-from rules_bridge.entity_sync import _entities_from_encounter
+from rules_bridge.conditions import player_action
+from rules_bridge.entity_sync import _entities_from_encounter, _sync_active_entities_to_scene
+
+
+def turn_token(encounter: dict) -> str:
+    return f"{encounter.get('encounter_id')}:{encounter.get('round')}:{encounter.get('turn_index')}"
+
+
+def current_actor(encounter: dict) -> str:
+    order = encounter.get("initiative_order") or []
+    index = int(encounter.get("turn_index", 0))
+    return str(order[index].get("id") or "") if 0 <= index < len(order) else ""
+
+
+def action_error(state, actor_id: str = "player") -> str:
+    encounter = state.data.get("encounter") or {}
+    if not encounter.get("active"):
+        return "当前没有进行中的战斗"
+    if current_actor(encounter) != actor_id:
+        return "尚未轮到该角色行动"
+    if encounter.get("action_used") == turn_token(encounter):
+        return "本回合行动已使用"
+    combatant = next((c for c in encounter.get("combatants", []) if c.get("id") == actor_id), {})
+    if combatant.get("defeated") or int(combatant.get("hp", 0)) <= 0:
+        return "倒下的角色无法行动"
+    return ""
+
+
+def _advance_raw(state) -> None:
+    encounter = state.data.get("encounter") or {}
+    get_engine().next_turn(encounter)
+    encounter.pop("action_used", None)
+    if not encounter.get("active"):
+        _finalize_encounter(state, encounter, encounter.get("outcome") or "stalemate")
+
+
+def run_enemy_turns(state) -> list[dict]:
+    """Resolve initiative up to the next player decision, including initial enemy initiative."""
+    encounter = state.data.get("encounter") or {}
+    results = []
+    for _ in range(len(encounter.get("initiative_order") or []) + 1):
+        if not encounter.get("active") or current_actor(encounter) == "player":
+            break
+        attacker = current_actor(encounter)
+        result = enemy_attack(state, attacker)
+        results.append(result)
+        if encounter.get("active"):
+            _advance_raw(state)
+    _sync_active_entities_to_scene(state)
+    return results
+
+
+def finish_player_action(state) -> list[dict]:
+    encounter = state.data.get("encounter") or {}
+    if not encounter.get("active"):
+        return []
+    encounter["action_used"] = turn_token(encounter)
+    _advance_raw(state)
+    return run_enemy_turns(state)
 
 
 def _sync_player_combatant(state) -> None:
@@ -40,18 +98,28 @@ def start_encounter_by_id(state, encounter_id: str, seed: int | None = None) -> 
     enc_def = next((e for e in enc_defs if e.get("id") == encounter_id), None)
     if not enc_def:
         return {"ok": False, "error": f"未知遭遇：{encounter_id}"}
+    if enc_def.get("victory_flag") and (scene.get("flags") or {}).get(enc_def["victory_flag"]):
+        return {"ok": False, "error": "该遭遇已解决"}
 
     pc = state.data.get("player_character") or {}
+    if int(pc.get("hp", 0)) <= 0:
+        return {"ok": False, "error": "倒下的角色无法开战"}
     party_member = dict(pc)
     party_member["id"] = "player"
     party_member.setdefault("name", pc.get("name") or "Player")
     enemies = []
     for e in enc_def.get("enemies") or []:
+        if (scene.get("entity_outcomes") or {}).get(e.get("instance_id")) == "defeated":
+            continue
         comb = engine.build_combatant(e["stat_block_id"], instance_id=e.get("instance_id"), name=e.get("name"))
         enemies.append(comb)
+    if not enemies:
+        return {"ok": False, "error": "该遭遇的敌人已经倒下"}
 
     encounter = engine.start_encounter([party_member], enemies, seed=seed, encounter_id=encounter_id)
-    encounter["definition"] = {"id": encounter_id, "name": enc_def.get("name"), "victory_flag": enc_def.get("victory_flag")}
+    encounter["definition"] = {"id": encounter_id, "name": enc_def.get("name"),
+                               "victory_flag": enc_def.get("victory_flag"),
+                               "location_id": enc_def.get("location_id") or scene.get("location_id")}
     state.set_encounter(encounter)
     # 三层人物系统:合法 encounter 启动 → combatants 进 active_entities
     # (source='encounter'),与 room_data 实体并存。
@@ -71,7 +139,8 @@ def start_encounter_by_id(state, encounter_id: str, seed: int | None = None) -> 
             "reason": f"先攻 - {enc_def.get('name')}",
             "ts": now_iso(),
         })
-    return {"ok": True, "encounter": encounter}
+    enemy_results = run_enemy_turns(state)
+    return {"ok": True, "encounter": encounter, "enemy_actions": enemy_results}
 
 
 def _finalize_encounter(state, encounter: dict, outcome: str) -> None:
@@ -82,20 +151,27 @@ def _finalize_encounter(state, encounter: dict, outcome: str) -> None:
     boss_defeated 等剧情门控 flag 拿不到 → 后续房间/结局门控卡死。"""
     encounter["active"] = False
     encounter["outcome"] = outcome
+    _sync_active_entities_to_scene(state)
     if outcome == "victory":
         victory_flag = (encounter.get("definition") or {}).get("victory_flag")
         if victory_flag:
             state.set_scene_flag(victory_flag, True)
 
 
+@player_action
 def player_attack(state, target_id: str, weapon_id: str = "shortsword",
                   advantage: bool = False, disadvantage: bool = False,
-                  seed: int | None = None) -> dict:
+                  seed: int | None = None, expected_turn: str | None = None) -> dict:
     """玩家对当前 encounter 中的 target 发动攻击。"""
     engine = get_engine()
     encounter = state.data.get("encounter") or {}
     if not encounter.get("active"):
         return {"ok": False, "error": "当前没有进行中的战斗"}
+    if expected_turn and expected_turn != turn_token(encounter):
+        return {"ok": False, "error": "战斗回合已变化，请刷新后行动"}
+    error = action_error(state)
+    if error:
+        return {"ok": False, "error": error}
     target = next((c for c in encounter.get("combatants", [])
                    if c.get("id") == target_id and c.get("side") == "enemy"), None)
     if not target:
@@ -131,7 +207,11 @@ def player_attack(state, target_id: str, weapon_id: str = "shortsword",
     if resolved:
         _finalize_encounter(state, encounter, outcome)
         result.gm_facts.append(f"战斗结束：{outcome}。")
-    return {"ok": True, "result": result.to_dict(), "encounter": encounter}
+    enemy_results = finish_player_action(state) if encounter.get("active") else []
+    for enemy_result in enemy_results:
+        result.gm_facts.extend((enemy_result.get("result") or {}).get("gm_facts") or [])
+    _sync_active_entities_to_scene(state)
+    return {"ok": True, "result": result.to_dict(), "encounter": encounter, "enemy_actions": enemy_results}
 
 
 def enemy_attack(state, attacker_id: str, target_id: str = "player",
@@ -141,8 +221,11 @@ def enemy_attack(state, attacker_id: str, target_id: str = "player",
     encounter = state.data.get("encounter") or {}
     if not encounter.get("active"):
         return {"ok": False, "error": "当前没有进行中的战斗"}
+    error = action_error(state, attacker_id)
+    if error:
+        return {"ok": False, "error": error}
     attacker = next((c for c in encounter.get("combatants", []) if c.get("id") == attacker_id), None)
-    if not attacker or attacker.get("defeated"):
+    if not attacker or attacker.get("side") != "enemy" or attacker.get("defeated"):
         return {"ok": False, "error": f"无效的攻击者：{attacker_id}"}
     attacks = attacker.get("attacks") or []
     if not attacks:
@@ -184,6 +267,7 @@ def enemy_attack(state, attacker_id: str, target_id: str = "player",
     elif result.success and target_id != "player":
         state.apply_rules_state_ops([op.to_dict() for op in result.state_ops], reason="enemy_attack")
     state.append_dice_log(RulesEngine.make_dice_log_entry(result, reason=f"enemy_attack {attacker_id}->{target_id}"))
+    encounter["action_used"] = turn_token(encounter)
 
     engine.mark_defeated_by_hp(encounter)
     resolved, outcome = engine.is_encounter_resolved(encounter)
@@ -191,16 +275,19 @@ def enemy_attack(state, attacker_id: str, target_id: str = "player",
         # 用共用 finalize:原来这里漏写 victory_flag → 最后一敌死于敌方回合时门控 flag 永不置。
         _finalize_encounter(state, encounter, outcome)
         result.gm_facts.append(f"战斗结束：{outcome}。")
+    _sync_active_entities_to_scene(state)
     return {"ok": True, "result": result.to_dict(), "encounter": encounter}
 
 
+@player_action
 def advance_turn(state) -> dict:
-    engine = get_engine()
     encounter = state.data.get("encounter") or {}
     if not encounter.get("active"):
         return {"ok": False, "error": "没有进行中的战斗"}
     _sync_player_combatant(state)
-    engine.next_turn(encounter)
+    if current_actor(encounter) == "player" or encounter.get("action_used") == turn_token(encounter):
+        _advance_raw(state)
+    enemy_results = run_enemy_turns(state)
     # next_turn 可能因 >50 回合僵局(或退化空 initiative)兜底强制结束战斗(active=False)。
     # 这条路径不经攻击结算,故必须在此收尾:否则 encounter 静默失活、无结算事实/无 flag,
     # 玩家再攻击只会得"没有进行中的战斗",依赖战斗结局的剧情门控卡死(软锁)。
@@ -211,4 +298,4 @@ def advance_turn(state) -> dict:
             "ok": True, "encounter": encounter, "resolved": True, "outcome": outcome,
             "message": "战斗超过 50 回合未分胜负,判定为僵局(stalemate)结束。",
         }
-    return {"ok": True, "encounter": encounter}
+    return {"ok": True, "encounter": encounter, "enemy_actions": enemy_results}

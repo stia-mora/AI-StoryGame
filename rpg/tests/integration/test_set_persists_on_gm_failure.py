@@ -129,8 +129,10 @@ class SetPersistsBeforeGMCall(unittest.TestCase):
             err_msg = ""
             if err_events and isinstance(err_events[0]["data"], dict):
                 err_msg = err_events[0]["data"].get("message", "")
-            self.assertIn("simulated upstream 504", err_msg,
-                f"error.message 应反映 context_agent 抛的异常；实际 {err_msg!r}")
+            self.assertTrue(
+                "simulated upstream 504" in err_msg or "错误码" in err_msg,
+                f"error.message 应反映 context_agent 抛的异常或 client-safe 错误；实际 {err_msg!r}",
+            )
 
             # 4) GET /api/state：/set 的改动应该已落盘，跨进程内 state cache 重读也能看到
             r1 = self.client.get("/api/v1/state", cookies=cookies)

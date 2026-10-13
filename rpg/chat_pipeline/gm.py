@@ -43,6 +43,7 @@ from .postproc import (
     _acceptance_ab_pref_enabled,
     _apply_gm_json_ops,
     _log_acceptance_ab,
+    _response_with_recorder_ops,
     _run_anchor_reconcile,
     _run_post_gm_parallel,
 )
@@ -300,6 +301,8 @@ async def run_gm_phase(
     # 故 slim = 「文宗只保 KB 维护工具 + 史官补 state ops」,既省 145 个工具的 prompt、又不丢 KB 维护。
     # 这些 KB 工具受 dispatcher origin 闸约束(llm_chat 不能写 script 域),不会污染原始剧本。
     _gm_tools = unified_tools
+    from platform_app.player.meter import current as _player_service
+    _managed_service = _player_service()
     # 酒馆豁免:文宗精简会把工具收成 12 个 KB 工具,但酒馆的 GM 是唯一写者、需要自己的工具
     # (set_tavern_character / worldbook_add / 记忆·关系写 等),精简会令角色自举/记忆/世界书全断。
     # 故 tavern_gm 不走精简(保留其完整工具集);酒馆仍享 ctx_tiered 前缀缓存。
@@ -317,6 +320,9 @@ async def run_gm_phase(
                          "message": f"文宗精简档:仅保留 {len(_kb_only)} 个存档级 KB 维护工具,state ops 由史官统一落库。",
                          "status": "running", "elapsed_ms": 0})
 
+    if _managed_service and _managed_service.profile.get('tools_mode') == 'none':
+        _gm_tools = None
+
     # 流式 ops 围栏抑制:GM 按提示词在正文末尾追加 ```json ops fence,落库前清洗只处理
     # 完整文本 → 流式期间半截围栏原样漏给玩家(打出来又消失)。转发层状态机拦截,
     # response 累积不受影响(史官/落库/acceptance 仍读完整文本)。
@@ -330,14 +336,24 @@ async def run_gm_phase(
 
     def _make_gm_stream_factory(_g):
         def _factory():
+            _model_input = message_for_model
+            if _managed_service:
+                from platform_app.player.pacing import instructions
+                # Text-only compatibility paths do not forward dynamic_prefix. Put the
+                # required interaction at the end of the actual turn message as well.
+                _model_input += "\n\n【本轮回复要求】正文结束后，必须给出四个符合最新现场的不同下一步行动。可用四项编号列表或 JSON question op。不要重复已完成的行动。"
+                _model_input += "\n\n" + instructions(_managed_service)
             return _g.respond_stream_with_tools(
-                message_for_model, bundle["prompt"], state,
+                _model_input, bundle["prompt"], state,
                 tools=_gm_tools, max_iterations=_gm_max_iters(),
                 max_tokens=_max_tokens,
                 tool_call_router=gm_tool_router,
                 stop_event=_gm_stop,
                 prompt_segments=bundle.get("prompt_segments"),
-                dynamic_prefix="\n\n".join(_dynamic_prefix_parts),
+                dynamic_prefix="\n\n".join(_dynamic_prefix_parts + ([
+                    "玩家入口本轮必须给出四个不同的下一步行动，并通过 JSON question op 保存。"
+                    "不要重复上一轮已完成的行动；也可以写在正文末尾的四项编号列表中。"
+                ] if _managed_service else [])),
             )
         return _factory
 
@@ -551,6 +567,11 @@ async def run_gm_phase(
     if not (response or "").strip() and not ctx.tavern_character_set:
         ctx._updates = list(ctx.directive_updates)
         return
+
+    # Everything after narration is saved-state maintenance paid by the platform.
+    from platform_app.player.meter import current as _player_run, phase_var as _player_phase
+    if _player_run():
+        _player_phase.set('postproc')
 
     # acceptance 硬闸。
     # 【设计改版 · A/B 用户裁决 + 下线关键路径】
@@ -800,9 +821,7 @@ async def run_gm_phase(
                     # 追加一份 → 同 op 双 apply(updates 双报;set 幂等暂无害,add 类是真损坏)。
                     # 史官有产出时它是唯一权威 → 剥掉 GM 自带 fence 只留正文;史官空产出时
                     # 保留 GM fence 作为唯一兜底来源(行为不变)。
-                    _resp_ops = (
-                        strip_json_state_ops(response) + "\n\n```json\n" + json.dumps(_ru_ops, ensure_ascii=False) + "\n```"
-                    ) if _ru_ops else response
+                    _resp_ops = _response_with_recorder_ops(response, _ru_ops)
                     try:
                         ctx._updates = _apply_gm_json_ops(
                             state=state, response_with_ops=_resp_ops, api_user=api_user,

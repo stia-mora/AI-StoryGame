@@ -58,6 +58,17 @@ def record_runtime_turn(
 
     from state import SAVE_FILE
     state_path = Path(runtime_state_path or SAVE_FILE)
+    from platform_app.player.meter import current as _player_run
+    _billing_run = _player_run(user_id)
+    if _billing_run and _billing_run.committing and isinstance(state_data,dict):
+        if _billing_run.kind == 'opening' and getattr(_billing_run, 'character_setup', None):
+            from platform_app.player.character_creation import validate_opening
+            validate_opening(state_data, _billing_run.character_setup, gm_response)
+        from platform_app.player.experience import ensure_choices
+        _choice_turn = int(state_data.get('turn') or 0)
+        if _billing_run.kind == 'turn':
+            _choice_turn = max(0, _choice_turn - 1)
+        ensure_choices(state_data, gm_response, question_turn=_choice_turn)
     if isinstance(state_data, dict):
         data = json.loads(json.dumps(state_data, ensure_ascii=False))
     else:
@@ -69,7 +80,13 @@ def record_runtime_turn(
 
     init_db()
     missing_parent = False
+    _pending_receipt = None
     with connect() as db:
+        from platform_app.player.meter import current as _player_run
+        from platform_app.player.wallet import lock_request, settle
+        _billing_run = _player_run(user_id)
+        if _billing_run and _billing_run.committing:
+            lock_request(db, int(user_id), _billing_run.id, save_id)
         # 复用统一锁助手(失败上抛,不再静默吞掉致并发指针错乱)
         acquire_save_advisory_lock(db, save_id, user_id)
         parent = db.execute("select * from branch_commits where id = %s and save_id = %s", (parent_id, save_id)).fetchone()
@@ -129,6 +146,11 @@ def record_runtime_turn(
                 except Exception as _kbe:
                     import logging as _lg
                     _lg.getLogger("kb_state").warning("[kb_state] persist import/maintain skip: %s", _kbe)
+            if _billing_run and _billing_run.committing:
+                _pending_receipt = settle(db, int(user_id), _billing_run.id, row['id'],
+                                          gm_response, data.get('structured_options') or [], _billing_run.partial)
+    if _pending_receipt is not None:
+        _billing_run.receipt = _pending_receipt
     if missing_parent:
         if _depth >= 2:
             return {"ok": False, "reason": "runtime 指向的父节点不存在(重绑后仍缺失)"}

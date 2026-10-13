@@ -3,6 +3,26 @@ from __future__ import annotations
 
 import re
 
+
+def executable_text(text: str) -> str:
+    """Keep new actions, excluding questions, retrospective statements and negated clauses."""
+    clauses = re.split(r"[，,。；;\n]|(?<=[！？?])|(?:然后|但是|不过|接着)", str(text or ""))
+    kept = []
+    for clause in clauses:
+        clause = clause.strip()
+        if not clause:
+            continue
+        if clause.endswith(("?", "？")):
+            continue
+        if re.search(r"(?:吗|呢|么)$|会不会|是不是|能不能", clause):
+            continue
+        if re.search(r"(?:不要|暂时不|先不|不再|别再|停止|取消|并不|并没有|没有要|不想|不会|不打算|(?:不|没有)(?:移动|攻击|使用|喝|调查|检查|搜索|观察|进入|前往))", clause):
+            continue
+        if re.search(r"(?:刚才|之前|上一轮|已经|已成功|已失败|检定结果|告诉我|解释|回顾|复盘|为什么|是否|能否|怎么|如何|是什么|发现什么|有哪些)", clause):
+            continue
+        kept.append(clause)
+    return "，".join(kept)
+
 # Bug 2 (retest)：哪些中文动词算"移动意图"。
 # "观察 / 留意 / 倾听 / 检查"等是原地行为，不应触发跨房候选。
 # "靠近 / 沿 / 往 / 向 / 去 / 前往 / 走向 / 进入 / 穿过"等才是真正的移动。
@@ -50,7 +70,7 @@ def _has_movement_intent(text: str) -> bool:
     用于决定是否做跨房间 skill check 推断（如 stealth 到相邻房间）。"""
     if not text:
         return False
-    return any(v in text for v in _MOVEMENT_VERBS)
+    return any(v in executable_text(text) for v in _MOVEMENT_VERBS)
 
 
 def _direction_to_exit(text: str, current_room: dict) -> str | None:
@@ -130,6 +150,9 @@ def classify_combat_intent(text: str, state) -> dict | None:
     - 仅在 (无敌人 + 想战斗) 或 (encounter 中 + 含糊战斗) 时返回阻挡块
     """
     if not text or not isinstance(text, str):
+        return None
+    text = executable_text(text)
+    if not text:
         return None
 
     # 只对模组场景生效;小说/自由叙事不拦截 (避免误伤纯文学描写)

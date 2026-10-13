@@ -149,6 +149,8 @@ class PickupLoot(unittest.TestCase):
     def setUp(self):
         self.g = GameState.new()
         start_module(self.g, "ash_mine")
+        # Inventory tests may cross hazards, but must reach the requested loot regardless of dice.
+        self.g.data["player_character"].update(hp=100, max_hp=100)
 
     def _goto(self, *room_ids):
         for rid in room_ids:

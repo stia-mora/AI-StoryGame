@@ -3109,6 +3109,10 @@
       "defeated": " (Defeated)",
       "attack": "Attack {{name}}",
       "next_turn": "Next Turn",
+      "end_my_action": "End my action",
+      "continue_combat": "Continue combat",
+      "automatic_enemy_turns": "Enemies act automatically after your attack, then your next turn begins.",
+      "unlocked_clues": "Discovered clues",
       "let_attack": "Let {{name}} act",
       "dice_log": "Dice Log",
       "dice_count": "{{count}} entry/entries",
@@ -3546,6 +3550,7 @@
       "retry": {
         "still_running": "The previous turn is still running — please wait",
         "no_input": "No input to retry",
+        "pending_settlement": "This action is settled, but its narration is incomplete. Retry continues generation without rerolling or consuming resources again.",
         "retrying": "Retrying last turn",
         "still_generating": "Still generating — please wait",
         "generate_with": "Generate with {{model}}",

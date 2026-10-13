@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import { resolve } from 'path';
 
 export default defineConfig(({ mode }) => {
@@ -12,6 +13,7 @@ export default defineConfig(({ mode }) => {
     // landing 另起项目独立部署。Login 由本仓库提供(配套后端鉴权)。
     login:        resolve(__dirname, 'Login.html'),
     platform:     resolve(__dirname, 'Platform.html'),
+    player:       resolve(__dirname, 'Player.html'),
     game_console: resolve(__dirname, 'Game Console.html'),
     tavern:       resolve(__dirname, 'Tavern.html'),
   };
@@ -42,7 +44,7 @@ export default defineConfig(({ mode }) => {
           ) {
             return next();
           }
-          req.url = '/Platform.html';
+          req.url = url.startsWith('/play') ? '/Player.html' : '/Platform.html';
           next();
         });
       },
@@ -58,7 +60,7 @@ export default defineConfig(({ mode }) => {
     },
     // jsxRuntime: 'classic' — 所有 JSX 文件已显式 import React,
     // classic runtime 用 React.createElement 替代 automatic 的 _jsx()。
-    plugins: [react({ jsxRuntime: 'classic' }), spaHistoryFallbackPlugin()],
+    plugins: [react({ jsxRuntime: 'classic' }), tailwindcss(), spaHistoryFallbackPlugin()],
 
     // ── 永久根治 dev 黑屏 ────────────────────────────────────────────────
     // 根因:Cloudscape 每个组件是独立子入口,Vite 默认懒发现依赖;运行中遇到

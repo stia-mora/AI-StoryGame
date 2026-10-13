@@ -240,6 +240,8 @@ class _OpenAICompatBackend:
         if effective_base:
             kwargs["base_url"] = effective_base
         self.client = OpenAI(**kwargs)
+        from platform_app.player.meter import wrap_sdk
+        self.client = wrap_sdk(self.client, api_id or display_kind, model)
         self.model_name = model
         self.kind = display_kind
         self.api_id = api_id or display_kind

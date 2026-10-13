@@ -29,7 +29,7 @@
     "description": "巨大的木质升降井架斜插在岩壁上。绳索粗如儿臂，但磨损严重；下方是望不到底的黑暗。一阵冷风从下方持续吹上来。",
     "exits": [
       {"to": "minecart_track", "label": "绕回轨道侧", "requires": null},
-      {"to": "rest_cavern", "label": "搭着绳索往下溜（危险）", "requires": null},
+      {"to": "rest_cavern", "label": "搭着绳索往下溜（危险）", "requires": null, "hazards": ["rope_break"]},
       {"to": "mine_entrance", "label": "退出矿道", "requires": null}
     ],
     "visible_clues": [
@@ -38,7 +38,7 @@
     ],
     "checks": [
       {"kind": "skill_check", "skill": "perception", "dc": 12, "reveals": "frayed_rope", "fact": "你看清绳索的钢芯只剩三股完整，断裂只是时间问题。"},
-      {"kind": "saving_throw", "ability": "dex", "dc": 13, "trigger": "use_rope_unaware", "fail_damage": "2d6", "fact": "如果直接顺绳下井，需要 DEX 豁免 DC 13，失败摔落受 2d6 钝伤。"}
+      {"kind": "saving_throw", "ability": "dex", "dc": 13, "trigger": "use_rope_unaware", "hazard_id": "rope_break", "fail_damage": "2d6", "fact": "如果直接顺绳下井，需要 DEX 豁免 DC 13，失败摔落受 2d6 钝伤。"}
     ],
     "hazards": [
       {"id": "rope_break", "description": "未察觉就强行使用磨损绳索，会触发坠落。", "save": {"ability": "dex", "dc": 13}, "damage": "2d6"}
@@ -106,18 +106,18 @@
     "description": "通道在此被一道裂缝割开，缝里不断渗出淡黄色的雾气，刺鼻的硫磺味令人窒息。要么憋住气穿过，要么寻找绕路。",
     "exits": [
       {"to": "rest_cavern", "label": "退回休息洞", "requires": null},
-      {"to": "ash_camp", "label": "穿过裂缝", "requires": null},
+      {"to": "ash_camp", "label": "穿过裂缝", "requires": null, "hazards": ["poison_fog"]},
       {"to": "deep_hall", "label": "找小径绕过裂缝", "requires": "flag:bypass_fissure"}
     ],
     "visible_clues": [
       {"id": "yellow_vapor", "text": "黄色雾气从裂缝深处持续涌出"}
     ],
     "checks": [
-      {"kind": "saving_throw", "ability": "con", "dc": 12, "trigger": "cross_fissure", "fail_damage": "1d6", "fact": "直接穿过需 CON 豁免 DC 12，失败吸入毒雾受 1d6 毒伤并 1 轮咳嗽（不利潜行）。"},
+      {"kind": "saving_throw", "ability": "con", "dc": 12, "trigger": "cross_fissure", "hazard_id": "poison_fog", "fail_damage": "1d6", "fact": "直接穿过需 CON 豁免 DC 12，失败吸入毒雾受 1d6 毒伤并 1 轮咳嗽（不利潜行）。"},
       {"kind": "skill_check", "skill": "survival", "dc": 13, "reveals": "bypass_route", "sets_flag": "bypass_fissure", "fact": "你找到一条紧贴顶板的窄道，可绕过裂缝避免吸入毒雾。"}
     ],
     "hazards": [
-      {"id": "poison_fog", "description": "毒雾刺激呼吸道，未通过 CON 豁免会受伤+短时间咳嗽。", "save": {"ability": "con", "dc": 12}, "damage": "1d6", "condition": "coughing"}
+      {"id": "poison_fog", "description": "毒雾刺激呼吸道，未通过 CON 豁免会受伤+短时间咳嗽。", "save": {"ability": "con", "dc": 12}, "damage": "1d6", "condition": "coughing", "condition_effect": {"duration_actions": 1, "disadvantage_skills": ["stealth"]}}
     ],
     "npcs": [],
     "enemies": [],
@@ -144,9 +144,9 @@
     ],
     "hazards": [],
     "npcs": [
-      {"id": "ash_acolyte_1", "name": "灰布教徒（甲）"},
-      {"id": "ash_acolyte_2", "name": "灰布教徒（乙）"},
-      {"id": "ash_warden", "name": "灰烬教典狱"}
+      {"id": "ash_skulker_1", "aliases": ["ash_acolyte_1"], "name": "灰布教徒（甲）"},
+      {"id": "ash_skulker_2", "aliases": ["ash_acolyte_2"], "name": "灰布教徒（乙）"},
+      {"id": "ash_warden_1", "aliases": ["ash_warden"], "name": "灰烬教典狱"}
     ],
     "enemies": [
       {"stat_block_id": "ash_skulker", "instance_id": "ash_skulker_1", "name": "灰布教徒·甲"},
@@ -193,7 +193,7 @@
     "description": "通向祭坛的狭长走廊，地面布满细密的铜线和铁针。前方一道暗红色光从拱门后透出。",
     "exits": [
       {"to": "deep_hall", "label": "回深层矿厅", "requires": null},
-      {"to": "mine_heart_altar", "label": "穿过陷阱进入祭坛", "requires": null}
+      {"to": "mine_heart_altar", "label": "穿过陷阱进入祭坛", "requires": null, "hazards": ["needle_trap"]}
     ],
     "visible_clues": [
       {"id": "needle_trap", "text": "地面密布机关针，未察觉踏入会触发"},
@@ -204,7 +204,7 @@
       {"kind": "skill_check", "skill": "sleight_of_hand", "dc": 14, "reveals": "trap_disabled", "sets_flag": "needle_trap_disabled", "requires_flag": "trap_seen", "fact": "你拆解了铜线触发器，针阵被永久禁用。"}
     ],
     "hazards": [
-      {"id": "needle_trap", "description": "未识破的针阵会触发，DEX 豁免 DC 13；失败受 1d8 穿刺。", "save": {"ability": "dex", "dc": 13}, "damage": "1d8"}
+      {"id": "needle_trap", "description": "未识破的针阵会触发，DEX 豁免 DC 13；失败受 1d8 穿刺。", "save": {"ability": "dex", "dc": 13}, "damage": "1d8", "disabled_flag": "needle_trap_disabled"}
     ],
     "npcs": [],
     "enemies": [],
@@ -229,7 +229,7 @@
     ],
     "hazards": [],
     "npcs": [
-      {"id": "char_acolyte", "name": "焦痕祭司"}
+      {"id": "char_acolyte_boss", "aliases": ["char_acolyte"], "name": "焦痕祭司"}
     ],
     "enemies": [
       {"stat_block_id": "char_acolyte_boss", "instance_id": "char_acolyte_boss", "name": "焦痕祭司（首领）"}

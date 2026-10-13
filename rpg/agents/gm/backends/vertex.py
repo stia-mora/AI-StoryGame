@@ -162,6 +162,8 @@ class _VertexBackend:
         )
         self._genai = genai
         sa_src = f"user={user_id}" if user_id else "global"
+        from platform_app.player.meter import wrap_sdk
+        self.client = wrap_sdk(self.client, 'vertex_ai', model)
         log.info(f"[GM] Vertex AI (google-genai) · {model} @ global (SA: {sa_src})")
 
     def _ensure_available(self) -> None:

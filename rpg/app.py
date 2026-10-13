@@ -355,6 +355,9 @@ CHAT_MAX_TOKENS_MAX = 65536
 
 def _chat_max_tokens(api_user: dict | None) -> int:
     """Read the user's main GM output budget from Settings -> Model Params."""
+    from platform_app.player.meter import current
+    if current((api_user or {}).get('id')):
+        return int(current((api_user or {}).get('id')).profile['max_output'])
     if not api_user:
         return CHAT_MAX_TOKENS_DEFAULT
     prefs = _get_user_preferences_cached(api_user)
@@ -510,7 +513,7 @@ class _SPAStaticFiles(_StaticFiles):
                 last = path.rsplit("/", 1)[-1]
                 is_root = path in ("", ".", "/")
                 if not path.startswith("api/") and (is_root or "." not in last):
-                    resp = await super().get_response("Platform.html", scope)
+                    resp = await super().get_response("Player.html" if path.strip('/').startswith('play') else "Platform.html", scope)
                 else:
                     raise
             else:
@@ -778,6 +781,14 @@ def _kb_backed_state(state: GameState, save_id: int, commit_id: int) -> GameStat
     先把当前 blob 迁进 KB(T0 seed 实体 + import_state)再 materialize(migrate-on-first-load)。"""
     from kb import save_kb
     from platform_app.db import connect
+    pending = state.data.get("pending_action") or {}
+    if ((state.data.get("scene") or {}).get("module_id") and pending.get("id")
+            and pending.get("base_turn") == state.data.get("turn", 0)):
+        # The working checkout is the settled, uncommitted action. KB imports are
+        # best effort and may still project the previous round after a failure.
+        # Keep the complete checkpoint, including inventory, dice and GM context.
+        state.data["_active_save_id"] = save_id
+        return state
     with connect() as db:
         seeded = db.execute(
             "select count(*) as n from kb_worldline_vars where save_id = %s", (save_id,)
@@ -792,6 +803,18 @@ def _kb_backed_state(state: GameState, save_id: int, commit_id: int) -> GameStat
                 db.commit()
         mat = save_kb.materialize(db, save_id, commit_id)
     data = {k: v for k, v in mat.items() if not k.startswith("_")}
+    module_checkout = bool((state.data.get("scene") or {}).get("module_id"))
+    if module_checkout:
+        import copy
+        # Rules buttons edit the checkout without creating a round. A fork then
+        # restores its commit snapshot, while KB can still contain those edits
+        # at the same born_commit. Mechanical state must follow the checkout.
+        for key in ("ruleset", "player_character", "scene", "encounter", "dice_log", "active_entities", "turn",
+                    "pending_action", "completed_action", "invalidated_action_ids"):
+            if key in state.data:
+                data[key] = copy.deepcopy(state.data[key])
+            else:
+                data.pop(key, None)
     # 酒馆等【不写 messages 表】的存档(对话历史在 state.history blob):materialize 从 messages
     # 重建 history 会得空 → 若直接用空 history,GM 每回合丢上下文、对话不累积、KB 也无从建立。
     # 用已加载 blob(传入的 state)的 history 兜底。scripted 存档写 messages,materialize 有 history,
@@ -838,7 +861,10 @@ def _kb_backed_state(state: GameState, save_id: int, commit_id: int) -> GameStat
     if isinstance(_blob_tav, dict) and _blob_tav:
         data["tavern"] = _blob_tav
     data["_active_save_id"] = save_id  # materialize 丢瞬态指针,这里补回
-    return GameState(data)
+    loaded = GameState(data)
+    if module_checkout:
+        loaded.sync_resources_from_inventory()
+    return loaded
 
 
 def _ensure_loaded(api_user: dict[str, Any] | None = None, *, ensure_gm: bool = True) -> GameState:
@@ -950,7 +976,8 @@ def _ensure_loaded(api_user: dict[str, Any] | None = None, *, ensure_gm: bool = 
             _lru_set(_state_by_user, uid, state)
             if uid == 0:
                 _lru_set(_state_mtime_by_user, uid, SAVE_FILE.stat().st_mtime_ns if SAVE_FILE.exists() else 0)
-        if ensure_gm and uid not in _gm_by_user:
+        from platform_app.player.meter import current as _player_run
+        if ensure_gm and not _player_run(uid) and uid not in _gm_by_user:
             # A1: 优先级链(高→低):
             #   1. save 级 session_model
             #   2. user_preferences.gm.api_id / gm.model_real_name  ← 补
@@ -1017,6 +1044,12 @@ def _invalidate_user_cache(api_user: dict[str, Any] | None) -> None:
 
 
 def _get_gm(api_user: dict[str, Any] | None) -> GameMaster:
+    from platform_app.player.meter import current
+    run = current((api_user or {}).get('id'))
+    if run:
+        if run.gm is None:
+            run.gm = GameMaster(api_id=run.profile['api_id'], model=run.profile['model'], user_id=run.uid)
+        return run.gm
     _ensure_loaded(api_user)
     return _gm_by_user[_user_key(api_user)]
 
@@ -1032,6 +1065,9 @@ def _get_sub_gm(api_user: dict[str, Any] | None) -> GameMaster:
     agents._harness;真正的请求与 token 记账都在 harness 里按 agent_kind 完成。
     别再读它的 _backend.last_usage 记账:复用主 GM 时那是上一回合主 GM 的用量。
     """
+    from platform_app.player.meter import current
+    if current((api_user or {}).get('id')):
+        return _get_gm(api_user)
     uid = _user_key(api_user)
     # 快路径：缓存命中无需取锁的 _get_gm 重入
     cached = _lru_get(_sub_gm_by_user, uid)
@@ -1156,6 +1192,8 @@ def _resolve_user_default_model_view(api_user: dict[str, Any] | None, model_cata
             if _ud:
                 _api, _mdl = _ud
         if _api and _mdl:
+            from core.llm_backend import resolve_text_model
+            _api, _mdl = resolve_text_model(uid, _api, _mdl)
             return _session_model_app_view(model_catalog, (_mdl, _api))
     except Exception:
         log.warning("[models] _session_model_app_view 失败 uid=%s", uid, exc_info=True)
@@ -1175,7 +1213,9 @@ def _resolve_effective_model_view(api_user: dict[str, Any] | None, model_catalog
         if state is not None:
             _sess_view = _session_model_app_view(model_catalog, state.get_session_model())
             if _sess_view:
-                return _sess_view
+                from core.llm_backend import resolve_text_model
+                aid, model = resolve_text_model((api_user or {}).get("id"), _sess_view["api_id"], _sess_view["real_name"])
+                return _session_model_app_view(model_catalog, (model, aid))
     except Exception:
         log.warning("[models] _resolve_effective_model_view 失败,回退默认模型视图", exc_info=True)
     return _resolve_user_default_model_view(api_user, model_catalog)
@@ -1446,8 +1486,31 @@ def _persist_chat_turn(
     """一轮 chat 结束（正常 or 打断）的持久化集合。
     state.save + record_runtime_turn（创建新 commit）+ record_turn_messages（DB messages 表）。
     """
+    pending = state.data.get("pending_action") or {}
+    if pending and pending.get("message") == message_for_model:
+        from platform_app.player.meter import current as _player_run
+        if interrupted and not _player_run(persist_user_id):
+            # Keep partial narration beside the already committed rules, without creating a new turn.
+            pending["partial"] = response
+            state.save()
+            _persist_runtime_checkpoint(state, api_user)
+            return
+        previous = state.data.get("completed_action") or {}
+        if previous.get("id"):
+            state.data["invalidated_action_ids"] = [*(state.data.get("invalidated_action_ids") or []), previous["id"]][-12:]
+        state.data["completed_action"] = {
+            "id": pending.get("id"), "message": message_for_model, "response": response,
+            "turn": int(state.data.get("turn", 0)) + 1,
+        }
+        state.data.pop("pending_action", None)
     state.record_turn(message_for_model, response)
-    state.save()
+    from platform_app.player.meter import current as _player_run
+    _billing_run = _player_run(persist_user_id)
+    if not _billing_run:
+        state.save()
+    if _billing_run:
+        _billing_run.partial = interrupted or _billing_run.stop.is_set()
+        _billing_run.committing = True
     _rt = platform_branches.record_runtime_turn(
         message_for_model,
         response,
@@ -1455,6 +1518,10 @@ def _persist_chat_turn(
         user_id=api_user["id"] if api_user else None,
         state_data=state.data,
     )
+    if _billing_run:
+        _billing_run.committing = False
+        if not _rt.get('ok'):
+            raise platform_branches.RuntimeTurnConflict(str(_rt.get('reason') or '保存失败'))
     # 双端并发状态覆盖根修:record_runtime_turn 检测到存档已被别处推进时拒绝提交(未落 commit/
     # kb_events),返回 conflict 信号。此处必须【整回合原子放弃】—— 不再写 messages / timeline
     # anchors,把冲突上抛由 chat SSE 层转成用户可见错误横幅(存档已在别处推进,请刷新后重试)。
@@ -1992,10 +2059,18 @@ def _execute_rules_action(state: GameState, body: dict[str, Any]) -> dict[str, A
             if not moved.get("ok"):
                 return {"ok": False, "error": moved.get("error") or f"无法前往 {canonical}",
                         "canonicalize": {"requested": move_to, "resolved": canonical}}
+            if moved.get("moved") is False:
+                return moved
             prelude.append({"kind": "move", "to": canonical, "requested": move_to,
-                            "room": moved.get("room")})
+                            "room": moved.get("room"), "hazard_results": moved.get("hazard_results")})
 
     if kind == "skill_check":
+        from rules_bridge.checks import perform_room_check, resolve_room_check
+        check = resolve_room_check(state, body)
+        if check:
+            return perform_room_check(state, check, seed=seed) | ({"prelude": prelude} if prelude else {})
+        if body.get("check_id"):
+            return {"ok": False, "error": "当前房间没有此检定"}
         skill = str(body.get("skill") or "")
         if not skill:
             return {"ok": False, "error": "缺少 skill"}
@@ -2005,11 +2080,16 @@ def _execute_rules_action(state: GameState, body: dict[str, Any]) -> dict[str, A
             advantage=bool(body.get("advantage")),
             disadvantage=bool(body.get("disadvantage")),
             seed=seed,
-            reason=str(body.get("reason") or body.get("fact") or ""),
-            sets_flag=body.get("sets_flag") or body.get("reveals"),
+            reason=f"{skill}检定",
         )
         out: dict[str, Any] = {"ok": True, "result": result}
     elif kind == "saving_throw":
+        from rules_bridge.checks import perform_room_check, resolve_room_check
+        check = resolve_room_check(state, body)
+        if check:
+            return perform_room_check(state, check, seed=seed) | ({"prelude": prelude} if prelude else {})
+        if body.get("check_id"):
+            return {"ok": False, "error": "当前房间没有此检定"}
         ability = str(body.get("ability") or "")
         if not ability:
             return {"ok": False, "error": "缺少 ability"}
@@ -2019,9 +2099,7 @@ def _execute_rules_action(state: GameState, body: dict[str, Any]) -> dict[str, A
             advantage=bool(body.get("advantage")),
             disadvantage=bool(body.get("disadvantage")),
             seed=seed,
-            reason=str(body.get("reason") or body.get("fact") or ""),
-            fail_damage_expr=body.get("fail_damage_expr") or body.get("fail_damage"),
-            fail_condition=body.get("fail_condition"),
+            reason=f"{ability}豁免",
         )
         out = {"ok": True, "result": result}
     elif kind == "trap_check":
@@ -2053,17 +2131,18 @@ def _execute_rules_action(state: GameState, body: dict[str, Any]) -> dict[str, A
             advantage=bool(body.get("advantage")),
             disadvantage=bool(body.get("disadvantage")),
             seed=seed,
+            expected_turn=body.get("turn_token"),
         )
     elif kind == "short_rest":
         out = _rb_short_rest(state, seed=seed)
     elif kind == "consume_item":
         item_id = str(body.get("item_id") or body.get("item") or body.get("alias") or "")
         try:
-            qty = int(body.get("qty") or 1)
+            qty = int(body.get("qty", 1))
         except (TypeError, ValueError):
             qty = 1
         out = _rb_consume_item_action(state, item_id=item_id, qty=qty,
-                                       reason=str(body.get("reason") or ""))
+                                       reason=str(body.get("reason") or ""), seed=seed)
     elif kind == "grant_item":
         item_id = str(body.get("item_id") or body.get("item") or body.get("alias") or "")
         try:
@@ -2088,7 +2167,7 @@ def _execute_rules_action(state: GameState, body: dict[str, Any]) -> dict[str, A
         if not canonical:
             return {"ok": False, "error": f"无法前往 {loc}：{reason}",
                     "canonicalize": {"requested": loc, "reason": reason}}
-        out = _rb_enter_room(state, canonical)
+        out = _rb_enter_room(state, canonical, seed=seed)
         if isinstance(out, dict) and out.get("ok"):
             out.setdefault("canonicalize", {"requested": loc, "resolved": canonical})
     else:
@@ -2112,6 +2191,10 @@ def _chat_rule_candidates(
     scene = state.data.get("scene") or {}
     if not scene.get("module_id"):
         return list(curator_actions or [])
+    from rules_bridge.intent import executable_text
+    user_input = executable_text(user_input)
+    if not user_input:
+        return []
 
     merged: list[dict[str, Any]] = []
     seen: set[tuple[Any, ...]] = set()
@@ -2157,7 +2240,12 @@ def _chat_rule_candidates(
             "reason": f"backend parser: {intent['matched']!r}",
         })
     for action in curator_actions or []:
-        add(action)
+        # A curator may include an action mentioned in a negated/review clause.
+        # Only retain actions also evidenced by the executable part of the input.
+        if any(a.get("kind") == action.get("kind") and
+               (a.get("skill") or a.get("ability")) == (action.get("skill") or action.get("ability"))
+               for a in merged):
+            add(action)
     return merged
 
 
@@ -2247,6 +2335,15 @@ def _rule_results_prompt(rule_results: list[dict[str, Any]], state: GameState | 
                          "可让玩家明确选择真正可用的出口或重述意图。")
             continue
         result = out.get("result") or {}
+        if out.get("moved") is False:
+            lines.append(f"- 移动未完成：{out.get('message') or '无法继续移动'}")
+        hazard_results = list(out.get("hazard_results") or [])
+        for pre in out.get("prelude") or []:
+            hazard_results.extend(pre.get("hazard_results") or [])
+        for hazard in hazard_results:
+            hazard_result = hazard.get("result") or {}
+            lines.append(f"- 路线危险豁免：{'成功' if hazard_result.get('success') else '失败'}")
+            lines.extend(f"  · GM fact: {fact}" for fact in hazard_result.get("gm_facts") or [])
         if out.get("prelude"):
             for pre in out["prelude"]:
                 room = pre.get("room") or {}
@@ -2278,13 +2375,8 @@ def _rule_results_prompt(rule_results: list[dict[str, Any]], state: GameState | 
 
 def _rules_payload(state: GameState) -> dict:
     """前端 UI 需要的精简切片：角色卡 + 场景 + 战斗 + 骰子日志 + 模组元信息。"""
-    return {
-        "ruleset": state.data.get("ruleset", {}),
-        "player_character": state.data.get("player_character", {}),
-        "scene": state.data.get("scene", {}),
-        "encounter": state.data.get("encounter", {}),
-        "dice_log": list(state.data.get("dice_log", []))[-30:],
-    }
+    payload = state.status_payload()
+    return {key: payload[key] for key in ("ruleset", "player_character", "scene", "encounter", "dice_log")}
 
 
 def _append_rules_receipt(state: GameState, text: str) -> None:
@@ -2299,6 +2391,9 @@ def _append_rules_receipt(state: GameState, text: str) -> None:
 
 
 def _clear_pending_questions_after_rule_action(state: GameState, choice: str) -> None:
+    pending = state.data.pop("pending_action", None)
+    if pending:
+        state.data["invalidated_action_ids"] = [*(state.data.get("invalidated_action_ids") or []), pending.get("id")][-12:]
     questions = state.data.setdefault("permissions", {}).setdefault("pending_questions", [])
     cleared = 0
     while questions:

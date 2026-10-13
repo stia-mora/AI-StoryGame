@@ -74,13 +74,27 @@ class MemoryInvariantE2E(unittest.TestCase):
 
     def _setup_user_with_save(self):
         """注册 + 创建一个新存档，返回 (cookies, user_id)"""
+        from platform_app.db import connect
         u = register_user(self.client)
         self.assertEqual(u["status"], 200, f"register failed: {u['body']}")
         cookies = u["cookies"]
+        user_id = _get_user_id(self.client, cookies)
+        with connect() as db:
+            scr = db.execute(
+                "insert into scripts(owner_id, title) values (%s, %s) returning id",
+                (user_id, "mem_test_script"),
+            ).fetchone()
+            script_id = int(scr["id"])
+        r_new_save = self.client.post("/api/v1/saves", json={
+            "title": "mem test save", "script_id": script_id,
+            "new_card": {"name": "测试玩家"},
+        }, cookies=cookies)
+        self.assertEqual(r_new_save.status_code, 200, r_new_save.text)
+        save_id = int(((r_new_save.json() or {}).get("save") or {}).get("id") or 0)
+        self.client.post(f"/api/v1/saves/{save_id}/activate", json={}, cookies=cookies)
         # 初次拉一次 /api/state，触发 _ensure_loaded → 在 _state_by_user 注册
         r = self.client.get("/api/v1/state", cookies=cookies)
         self.assertEqual(r.status_code, 200, f"initial /api/state failed: {r.text}")
-        user_id = _get_user_id(self.client, cookies)
         return cookies, user_id
 
     # ────────────────────────────────────────────────────────────────────

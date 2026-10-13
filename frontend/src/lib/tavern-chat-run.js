@@ -302,7 +302,7 @@ export function startTavernRun(cfg) {
   const handleToolResult = onToolResult || (() => {});
 
   const body = Object.assign(
-    { message: playerText, text: playerText, model, save_id: saveId },
+    { message: playerText, text: playerText, model, save_id: saveId, action_id: crypto.randomUUID() },
     chatExtra || {},
   );
 

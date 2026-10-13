@@ -184,14 +184,20 @@ def seed_anchors_for_save(save_id: int, *, force: bool = False) -> dict[str, Any
                         if _nm in seen_intro_names:
                             continue
                         seen_intro_names.add(_nm)
-                is_fatal = classify_event_fatal(summary)
+                is_fatal = ev.get("is_fatal")
+                if type(is_fatal) is not bool:
+                    is_fatal = classify_event_fatal(summary)
                 participants = ev.get("participants") or []
                 locations = ev.get("locations") or []
                 concepts = ev.get("concepts") or []
                 # may_vary 默认是 ["地点", "时机", "旁观者"]
                 # must_preserve 默认是事件主语 + 关键词
-                must_preserve = _derive_must_preserve(summary, participants)
-                may_vary = ["地点", "触发时机", "旁观者"]
+                must_preserve = ev.get("must_preserve")
+                if not isinstance(must_preserve, list):
+                    must_preserve = _derive_must_preserve(summary, participants)
+                may_vary = ev.get("may_vary")
+                if not isinstance(may_vary, list):
+                    may_vary = ["地点", "触发时机", "旁观者"]
                 db.execute(
                     """
                     insert into save_anchor_states (
@@ -213,6 +219,10 @@ def seed_anchors_for_save(save_id: int, *, force: bool = False) -> dict[str, Any
                             "locations": locations[:4],
                             "concepts": concepts[:5],
                             "seed_source": "deterministic",
+                            "node_id": str(ev.get("node_id") or "")[:120],
+                            "dimensions": [d for d in (ev.get("dimensions") or [])
+                                           if d in {"局势", "角色", "背包", "人物", "任务", "世界线"}],
+                            "decision_required": ev.get("decision_required") is True,
                         }),
                     ),
                 )
@@ -289,7 +299,11 @@ def _compute_importance(event: dict[str, Any], summary: str) -> int:
         # ×8 让 imp=5 (卡切尔级关键 NPC) → 40 base, imp=10 (中坚) → 80
         base = min(80, max(40, int(canon_imp) * 8))
     else:
-        base = _IMPORTANCE_MAP.get(str(event.get("importance") or "").lower(), 40)
+        importance = event.get("importance")
+        if isinstance(importance, (int, float)) and not isinstance(importance, bool):
+            base = min(100, max(0, int(importance)))
+        else:
+            base = _IMPORTANCE_MAP.get(str(importance or "").lower(), 40)
     participants = event.get("participants") or []
     locations = event.get("locations") or []
     concepts = event.get("concepts") or []
@@ -303,7 +317,7 @@ def _compute_importance(event: dict[str, Any], summary: str) -> int:
             bonus += 15
             break  # 单条只加一次
     for kw in _FATAL_KEYWORDS:
-        if kw in summary:
+        if kw in summary and event.get("is_fatal") is not False:
             bonus += 10
             break
     return min(100, max(0, base + bonus))

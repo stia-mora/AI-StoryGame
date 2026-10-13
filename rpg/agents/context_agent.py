@@ -19,6 +19,7 @@ import re
 import time
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from typing import Any
 
 from context_engine import build_context_bundle
@@ -178,6 +179,11 @@ def run_context_agent(
         yield {"type": "stopped", "steps": steps}
         return
 
+    from platform_app.player.meter import current as _managed_current
+    from platform_app.player.pacing import allow_curator_jump, clear_spurious_jump
+    _managed_run = _managed_current(user_id)
+    if _managed_run:
+        clear_spurious_jump(state)
     is_set = _is_set_command(user_input)
     directives = [] if is_set else detect_time_directives(user_input or "")
     if is_set:
@@ -214,6 +220,8 @@ def run_context_agent(
             pass
     task_prompt_text = _curator_task_prompt(state, user_input, directives,
                                             steering_strength=_steering_strength)
+    if _managed_run:
+        task_prompt_text += "\n玩家入口的快进仅合并已授权的普通步骤和自然耗时，不是时间跳跃申请。没有显式跳到某时点/章节的指令时 timeline_target 必须为空，不把当前时间或去见某人填作跳跃目标。"
     if llm_curator:
         yield step(
             "llm_curator",
@@ -241,8 +249,11 @@ def run_context_agent(
         if (target and not directives and not is_set
                 and not is_recall_framing(user_input)
                 and not mentions_time_without_intent(user_input)
-                and looks_like_time_value(target)):
+                and looks_like_time_value(target)
+                and allow_curator_jump(state, user_input, target, user_id)):
             state.request_time_jump(target, user_input)
+        elif target and not directives:
+            curator_plan["timeline_target"] = ""
         yield step(
             "llm_curator",
             curator_plan.get("intent") or "大模型子代理已完成上下文判断。",
@@ -298,8 +309,13 @@ def run_context_agent(
             # 玩家写「回想起…」等回忆叙述时会触发假时间跳跃(v1.26.4 只修了 llm_curator 分支)。对齐:
             # is_recall_framing 抑制回忆、looks_like_time_value 拒含人称从句的非时间值。
             if (target and not directives and not is_set
-                    and not is_recall_framing(user_input) and looks_like_time_value(target)):
+                    and not is_recall_framing(user_input)
+                    and not mentions_time_without_intent(user_input)
+                    and looks_like_time_value(target)
+                    and allow_curator_jump(state, user_input, target, user_id)):
                 state.request_time_jump(target, user_input)
+            elif target and not directives:
+                curator_plan["timeline_target"] = ""
             yield step(
                 "llm_curator",
                 curator_plan.get("intent") or "大模型子代理已完成上下文判断。",
@@ -571,6 +587,9 @@ def _curator_task_prompt(state, user_input: str, directives: list[Any],
     # 日常/亲密场景也被强拉回主线。mode 打通:free 不强推主线,guided 温和,rail 才收束。
     _main = f"{memory.get('main_quest', '')} / {memory.get('current_objective', '')}"
     _ss = (steering_strength or "guided").strip().lower()
+    from platform_app.player.meter import current as player_run
+    from platform_app.player.pacing import instructions as pacing_instructions
+    _managed_pacing = pacing_instructions(player_run()) if player_run() else ""
     if _ss == "free":
         goal_block = [
             "【当前目标/主线（仅背景，自由模式勿强推）】",
@@ -608,6 +627,7 @@ def _curator_task_prompt(state, user_input: str, directives: list[Any],
         "/set 开头的玩家输入代表用户显式改写设定、时间线、世界观或人设，必须作为硬约束交给主 GM，不得因为原时间线 locked 而忽略。",
         "",
         *goal_block,
+        _managed_pacing,
         "",
         "【最近对话】(按时间正序，最后一条最新)",
         _recent_dialogue_json(state),
@@ -738,7 +758,7 @@ def _call_curator_via_harness(
         return ""
 
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="curator-harness")
-    future = executor.submit(_do_call)
+    future = executor.submit(copy_context().run, _do_call)
     try:
         while not future.done():
             if stop_requested():
@@ -777,7 +797,7 @@ def _call_llm_curator(
     用更短的 poll 间隔（30ms）让 stop 响应快。
     """
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="curator")
-    future = executor.submit(llm_curator, AGENT_PROMPT, task_prompt)
+    future = executor.submit(copy_context().run, llm_curator, AGENT_PROMPT, task_prompt)
     try:
         while not future.done():
             if stop_requested():

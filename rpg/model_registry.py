@@ -407,6 +407,8 @@ def load_catalog_for_user(user_id: int | None = None) -> dict[str, Any]:
     """面向用户的 catalog 视图 = 全局菜单 + 该用户私有 overlay。
     所有面向单个用户的读取(模型选择器、BYOK 默认模型)都应走这个,
     而不是裸 load_model_catalog()(那是全局菜单,会跨用户泄露)。"""
+    from platform_app.player.meter import credential_owner
+    user_id = credential_owner(user_id)
     return apply_user_overlay(load_model_catalog(), user_id)
 
 

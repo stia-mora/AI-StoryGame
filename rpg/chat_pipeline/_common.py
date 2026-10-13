@@ -212,6 +212,8 @@ class PipelineContext:
     run_id: int
     stop_event: Event
     chat_start_time: float
+    action_id: str = ""
+    resume_action: dict[str, Any] | None = None
 
     # phase 间结果
     directive_updates: list[str] = field(default_factory=list)

@@ -37,6 +37,9 @@ def resolve_gen_params(user_id: int | None) -> dict[str, Any]:
 
     未配置 / 读失败 → {}(调用方沿用后端默认,零行为变化)。
     """
+    from platform_app.player.meter import current
+    if current(user_id):
+        return {'temperature': 0.85}
     if not user_id:
         return {}
     try:

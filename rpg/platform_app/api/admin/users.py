@@ -108,6 +108,11 @@ async def admin_update_user(
 
         updates = []
         params = []
+        if body.get('account_mode') is not None:
+            if body['account_mode'] not in ('player', 'creator'):
+                raise HTTPException(400, 'account_mode 只能是 player / creator')
+            updates.append('account_mode = %s')
+            params.append(body['account_mode'])
         if ban_reason is not None:
             updates.append("ban_reason = %s")
             params.append(ban_reason)

@@ -44,6 +44,9 @@ async def run_rules_phase(
     agent_result = ctx.agent_result
     bundle = ctx.bundle
     ctx_text = ctx.ctx_text
+    if ctx.resume_action:
+        yield ("status", payload_fn(api_user))
+        return
 
     # (a) preflight combat gate
     from game_policy import get_game_policy as _get_game_policy
@@ -119,11 +122,23 @@ async def run_rules_phase(
             (agent_result.get("curator_plan") or {}).get("rule_candidate_actions") or [],
         ),
     )
-    if rule_results:
-        state.save()
-        persist_runtime_checkpoint(state, api_user)
+    if scene_is_module := bool((state.data.get("scene") or {}).get("module_id")):
+        import copy
+        # Persist before any streaming yield: a disconnected UI can retry this same action ID.
         rule_prompt = rule_results_prompt(rule_results, state)
         if rule_prompt:
+            bundle["prompt"] = f"{bundle.get('prompt', '')}\n\n{rule_prompt}"
+        state.data["pending_action"] = {
+            "id": ctx.action_id, "message": message_for_model,
+            "base_turn": state.data.get("turn", 0), "rule_results": copy.deepcopy(rule_results),
+            "bundle": copy.deepcopy(bundle), "agent_result": copy.deepcopy(agent_result),
+            "ctx_text": ctx_text,
+        }
+        state.save()
+        persist_runtime_checkpoint(state, api_user)
+    if rule_results:
+        rule_prompt = rule_results_prompt(rule_results, state)
+        if rule_prompt and not scene_is_module:
             bundle["prompt"] = f"{bundle.get('prompt', '')}\n\n{rule_prompt}"
         bundle.setdefault("debug", {})["rule_results"] = rule_results
         yield ("agent", {

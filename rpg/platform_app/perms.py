@@ -30,6 +30,14 @@ class PermissionError(Exception):  # noqa: A001 — 故意遮蔽内建,统一鉴
     """
 
 
+def script_playable(db, script_id: int, user_id: int, story_id: int):
+    """Curated play access does not grant source or knowledge-base read access."""
+    return db.execute("""select s.* from scripts s join player_stories p on p.script_id=s.id
+                       join player_model_profiles m on m.id=p.profile_id
+                       where s.id=%s and p.id=%s and p.status='published' and m.enabled
+                       and s.review_status='reviewed'""", (script_id, story_id)).fetchone()
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # 存档归属(game_saves.user_id)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -59,6 +67,10 @@ def script_readable(db, script_id: int, user_id: int) -> dict[str, Any] | None:
     公开剧本订阅者可读 worldbook / character_cards / chapter_facts 等。
     编辑类调用方必须用 script_owned / require_script_owner(订阅者只读)。
     """
+    from platform_app.player.meter import current
+    run = current(user_id)
+    if run and run.profile.get('script_id') == script_id:
+        return db.execute('select * from scripts where id=%s', (script_id,)).fetchone()
     return db.execute(
         """
         select s.* from scripts s

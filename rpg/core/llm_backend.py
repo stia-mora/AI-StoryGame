@@ -24,6 +24,30 @@ DEFAULT_FALLBACK_API = "vertex_ai"
 DEFAULT_FALLBACK_MODEL = "gemini-3.5-flash"
 
 
+def supports_text_model(user_id: int | None, api_id: str, model: str,
+                        catalog: dict | None = None) -> bool:
+    from model_probe import get_capabilities
+    from model_registry import load_catalog_for_user, load_model_catalog, normalize_api_id
+    catalog = catalog if catalog is not None else (
+        load_catalog_for_user(int(user_id)) if user_id else load_model_catalog())
+    definition = next((m for api in catalog.get("apis", [])
+                       if normalize_api_id(api.get("id") or api.get("api_id")) == normalize_api_id(api_id)
+                       for m in api.get("models", [])
+                       if (m.get("real_name") or m.get("id")) == model), {})
+    return definition.get("enabled") is not False and "text" in get_capabilities(
+        api_id, model, definition.get("capabilities") or [])
+
+
+def resolve_text_model(user_id: int | None, api_id: str, model: str) -> tuple[str, str]:
+    """Repair stale image/embedding preferences for GM and curator without changing image settings."""
+    if supports_text_model(user_id, api_id, model):
+        return api_id, model
+    replacement = first_user_model(user_id, api_id) or first_user_model(user_id)
+    if replacement:
+        return replacement
+    raise ValueError("当前模型不支持文本对话，请选择文本模型用于 GM 或子代理")
+
+
 def detect_default_api() -> str:
     """启动时检测可用 backend: 优先 vertex_ai (SA 文件), 然后 anthropic (env key)."""
     import os as _os
@@ -43,6 +67,10 @@ def first_user_model(user_id: int | None, api_id: str | None = None) -> tuple[st
     Production must not fall back to the global selected model if the user has
     not configured that provider. This helper keeps the default path BYOK-only.
     """
+    from platform_app.player.meter import current
+    _run = current(user_id)
+    if _run:
+        return (_run.profile['api_id'], _run.profile['model'])
     if not user_id:
         return None
     try:
@@ -90,6 +118,8 @@ def first_user_model(user_id: int | None, api_id: str | None = None) -> tuple[st
                     if model.get("enabled") is False:
                         continue
                     rn = model.get("real_name") or model.get("id")
+                    if not rn or not supports_text_model(user_id, aid, str(rn), catalog):
+                        continue
                     if rn and str(rn) == str(gm_pref):
                         return aid, str(rn)
 
@@ -104,6 +134,8 @@ def first_user_model(user_id: int | None, api_id: str | None = None) -> tuple[st
                 if model.get("enabled") is False:
                     continue
                 real_name = model.get("real_name") or model.get("id")
+                if not real_name or not supports_text_model(user_id, aid, str(real_name), catalog):
+                    continue
                 if real_name:
                     return aid, str(real_name)
         # 兜底:用户有凭证但 provider 既不在全局 catalog、也没同步模型(自定义中转站,
@@ -126,7 +158,7 @@ def first_user_model(user_id: int | None, api_id: str | None = None) -> tuple[st
             aid = normalize_api_id(c["api_id"])
             if target_api and aid != target_api:
                 continue
-            if pref_model:
+            if pref_model and supports_text_model(user_id, aid, str(pref_model), catalog):
                 return aid, str(pref_model)
     except Exception:
         return None
@@ -171,6 +203,10 @@ def resolve_preferred_model(
     是否存在于用户视图 catalog 里；不存在则视为无效偏好（下线/迁移），回退到
     first_user_model(user_id)。替代已删除的 KNOWN_OFFLINE_MODELS 黑名单职责。
     """
+    from platform_app.player.meter import current
+    _run = current(user_id)
+    if _run:
+        return _run.profile['model']
     if not user_id:
         return None
     try:
@@ -209,6 +245,10 @@ def resolve_preferred_api(
     resolve_preferred_model 判为无效），api_id 偏好也应一并回退。
     model_key 由调用方命名空间推断（将 pref_key 的 api_id 替换为 model_real_name）。
     """
+    from platform_app.player.meter import current
+    _run = current(user_id)
+    if _run:
+        return _run.profile['api_id']
     if not user_id:
         return None
     try:
@@ -288,6 +328,10 @@ def guard_byok_usable(
 
     返回值始终是 (str, str)。
     """
+    from platform_app.player.meter import current
+    _run = current(user_id)
+    if _run:
+        return (_run.profile['api_id'], _run.profile['model'])
     api_id = str(api_id or "")
     model = str(model or "")
     if allow_override:

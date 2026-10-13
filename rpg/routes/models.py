@@ -232,6 +232,12 @@ async def api_models_select(
     api_id = body_dict.get("api_id", "")
     model_id = body_dict.get("model_id", "")
     save_id = body.save_id  # int | None
+    from core.llm_backend import supports_text_model
+    from model_registry import find_api, find_model, load_catalog_for_user
+    candidate = find_model(find_api(load_catalog_for_user((api_user or {}).get("id")), api_id), model_id)
+    real_name = (candidate or {}).get("real_name") or model_id
+    if not supports_text_model((api_user or {}).get("id"), api_id, real_name):
+        return json_response({"ok": False, "error": "GM 需要文本模型；请在生图设置中配置图像模型"}, status_code=400)
 
     # 前置校验:目标 provider 归一后是 vertex_ai(Agent Platform)且该用户在生产鉴权模式下
     # 没有上传 SA → 此次切换必然在下一次真正调用 LLM 时炸「未找到 Service Account」。

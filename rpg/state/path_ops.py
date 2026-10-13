@@ -144,9 +144,10 @@ def _write_path_allowed(path: str, mode: str) -> bool:
         "memory.facts",
         "memory.pinned",
         "memory.notes",
+        "memory.milestones",
     }
     if mode == "auto_review":
-        return path in allowed or path.startswith("relationships.") or path.startswith("worldline.user_variables.")
+        return path in allowed or path.startswith("relationships.") or path.startswith("worldline.user_variables.") or path.startswith("memory.tasks.")
     if mode == "default":
         return path in {
             "player.current_location",
@@ -157,12 +158,15 @@ def _write_path_allowed(path: str, mode: str) -> bool:
             "memory.resources",
             "memory.abilities",
             "memory.facts",
+            "memory.milestones",
             "world.known_events",
-        } or path.startswith("relationships.")
+        } or path.startswith("relationships.") or path.startswith("memory.tasks.")
     return False
 
 
 def _write_path_kind(path: str) -> str:
+    if path == "memory.milestones":
+        return "structured_list"
     if path == "player.current_location":
         return "location"
     if path == "world.time":

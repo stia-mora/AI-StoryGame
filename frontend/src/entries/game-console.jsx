@@ -337,7 +337,7 @@ function App() {
   const PICK_STATE_KEYS = [
     'player','world','relationships','memory','worldline','permissions','suggestions','turn',
     'ruleset','player_character','scene','encounter','dice_log','content_pack',
-    'active_entities','app','models',
+    'active_entities','app','models','pending_action',
   ];
   const RESETTABLE_KEYS = new Set(['suggestions']);
 
@@ -638,7 +638,7 @@ function App() {
     setRunState((r) => ({ ...r, running: false, label: t('game.console.run.stopped'), detail: '', publicStage: null, completedAt: 0, completedElapsed: r.totalElapsed }));
   }, [t]);
 
-  const startRunReal = useCallback(async (playerText) => {
+  const startRunReal = useCallback(async (playerText, options = {}) => {
     // task #61: 存档冲突时拒绝发送（用户点"继续"后 banner 清空才恢复）
     if (tabConflictBanner) {
       window.__apiToast?.(t('game.console.conflict.toast_title'), { kind: 'warn', detail: t('game.console.conflict.toast_detail'), duration: 4000 });
@@ -656,6 +656,11 @@ function App() {
     }
     const runId = (runRef.current.runId || 0) + 1;
     runRef.current.runId = runId;
+    const actionId = options.actionId || safeUUID();
+    runRef.current.actionId = actionId;
+    runRef.current.actionSaveId = activeSave?.id;
+    const actionTurn = options.actionTurn ?? game?.turn ?? 0;
+    runRef.current.actionTurn = actionTurn;
     const isCurrentRun = () => runRef.current.runId === runId;
     const ts = (window.__fmt && window.__fmt.nowHHMM) ? window.__fmt.nowHHMM() : new Date().toLocaleTimeString().slice(0, 5);
     const sentAttachments = attachments;
@@ -747,7 +752,7 @@ function App() {
     resetInactivityTimer();
     const _chatSaveId = activeSave?.id ?? null;
     runRef.current.sse = window.api.game.chat(
-      { message: playerText, text: playerText, attachments: sentAttachments, model, command: pickedCommand?.id || null, save_id: _chatSaveId },
+      { message: playerText, text: playerText, attachments: sentAttachments, model, command: pickedCommand?.id || null, save_id: _chatSaveId, action_id: actionId, action_turn: actionTurn, retry: options.retry === true },
       {
         // task #61: HTTP 层错误（如 409 save_id_mismatch）
         onError: (err) => {
@@ -1148,10 +1153,10 @@ function App() {
         },
       }
     );
-  }, [attachments, model, pickedCommand, activeSave, tabConflictBanner]);
+  }, [attachments, model, pickedCommand, activeSave, tabConflictBanner, game?.turn]);
 
-  const startRun = useCallback((playerText) => {
-    if (window.api && window.api.base !== undefined) return startRunReal(playerText);
+  const startRun = useCallback((playerText, options = {}) => {
+    if (window.api && window.api.base !== undefined) return startRunReal(playerText, options);
     const ts = ['申时三刻', '酉时初', '酉时一刻', '酉时二刻'][history.length % 4];
     setHistory((h) => [...h, { role: 'user', content: playerText, ts, attachments }]);
     setText(''); setAttachments([]); setShowSlash(false); setShowPlus(false);
@@ -1255,7 +1260,7 @@ function App() {
     // 「重试」语义 = 删除本轮输出(回滚到本轮玩家输入之前)+ 再次发送本轮输入。
     // 找本轮玩家输入及其历史下标:优先 lastPlayerText,空时从历史回捞最后一条非空玩家输入。
     const h = Array.isArray(history) ? history : [];
-    let t2 = (lastPlayerText && lastPlayerText.trim()) || '';
+    let t2 = game?.pending_action?.message || (lastPlayerText && lastPlayerText.trim()) || '';
     let pIdx = -1;
     for (let i = h.length - 1; i >= 0; i--) {
       if (h[i] && h[i].role === 'user' && (h[i].content || '').trim()) {
@@ -1266,6 +1271,17 @@ function App() {
     }
     if (!t2) { window.__apiToast?.(t('game.console.retry.no_input'), { kind: 'warn', duration: 2000 }); return; }
     setHasError(false);
+    if (game?.scene?.module_id && (hasError || game?.pending_action?.id)) {
+      const pending = game.pending_action;
+      const actionId = pending?.id || (runRef.current.actionSaveId === activeSave?.id ? runRef.current.actionId : null);
+      if (!actionId) { await reloadState(); return; }
+      t2 = pending?.message || t2;
+      // Use authoritative history: optimistic failed bubbles may already have been removed.
+      // Searching by identical text would also remove the previous successful turn.
+      await reloadState();
+      startRun(t2, { actionId, actionTurn: pending?.base_turn ?? runRef.current.actionTurn, retry: true });
+      return;
+    }
     // 之前只截断【前端】历史、不动后端 → 重发会叠在旧本轮之上(玩家报「没有删除」)。
     // 改:先调 rollback 把本轮(玩家输入及之后)从后端删除并回退活跃指针(旧回合进 trash ref 可恢复),
     // reloadState 后历史截到本轮之前,再 startRun 重走 → 真正实现「删除本轮 + 重发」。
@@ -1298,7 +1314,7 @@ function App() {
     }
     window.__apiToast?.(t('game.console.retry.retrying'), { kind: 'info', duration: 1600 });
     startRun(t2);
-  }, [lastPlayerText, history, runState.running, startRun, activeSave, reloadState]);
+  }, [lastPlayerText, history, runState.running, startRun, activeSave, reloadState, game, hasError]);
   // 反馈:每条消息的「重新生成这一轮」(MsgActions 派发 rpg-regenerate 事件,携 message_index)。
   // 语义 = 删除本轮 + 用同一条玩家输入重走 → 换个结果替换旧的(非分叉保留)。故用 rollback(删除,
   // 旧回合进 trash ref 可恢复)而非 continueFrom(那是「建立分支」,保留旧线、玩家反馈「没有删除」)。
@@ -1485,7 +1501,7 @@ function App() {
           onSlashPick={onSlashPick} onAttachPick={onAttachPick} pickedCommand={pickedCommand} onClearCommand={() => setPickedCommand(null)}
           onRetry={onRetry} onRegenerate={onRegenerate} onShowSse={onShowSse}
           clicheNotice={clicheNotice} onRetryCliche={() => { setClicheNotice(null); onRetry(); }} onDismissCliche={() => setClicheNotice(null)}
-          hasError={hasError}
+          hasError={hasError || (!runState.running && game?.pending_action?.id ? t('game.console.retry.pending_settlement') : false)}
           activeSave={activeSave} realSaves={realSaves.length ? realSaves : ((window.RPG_AUTH && window.RPG_AUTH.authed) ? [] : (window.MOCK_PLATFORM?.saves || []))}
           onSwitchSave={async (sid) => { try { if (runRef.current.sse || runState.running) stopRun(); await window.api.saves.activate(sid); reloadState(); } catch (e) { window.__apiToast?.(t('game.console.save.switch_failed'), { kind: 'danger', detail: e?.message }); } }}
           onNew={async () => { if (!await window.__confirm({ message: t('game.console.save.new_confirm') })) return; location.href = '/saves'; }}
@@ -1621,7 +1637,7 @@ function App() {
               : history
           } runState={runState} runStyle={tweaks.runStyle}
           narrativeFont={tweaks.narrativeFont} narrativeSize={tweaks.narrativeSize}
-          hasError={hasError}
+          hasError={hasError || (!runState.running && game?.pending_action?.id ? t('game.console.retry.pending_settlement') : false)}
           saveId={(activeSave && activeSave.id) || (game && game._raw && game._raw.save_id) || null}
           onRetry={onRetry} onShowSse={onShowSse}
           memory={(game && game.memory) || null}

@@ -615,6 +615,8 @@ def resolve_api_key(user_id: int | None, api_id: str, env_fallback: str = "") ->
     内部使用 request-scoped cache（core.request_cache.get_api_cred_cached），
     同一请求内相同 (user_id, api_id) 只查一次 DB；非请求上下文行为不变。
     """
+    from platform_app.player.meter import credential_owner
+    user_id = credential_owner(user_id, api_id)
     if user_id:
         try:
             from core.request_cache import get_api_cred_cached

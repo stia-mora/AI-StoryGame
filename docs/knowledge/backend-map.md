@@ -1,5 +1,25 @@
 # 后端地图(rpg/)
 
+Windows 局域网启动：`scripts/lan.ps1` 构建前端后以单端口提供页面与 API，记录并核验托管进程身份；参见 [局域网游玩](../lan-play.md)。
+
+## 玩家服务
+
+- `platform_app/player/`: 上架目录与只读 DTO、整数微积分钱包、预留租约、兑换与整轮用量采集。`meter.py` 用请求作用域分离玩家身份和服务凭据所有者，覆盖三类模型后端及结构化微任务。
+- `platform_app/player/experience.py`: 从已提交快照计算物品、能力、资源及局势变化；解析本轮四项行动并结合已知场景补齐，不从叙事推测奖励。
+- `platform_app/player/turn_updates.py`: 已知任务与已达成节点的展示投影、状态整理基线及六类真实更新标记；未来节点与未确认任务不进入玩家 DTO。
+- `state/path_ops.py` / `state/_mixins/apply_ops.py`: 任务子路径沿用状态权限闸；里程碑使用保留对象的列表追加与稳定名称去重，避免普通标量覆盖丢失已达成节点。
+- `platform_app/player/character_creation.py`: 剧本配置的免费武魂选择、推荐/自填校验、服务端一次抽取；首次觉醒结果在统一提交路径校验后与账本一起落库。
+- `platform_app/player/pacing.py`: 根据已提交进展检测停滞，开场与回合按完整行动段推进；四项建议合并低风险手续，重大风险留给玩家，不直接推测或修改剧情状态。
+- `agents/recorder.py`: 玩家请求的状态整理额外检查实际交付、持有与消耗的资源，包括普通凭证；创作调用和单独锚点判定不加载玩家规则。
+- `chat_pipeline/postproc.py`: 合并统一整理结果时，保留叙事模型的结构化剧情选项；状态写入仍以整理结果为准，避免奖励重复应用。
+- `platform_app/player/guide.py`: 仅使用玩家可读存档的咨询；通过统一结构化微任务与积分账本结算，答案持久化，游戏状态和分支保持不变。
+- `platform_app/api/player.py`: `/api/player` 目录、建档、续读、报价、SSE、停止、请求恢复、钱包与兑换；过滤内部事件。
+- `core/sse.py`: 统一 SSE 帧、禁缓冲响应头与连接心跳；单一生产任务保留请求上下文，断连关闭并等待生成器清理，不因心跳取消模型调用。
+- `platform_app/api/admin/player.py`: 上架、服务模型、费率、积分发放、兑换码、账户与账单管理。
+- `branches/runtime.py`: 玩家回复提交与账本结算共用事务，钱包 → 请求 → 存档锁顺序；提交后才发布计费结果。
+- `core/startup.py`: 玩家旧接口权限拦截与过期预留核对。迁移 103–105 保留已有账户与存档数据。
+- `scripts/player_catalog.py`: 通过管理员校验导入本地私有目录配置。配置说明见 [玩家服务](../player-service.md)。
+
 Python FastAPI 后端逐包/逐模块职责。给 AI 协作者:找「某功能住哪」先查这里,再跳代码。
 标注 **[热路径]** = 每回合/每次导入都会走;**[别碰]** = 改动前必读约束。
 权威真相源清单见根 `CLAUDE.md`,不在此重复。

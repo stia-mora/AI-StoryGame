@@ -110,6 +110,8 @@ class _AnthropicBackend:
             http_client=safe_httpx_client(timeout=_read_to, proxy=_use_proxy),
         )
         self.model_name = model
+        from platform_app.player.meter import wrap_sdk
+        self.client = wrap_sdk(self.client, 'anthropic', model)
         self.user_id = user_id  # task 141: 给 _thinking_param 用
         self.last_usage: dict[str, int] = {}
         log.info(f"[GM] Anthropic · {self.model_name} (key from {result.get('source', 'env')})")

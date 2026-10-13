@@ -11,6 +11,12 @@ import CSButton from '@cloudscape-design/components/button';
 import { credApiIdSet } from './catalog-helpers.js';
 import { plGoto } from '../router.js';
 
+export function modelSupportsRole(model, capability = null) {
+  const caps = model.capabilities || model.caps || [];
+  // Unclassified custom text models remain usable; classified image/embedding models stay in their own role.
+  return capability ? caps.includes(capability) : caps.length === 0 || caps.includes('text');
+}
+
 // ── variant="popover" 紧凑浮层样式(只注一次;复用与旧 ModelPopover 同源的视觉 token) ──
 const AMP_POP_STYLE_ID = 'amp-pop-styles-v1';
 if (typeof document !== 'undefined' && !document.getElementById(AMP_POP_STYLE_ID)) {
@@ -188,7 +194,8 @@ export default function AgentModelPicker({
         // embedder(admin/vip)平台兜底:vertex_ai 即使不在 ids(没配用户 SA),也算可选 provider。
         const platVertexOk = allowInherit === false && capabilityFilter === 'embedding'
           && platformVertexAllowed;
-        const eligible = (aid) => !!aid && (ids.has(aid)
+        const eligible = (aid) => !!aid && list.some((x) => (x.api_id || x.id) === aid
+          && (x.models || x.entries || []).some((m) => m.enabled !== false && modelSupportsRole(m, capabilityFilter))) && (ids.has(aid)
           || (platVertexOk && aid === 'vertex_ai'
               && list.some((x) => (x.api_id || x.id) === 'vertex_ai'
                   && (x.models || x.entries || []).some((m) => (m.capabilities || m.caps || []).includes('embedding')))));
@@ -199,7 +206,7 @@ export default function AgentModelPicker({
           || (fbApi && eligible(fbApi) ? fbApi : null)
           || (selectedApiId && eligible(selectedApiId) ? selectedApiId : null)
           || (preferProvider && eligible(preferProvider) ? preferProvider : null)
-          || Array.from(ids)[0]
+          || Array.from(ids).find(eligible)
           || (platVertexOk ? 'vertex_ai' : null)
           // 兜底:用户一个 key 都没配时仍回显偏好/preferProvider,避免完全空白(不算回归)。
           || prefApi
@@ -208,7 +215,7 @@ export default function AgentModelPicker({
         //   本功能偏好 model > 继承的默认 model(若在该 provider 下) > resolvedDefaultModel
         //   > 该 provider 首个 capabilityFilter 过滤后的模型
         const apiObj = list.find((x) => (x.api_id || x.id) === chosenApi);
-        let chosenModels = (apiObj?.models || apiObj?.entries || []);
+        let chosenModels = (apiObj?.models || apiObj?.entries || []).filter((m) => m.enabled !== false && modelSupportsRole(m, capabilityFilter));
         // capabilityFilter='embedding' 时保留 embedding 模型；否则剔除 embedding-only(避免聊天选择器混进 RAG 模型)。
         if (capabilityFilter !== 'embedding') {
           chosenModels = chosenModels.filter((m) => !((m.capabilities || m.caps || []).length === 1 && (m.capabilities || m.caps || [])[0] === 'embedding'));
@@ -224,12 +231,13 @@ export default function AgentModelPicker({
         const cheapRe = /haiku|flash|mini|lite|small|nano/i;
         const cheap = capFilteredModels.find((m) => cheapRe.test(m.real_name || m.id || '') || cheapRe.test(m.display_name || ''));
         const firstModel = capFilteredModels[0] ? (capFilteredModels[0].real_name || capFilteredModels[0].id) : '';
-        const chosenModel = prefModel
+        const prefModelValid = prefModel && capFilteredModels.some((m) => (m.real_name || m.id) === prefModel);
+        const chosenModel = (prefModelValid ? prefModel : null)
           || (fbModelValid ? fbModel : null)
           || (hasDefault ? resolvedDefaultModel : null)
           || (cheap ? (cheap.real_name || cheap.id) : null)
           || firstModel
-          || resolvedDefaultModel;
+          || '';
         setApiId(chosenApi);
         setModel(chosenModel);
         // 把解析出的当前 provider+model 告知父组件(父拿它提交),与展示完全一致,不依赖 persistOnMount。
@@ -367,6 +375,7 @@ export default function AgentModelPicker({
   }, [apis, credApiIds, platformVertexEmbedding]);
   // 过滤后的模型条目(共用于下拉 + popover)。
   const filteredModels = modelsOf(apiId).filter((m) => {
+    if (!modelSupportsRole(m, capabilityFilter)) return false;
     const caps = m.capabilities || m.caps || [];
     // capabilityFilter='embedding' 时只看 embedding;其它(含无 filter)排除 embedding-only(避免聊天选择器混进 RAG)。
     if (capabilityFilter === 'embedding') return caps.includes('embedding');
@@ -491,6 +500,7 @@ export default function AgentModelPicker({
   // ── variant="popover":游戏内紧凑浮层(替代旧 game-composer ModelPopover) ──────
   function filteredModelsOf(aid) {
     return modelsOf(aid).filter((m) => {
+      if (!modelSupportsRole(m, capabilityFilter)) return false;
       const caps = m.capabilities || m.caps || [];
       if (capabilityFilter === 'embedding') return caps.includes('embedding');
       if (isEmbeddingOnly(m)) return false;

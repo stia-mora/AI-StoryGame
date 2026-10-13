@@ -40,9 +40,9 @@ class FrontendGateWiring(unittest.TestCase):
         self.assertIn("emptyGameStateFallback", src)
         self.assertIn("useDesignerFallback", src)
         self.assertIn("const allowMockFallback = !window.api || useDesignerFallback();", src)
-        self.assertIn(
-            "const merged = allowMockFallback ? deepCopy(BASELINE.state) : emptyGameStateFallback();",
-            src,
+        self.assertTrue(
+            "const merged = allowMockFallback ? deepCopy(BASELINE.state) : emptyGameStateFallback();" in src
+            or "const merged = allowMockFallback ? deepCopy(baseline().state) : emptyGameStateFallback();" in src,
             "登录态 /api/state partial merge 必须用空骨架，不能用 mock baseline",
         )
         self.assertIn("Object.assign(platform, emptyPlatformFallback(platform));", src)
@@ -82,7 +82,8 @@ class FrontendGateWiring(unittest.TestCase):
         self.assertNotIn("location.href = \"Login.html\"", src)
 
     def test_authpage_honors_next_param_safely(self):
-        src = (FRONTEND / "src" / "platform-app.jsx").read_text(encoding="utf-8")
+        auth_src = FRONTEND / "src" / "components" / "platform" / "AuthPage.jsx"
+        src = auth_src.read_text(encoding="utf-8") if auth_src.exists() else (FRONTEND / "src" / "platform-app.jsx").read_text(encoding="utf-8")
         # 安全：必须有开放重定向防护
         self.assertIn("__nextOrDefault", src)
         self.assertIn("new URL(raw, location.href)", src)

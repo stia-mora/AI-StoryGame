@@ -32,7 +32,18 @@ migrate.py — 独立数据库迁移 CLI
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 import sys
+
+from dotenv import load_dotenv
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
+load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=True)
 
 from . import db as _db
 

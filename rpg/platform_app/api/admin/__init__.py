@@ -23,6 +23,7 @@ co_builders.py — Beta Co-builders 名单(/api/admin/co-builders)
 achievements.py— 成就目录管理(含 _re/_ACHV_SLUG/_ACHV_TIERS/_achv_validate_payload)
 """
 from __future__ import annotations
+from . import player  # noqa: F401
 
 # 原顶层 import 的名字(测试/调用方可能以 module.X 形式引用)—— 保持可见
 import logging  # noqa: F401

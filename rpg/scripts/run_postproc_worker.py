@@ -163,7 +163,9 @@ async def _process_one(conn: psycopg.Connection, row: dict[str, Any]) -> None:
 
     try:
         payload = row["payload"] if isinstance(row["payload"], dict) else json.loads(row["payload"] or "{}")
-        await handler(payload)
+        from platform_app.player.meter import maintenance_context
+        with maintenance_context(payload.get('user_id') or row['user_id'], payload.get('save_id') or row['save_id']):
+            await handler(payload)
         conn.execute(
             "UPDATE chat_postproc_tasks SET status='done', completed_at=now() WHERE id=%s",
             (task_id,),

@@ -3,7 +3,8 @@
 
 const __DEFAULT_NEXT = 'Platform.html';
 
-export function __resolveNextOrDefault() {
+export function __resolveNextOrDefault(user) {
+  if (user?.account_mode === 'player' && user?.role !== 'admin') return '/play';
   try {
     const raw = new URLSearchParams(location.search).get('next') || '';
     if (!raw) return __DEFAULT_NEXT;

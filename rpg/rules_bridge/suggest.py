@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import modules as module_registry
 from rules_bridge.intent import (
+    _detect_attack_verb,
     _direction_to_exit,
     _has_movement_intent,
+    executable_text,
 )
 
 # ── 简易意图 → 候选规则动作 ─────────────────────────────────────
@@ -14,8 +16,11 @@ INTENT_KEYWORDS: list[tuple[str, dict]] = [
     (r"(悄悄|潜行|隐蔽|偷偷|不被发现|溜过去)", {"kind": "skill_check", "skill": "stealth", "dc_hint": 13}),
     # 调查 / 搜查 / 查看细节
     (r"(调查|搜查|查看|检查|搜索|翻找)", {"kind": "skill_check", "skill": "investigation", "dc_hint": 12}),
+    (r"(寻找绕路|寻找小径|找小径|找绕路|求生|追踪)", {"kind": "skill_check", "skill": "survival", "dc_hint": 13}),
+    (r"(奥秘|研究魔法|辨认符文)", {"kind": "skill_check", "skill": "arcana", "dc_hint": 14}),
+    (r"(拆解|拆除|解除陷阱)", {"kind": "skill_check", "skill": "sleight_of_hand", "dc_hint": 14}),
     # 察觉 / 倾听 / 留意
-    (r"(察觉|留意|倾听|听一下|发现|观察)", {"kind": "skill_check", "skill": "perception", "dc_hint": 12}),
+    (r"(察觉|留意|倾听|听一下|观察)", {"kind": "skill_check", "skill": "perception", "dc_hint": 12}),
     # 攀爬 / 跳跃 / 强力
     (r"(攀爬|爬上|跳过|破门|撞开|蛮力)", {"kind": "skill_check", "skill": "athletics", "dc_hint": 12}),
     # 说服 / 谈判 / 投降 / 求饶 — 都走 Persuasion 检定 vs NPC disposition。
@@ -30,7 +35,7 @@ INTENT_KEYWORDS: list[tuple[str, dict]] = [
     # 威胁 / 恐吓
     (r"(威胁|恐吓|逼问)", {"kind": "skill_check", "skill": "intimidation", "dc_hint": 13}),
     # 攻击
-    (r"(攻击|砍|射|刺|杀|出手|短弓|短剑|远程攻击|近战攻击)", {"kind": "attack", "weapon_hint": "shortsword"}),
+    (r"(攻击|射击|放箭|砍击|刺击|挥剑|突袭|袭击)", {"kind": "attack", "weapon_hint": "shortsword"}),
     # 短休
     (r"(短休|休息|歇一下)", {"kind": "short_rest"}),
     # Bug 4：移动意图。匹配「沿/往/向 ... 探索/前进/走/去」等，落到当前房间的某个 exit。
@@ -80,7 +85,9 @@ def suggest_rule_actions(user_input: str, state) -> list[dict]:
     out: list[dict] = []
     if not user_input:
         return out
-    text = str(user_input)
+    text = executable_text(user_input)
+    if not text:
+        return []
     scene = state.data.get("scene") or {}
     current_room = scene.get("current_room") or {}
     location_id = scene.get("location_id")
@@ -96,7 +103,7 @@ def suggest_rule_actions(user_input: str, state) -> list[dict]:
         except Exception:
             rooms_by_id = {}
     for pattern, template in INTENT_KEYWORDS:
-        if _re.search(pattern, text):
+        if _re.search(pattern, text) or (template.get("kind") == "attack" and _detect_attack_verb(text)):
             action = dict(template)
             action["matched"] = pattern
             action["reason"] = f"匹配关键词「{pattern}」"
@@ -104,12 +111,12 @@ def suggest_rule_actions(user_input: str, state) -> list[dict]:
             if action.get("kind") == "skill_check":
                 target_skill = action["skill"]
                 matched_check = False
-                for chk in current_room.get("checks", []):
+                from rules_bridge.checks import check_id, room_definition
+                for index, chk in enumerate(room_definition(state).get("checks", [])):
                     if chk.get("kind") == "skill_check" and chk.get("skill") == target_skill:
                         action["dc"] = chk.get("dc", action.get("dc_hint", 12))
                         action["target"] = location_id
-                        action["sets_flag"] = chk.get("sets_flag")
-                        action["fact"] = chk.get("fact")
+                        action["check_id"] = check_id(chk, index)
                         matched_check = True
                         break
                 # Bug 2 (retest)：只在玩家文本明确含『移动意图』时才跨房间扫描。
@@ -121,13 +128,12 @@ def suggest_rule_actions(user_input: str, state) -> list[dict]:
                         room = rooms_by_id.get(ex.get("to"))
                         if not room:
                             continue
-                        for chk in room.get("checks", []) or []:
+                        for index, chk in enumerate(room.get("checks", []) or []):
                             if chk.get("kind") == "skill_check" and chk.get("skill") == target_skill:
                                 action["dc"] = chk.get("dc", action.get("dc_hint", 12))
                                 action["target"] = room.get("id")
                                 action["move_to"] = room.get("id")
-                                action["sets_flag"] = chk.get("sets_flag")
-                                action["fact"] = chk.get("fact")
+                                action["check_id"] = check_id(chk, index)
                                 action["reason"] = f"{action['reason']}；目标在相邻房间「{room.get('name') or room.get('id')}」"
                                 matched_check = True
                                 break

@@ -1,5 +1,24 @@
 # 前端地图(frontend/src/)
 
+## 玩家独立入口
+
+`Player.html` 显式使用同源 API，支持局域网地址和自定义服务端口；Windows 启动方式见 [局域网游玩](../lan-play.md)。
+
+- `Player.html` / `entries/player.jsx`: `/play` 独立入口，错误边界；只有此入口加载 Tailwind 4 样式和 Phosphor 图标。
+- `player/PlayerApp.jsx`: 故事书架、继续存档、推荐身份快速建档与阅读偏好。
+- `player/MartialSoulPicker.jsx`: 配置驱动的推荐、自填与随机武魂选择；免费建角阶段确认，其他剧本不展示此字段。
+- `player/Reader.jsx`: 三栏工作区、单回合阅读与翻页、底部行动框、对话及快进输入、服务端报价、停止、草稿及请求恢复；预设选项与自由行动复用执行和幂等流程。
+- `player/ActionChoices.jsx`: 每轮四个预设选项默认快进日常步骤，显示各自报价与封顶，点击直接发送；报价刷新、余额不足和费用获取失败状态。
+- `player/Progress.jsx`: 每轮已保存的收获、消耗与世界线变化；当前局势、上一步进展及最近的世界线足迹，手机提供折叠进展。
+- `player/WorkspacePanels.jsx`: 剧本与回合目录、存档切换、局势/角色/背包/人物/任务/世界线标签；任务保留进展与完成状态，世界线展示已达成节点，仅显示已记录数据，支持窄屏面板与键盘导航。
+- `player/Assistant.jsx`: 存档绑定的真实咨询、独立报价、后台等待与刷新恢复、建议填入行动框；与回合发送互斥。
+- `player/Wallet.jsx`: 每日、长期、预留积分与消费明细、兑换码。
+- `player/Manage.jsx`: 管理员目录、服务模型、费率、发放、兑换码、权限与账单管理。
+- `player/shared.jsx` / `player.css` / `workspace.css`: 玩家组件和暖纸色阅读布局，不影响创作工作台样式。
+- `api-client.js` 的 `api.player`: 玩家与管理员接口仍通过统一客户端访问；阅读偏好、草稿和待完成请求仍使用 `lib/storage.js`。
+
+配置和计费规则见 [玩家服务](../player-service.md)。
+
 React(Vite + Cloudscape Design)前端逐目录/模块职责。给 AI 协作者:找「某 UI 住哪」先查这里。
 权威真相源(api-client / storage / toast / AgentModelPicker)见根 `CLAUDE.md`,不在此重复。
 **UI 铁律**:不要 emoji / 装饰图标(状态用文字/边框/高亮,图标用 Cloudscape `iconName`);加设置项前先 grep 后端有没有真读那个 pref。

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -28,7 +29,10 @@ import pytest
 REPO = Path(__file__).resolve().parents[3]
 DEV_SH = REPO / "scripts" / "dev.sh"
 
-pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="需要 bash")
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("bash") is None,
+    reason="需要 POSIX 环境与 bash",
+)
 
 _BLOCKED = "数据库未就绪"
 _REACHED_BACKEND = ".venv/bin/uvicorn 不存在"

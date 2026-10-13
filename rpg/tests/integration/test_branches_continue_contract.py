@@ -192,8 +192,7 @@ class BranchesContinueAcceptsMessageIndex(unittest.TestCase):
         uid = self._uid(u["username"])
         save_id = self._mk_save_with_chapters(uid)
 
-        # 当前契约(round 原子提交,无 player/gm 分裂 kind):message_index=3 是 round2 的 GM
-        # 半轮 → turn_index=(3-0)//2=1 → fork 到 round1(turn_index=1)commit(该轮的父状态)。
+        # GM 消息从该轮结果继续；idx3 是 round2 的 GM，应保留 round2。
         r = self.client.post("/api/v1/branches/continue", json={
             "save_id": save_id,
             "message_index": 3,
@@ -204,6 +203,11 @@ class BranchesContinueAcceptsMessageIndex(unittest.TestCase):
         self.assertTrue(body.get("ok"), f"应 ok=True：{body}")
         self.assertIn("active_commit_id", body)
         self.assertGreater(int(body["active_commit_id"] or 0), 0)
+        from platform_app.db import connect
+        with connect() as db:
+            node = db.execute("select turn_index from branch_commits where id = %s",
+                              (body["active_commit_id"],)).fetchone()
+        self.assertEqual(node["turn_index"], 2)
 
     def test_continue_with_node_id_still_works(self):
         """对照：传统 node_id 路径不破坏"""
@@ -279,19 +283,12 @@ class BranchesContinueAcceptsMessageIndex(unittest.TestCase):
         self.assertTrue((r2.json() or {}).get("ok"))
 
     def test_resolve_commit_id_unit(self):
-        """单元：resolve_commit_id_by_message 行为锚。
-
-        2026-07-17 修复:round commit 是原子提交(玩家输入+GM 输出合一,无 kind='player'/'gm'
-        半轮),同一轮内的两条消息(玩家半轮 + GM 半轮)fork 目标恒相同——都是该轮的【父】commit
-        （turn_index = max(0,(msg_index-offset)//2)，round N 的两条消息都落在 turn_index=N-1）。
-        旧断言期望同轮 player/gm 两条消息 resolve 到不同 commit，那是 legacy 分裂 kind 的产物，
-        现在不成立；改断言同轮相同、跨轮不同，守住「message_index→commit」映射的真正不变量。
-        """
+        """玩家消息从行动前重走，GM 消息从本轮结果继续，均沿当前分支定位。"""
         u = register_user(self.client)
         uid = self._uid(u["username"])
         save_id = self._mk_save_with_chapters(uid)
         from platform_app import branches as br
-        # msg=0/1 都是 round1 的两条消息 → 同 fork 到 round1 的父状态(root, turn_index=0)
+        # 同轮玩家消息锚在 root，GM 消息锚在 round1。
         cid_player_0 = br.resolve_commit_id_by_message(uid, save_id, 0)
         cid_gm_0 = br.resolve_commit_id_by_message(uid, save_id, 1)
         # msg=4 是 round3 的玩家半轮 → fork 到 round3 的父状态(round2, turn_index=2)
@@ -299,8 +296,8 @@ class BranchesContinueAcceptsMessageIndex(unittest.TestCase):
         self.assertIsNotNone(cid_player_0)
         self.assertIsNotNone(cid_gm_0)
         self.assertIsNotNone(cid_player_2)
-        # 同一轮的两条消息(玩家半轮/GM 半轮)fork 到同一个父 commit
-        self.assertEqual(cid_player_0, cid_gm_0)
+        self.assertNotEqual(cid_player_0, cid_gm_0)
+        self.assertEqual(cid_gm_0, br.resolve_commit_id_by_message(uid, save_id, 2))
         # 不同轮 fork 到不同 commit
         self.assertNotEqual(cid_player_0, cid_player_2)
         # 跨用户隔离

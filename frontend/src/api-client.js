@@ -136,7 +136,7 @@
           try {
             window.dispatchEvent(new CustomEvent("rpg-auth-expired"));
           } catch (_) {}
-          location.replace("Login.html?next=" + encodeURIComponent(location.pathname + location.search + location.hash));
+          location.replace("/Login.html?next=" + encodeURIComponent(location.pathname + location.search + location.hash));
         }
         // Fall through: throw ApiError so callers that catch can handle it too.
       }
@@ -281,7 +281,7 @@
       }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let buf = "";
+      let buf = "", doneSeen = false;
       while (true) {
         let chunk;
         try { chunk = await reader.read(); } catch (e) {
@@ -295,16 +295,21 @@
         if (chunk.done) break;
         buf += decoder.decode(chunk.value, { stream: true });
         let idx;
-        while ((idx = buf.indexOf("\n\n")) >= 0) {
+        let boundary;
+        while ((boundary = /\r?\n\r?\n/.exec(buf))) {
+          idx = boundary.index;
           const raw = buf.slice(0, idx);
-          buf = buf.slice(idx + 2);
+          buf = buf.slice(idx + boundary[0].length);
           const evt = parseSseBlock(raw);
           if (!evt) continue;
+          if (evt.event === "done") doneSeen = true;
           if (handlers.onEvent) handlers.onEvent(evt);
           const cb = handlers["on_" + evt.event];
           if (cb) try { cb(evt.data); } catch (e) { console.error(e); }
         }
       }
+      if (!doneSeen && handlers.onError)
+        handlers.onError(new ApiError("stream_incomplete", 0, "连接已中断，正在查询服务器保存结果。", { url }));
       if (handlers.onClose) handlers.onClose();
     })();
     return {
@@ -322,6 +327,7 @@
       if (line.startsWith("event:")) event = line.slice(6).trim();
       else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
     }
+    if (!dataLines.length) return null; // SSE comment heartbeats carry no application event.
     const data = dataLines.join("\n");
     let parsed;
     try { parsed = data ? JSON.parse(data) : null; } catch (_) { parsed = data; }
@@ -355,6 +361,30 @@
   const api = {
     base: BASE,
     raw: { GET, POST, PATCH, PUT, DEL, sseStream },
+    player: {
+      bootstrap: () => GET(`${API_PREFIX}/player/bootstrap`),
+      create: (body) => POST(`${API_PREFIX}/player/saves`, body),
+      save: (id) => GET(`${API_PREFIX}/player/saves/${id}`),
+      guideHistory: (id) => GET(`${API_PREFIX}/player/saves/${id}/guide`),
+      quote: (body) => POST(`${API_PREFIX}/player/quote`, body),
+      execute: (body, handlers) => sseStream(`${API_PREFIX}/player/execute`, body, handlers),
+      request: (id) => GET(`${API_PREFIX}/player/requests/${id}`),
+      stop: (id) => POST(`${API_PREFIX}/player/requests/${id}/stop`, {}),
+      wallet: () => GET(`${API_PREFIX}/player/wallet`),
+      ledger: (before = 0) => GET(`${API_PREFIX}/player/ledger?before=${before}`),
+      usage: (id) => GET(`${API_PREFIX}/player/requests/${id}/usage`),
+      redeem: (code) => POST(`${API_PREFIX}/player/redeem`, { code }),
+      manage: () => GET(`${API_PREFIX}/admin/player`),
+      configure: (resource, body) => {
+        if (resource === "profiles") return POST(`${API_PREFIX}/admin/player/profiles`, body);
+        if (resource === "stories") return POST(`${API_PREFIX}/admin/player/stories`, body);
+        if (resource === "rates") return POST(`${API_PREFIX}/admin/player/rates`, body);
+        if (resource === "grants") return POST(`${API_PREFIX}/admin/player/grants`, body);
+        if (resource === "codes") return POST(`${API_PREFIX}/admin/player/codes`, body);
+        throw new Error(`Unknown player admin resource: ${resource}`);
+      },
+      accountMode: (id, account_mode) => PATCH(`${API_PREFIX}/admin/users/${id}`, { account_mode }),
+    },
 
     // ---------- Auth & session ----------
     auth: {

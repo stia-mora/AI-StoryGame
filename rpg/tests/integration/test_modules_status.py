@@ -17,7 +17,8 @@ class ModulesStatusEndpointShape(unittest.TestCase):
     def test_endpoint_returns_seven_modules(self):
         """直接 import handler 后用 mock connect 测返回结构。"""
         from unittest.mock import MagicMock, patch
-        with patch.object(api_scripts_mod, "connect") as mock_connect:
+        with patch.object(api_scripts_mod, "connect") as mock_connect, \
+             patch.object(api_scripts_mod.listing, "connect", mock_connect):
             ctx = MagicMock()
             ctx.__enter__.return_value = ctx
             ctx.__exit__.return_value = False

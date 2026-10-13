@@ -37,7 +37,13 @@ def _get_summary_gm():
 def _run_llm_summary(commit_id: int, player_text: str, gm_text: str) -> None:
     """后台线程：用 LLM 重写 branch_commits.summary。失败静默。"""
     try:
-        gm = _get_summary_gm()
+        from platform_app.player.meter import current
+        service = current()
+        if service:
+            from agents.gm import GameMaster
+            gm = GameMaster(api_id=service.profile['api_id'], model=service.profile['model'], user_id=service.uid)
+        else:
+            gm = _get_summary_gm()
         if not gm:
             return
         prompt = f"玩家输入：\n{player_text[:600]}\n\nGM 响应：\n{gm_text[:1200]}"
@@ -68,6 +74,13 @@ def schedule_llm_summary(commit_id: int, player_text: str, gm_text: str) -> None
     if not commit_id or not (player_text or gm_text):
         return
     try:
-        _SUMMARY_POOL.submit(_run_llm_summary, int(commit_id), player_text or "", gm_text or "")
+        from platform_app.player.meter import current, phase_var
+        if current():
+            import contextvars
+            context = contextvars.copy_context()
+            context.run(phase_var.set, 'postproc')
+            _SUMMARY_POOL.submit(context.run, _run_llm_summary, int(commit_id), player_text or '', gm_text or '')
+        else:
+            _SUMMARY_POOL.submit(_run_llm_summary, int(commit_id), player_text or "", gm_text or "")
     except Exception:
         pass

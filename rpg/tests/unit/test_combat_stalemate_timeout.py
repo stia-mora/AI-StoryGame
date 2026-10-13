@@ -44,6 +44,9 @@ class CombatStalemateTimeout(unittest.TestCase):
             def set_scene_flag(self, k, v):
                 self.flags[k] = v
 
+            def upsert_active_entity(self, entity):
+                self.data.setdefault("active_entities", []).append(entity)
+
         enc = _live_encounter()
         st = _FakeState(enc)
         # _sync_player_combatant 只读 player_character,空 dict 安全

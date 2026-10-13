@@ -713,6 +713,28 @@ class ApplyOpsMixin:
             if path == "memory.main_quest":
                 from state.quest_staleness import stamp_main_quest
                 stamp_main_quest(self.data)
+        elif kind == "structured_list":
+            # Milestones carry typed status/result fields, unlike textual memory buckets.
+            # Keep append semantics here so a second completed node cannot replace the first.
+            import copy
+            items = value if isinstance(value, list) else [value]
+            if not all(isinstance(item, dict) and item.get("name") for item in items):
+                return self._deny_write(path, value, source, "invalid_value", "节点记录需要名称和对象值")
+            items = copy.deepcopy(items)
+            if overwrite or isinstance(value, list) and not append:
+                _set_path(self.data, path, items)
+            else:
+                target = _get_path(self.data, path)
+                if not isinstance(target, list):
+                    target = [target] if isinstance(target, dict) and target.get("name") else []
+                    _set_path(self.data, path, target)
+                for item in items:
+                    existing = next((i for i, old in enumerate(target)
+                                     if isinstance(old, dict) and old.get("name") == item["name"]), None)
+                    if existing is None:
+                        target.append(item)
+                    else:
+                        target[existing] = {**target[existing], **item}
         elif kind == "list":
             items = _split_items(value)
             # fork 收编(污染回路 B):master.py 曾指示 GM 把 acceptance 跳过理由写进 memory.facts,

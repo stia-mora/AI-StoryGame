@@ -25,6 +25,9 @@ def load_dotenv_once() -> None:
         pass
 
 
+load_dotenv_once()
+
+
 # ── 部署模式 / 鉴权 ──────────────────────────────────────────────────────
 def deployment_mode() -> str:
     return os.getenv("RPG_DEPLOYMENT_MODE", "local")

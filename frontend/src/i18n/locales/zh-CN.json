@@ -3206,6 +3206,10 @@
       "defeated": " (倒下)",
       "attack": "攻击 {{name}}",
       "next_turn": "下一回合",
+      "end_my_action": "结束我的行动",
+      "continue_combat": "继续战斗",
+      "automatic_enemy_turns": "攻击后敌方自动行动，再回到你的回合。",
+      "unlocked_clues": "已发现的线索",
       "let_attack": "让 {{name}} 出招",
       "dice_log": "骰子日志",
       "dice_count": "{{count}} 条",
@@ -3643,6 +3647,7 @@
       "retry": {
         "still_running": "上一轮还在运行，请等待完成",
         "no_input": "没有可重试的输入",
+        "pending_settlement": "本轮裁定已保存，叙事尚未完成。重试将继续生成，不会重复掷骰或消耗资源。",
         "retrying": "正在重试上一轮",
         "still_generating": "正在生成中，请等待",
         "generate_with": "用 {{model}} 生成",

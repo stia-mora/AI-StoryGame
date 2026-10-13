@@ -42,6 +42,8 @@ router.include_router(_policy_router)
 router.include_router(_federation_router)
 router.include_router(_images_router)
 router.include_router(_storage_router)
+from .player import router as _player_router
+router.include_router(_player_router)
 
 # re-export 跨模块用的符号 (让外部 `from platform_app.api import ...` 仍然工作)
 from ..security import public_user

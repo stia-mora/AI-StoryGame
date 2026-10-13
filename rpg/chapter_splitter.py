@@ -1044,16 +1044,37 @@ def _regex_timeout_probe(pattern: str, timeout_sec: float = 0.3) -> bool:
         except Exception as e:
             q.put(f"err:{e}")
 
-    ctx = multiprocessing.get_context("fork") if hasattr(multiprocessing, "get_context") else multiprocessing
-    q = ctx.Queue()
-    proc = ctx.Process(target=_worker, args=(pattern, payloads, q))
-    proc.start()
-    proc.join(timeout=timeout_sec)
-    if proc.is_alive():
-        proc.terminate()
-        proc.join(timeout=0.5)
-        return False
-    return not q.empty()
+    if hasattr(multiprocessing, "get_context") and "fork" in multiprocessing.get_all_start_methods():
+        ctx = multiprocessing.get_context("fork")
+        q = ctx.Queue()
+        proc = ctx.Process(target=_worker, args=(pattern, payloads, q))
+        proc.start()
+        proc.join(timeout=timeout_sec)
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(timeout=0.5)
+            return False
+        return not q.empty()
+    else:
+        import threading
+        res = [False]
+
+        def _th_target():
+            import re as _re
+            try:
+                comp = _re.compile(pattern, _re.MULTILINE)
+                for s in payloads:
+                    comp.match(s)
+                res[0] = True
+            except Exception:
+                pass
+
+        th = threading.Thread(target=_th_target, daemon=True)
+        th.start()
+        th.join(timeout=timeout_sec)
+        if th.is_alive():
+            return False
+        return res[0]
 
 
 chapter_splitter = ChapterSplitter()

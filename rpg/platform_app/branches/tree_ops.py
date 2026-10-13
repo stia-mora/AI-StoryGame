@@ -29,6 +29,20 @@ def _opening_offset_from_history(history: Any) -> int:
     return 1 if role == "assistant" else 0
 
 
+def message_fork_turn(message_index: int, opening_offset: int,
+                      history: list | None = None, current_turn: int | None = None,
+                      delete_round: bool = False) -> int:
+    if history and 0 <= message_index < len(history):
+        total_users = sum(h.get("role") == "user" for h in history)
+        base = max(0, int(current_turn or total_users) - total_users)
+        users_before = sum(h.get("role") == "user" for h in history[:message_index])
+        role = history[message_index].get("role")
+        selected_turn = base + users_before + (role == "user")
+        return max(0, selected_turn - (role == "user" or (delete_round and users_before > 0)))
+    adjustment = 0 if delete_round else 1
+    return max(0, (int(message_index) - opening_offset + adjustment) // 2)
+
+
 def tree(user_id: int, save_id: int, limit: int | str | None = None, cursor: str | None = None) -> dict[str, Any]:
     init_db()
     page_limit = limit_value(limit, default=1000, maximum=5000)
@@ -52,7 +66,8 @@ def tree(user_id: int, save_id: int, limit: int | str | None = None, cursor: str
             """
             select id, save_id, parent_id, object_hash, tree_hash, turn_index, kind, title,
                    message, summary, content_preview, state_path, player_input, gm_output,
-                   metadata, created_at, digested_in_phase, digest_at
+                   metadata, created_at, digested_in_phase, digest_at,
+                   case when kind = 'root' then state_snapshot else null end as state_snapshot
             from branch_commits
             where save_id = %s and (%s::bigint is null or id > %s)
             order by id
@@ -172,13 +187,18 @@ def resolve_commit_id_by_message(user_id: int, save_id: int, message_index: int)
         opening_offset = 0
         if active_cid:
             _r0 = db.execute(
-                "select state_snapshot->'history'->0 as h0 from branch_commits where id = %s and save_id = %s",
+                "select state_snapshot->'history'->0 as h0, state_snapshot->'history' as history, "
+                "turn_index from branch_commits where id = %s and save_id = %s",
                 (active_cid, save_id),
             ).fetchone()
             opening_offset = _opening_offset_from_history(
                 [_r0["h0"]] if (_r0 and _r0.get("h0") is not None) else []
             )
-        turn_index = max(0, (msg_index - opening_offset) // 2)
+        # Player message forks before the action; GM message continues after its result.
+        # Deletion deliberately keeps the old round-start formula: it removes both messages.
+        turn_index = message_fork_turn(msg_index, opening_offset,
+                                      (_r0 or {}).get("history") if active_cid else None,
+                                      (_r0 or {}).get("turn_index") if active_cid else None)
         if active_cid:
             row = db.execute(
                 """

@@ -43,6 +43,16 @@ async def run_context_phase(
     message_for_model = ctx.message_for_model
     stop_event = ctx.stop_event
     sub_gm = ctx.sub_gm
+    if ctx.resume_action:
+        import copy
+        ctx.bundle = copy.deepcopy(ctx.resume_action["bundle"])
+        ctx.agent_result = copy.deepcopy(ctx.resume_action["agent_result"])
+        ctx.ctx_text = ctx.resume_action.get("ctx_text") or ""
+        ctx.persist_user_id = ctx.early_persist_user_id
+        ctx.active_save_id = ctx.early_active_save_id
+        yield ("agent", {"phase": "rules_engine", "status": "done", "elapsed_ms": 0,
+                         "message": "已恢复本轮裁定，仅重试叙事。"})
+        return
 
     agent_result = None
     # 通过参数注入可被测试 monkeypatch (test_set_persists_on_gm_failure 模拟 504)。

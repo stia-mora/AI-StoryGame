@@ -347,7 +347,23 @@ async def lifespan(app: FastAPI):
     except Exception:
         log.exception("[startup] rath ticker 启动失败(不影响主服务)")
 
+    async def _player_reaper():
+        import asyncio
+        from platform_app.player.wallet import reap
+        while True:
+            try:
+                await asyncio.to_thread(reap)
+            except Exception:
+                log.exception('Player reservation reconciliation failed')
+            await asyncio.sleep(60)
+    import asyncio as _player_asyncio
+    _player_reaper_task = _player_asyncio.create_task(_player_reaper())
     yield
+    _player_reaper_task.cancel()
+    try:
+        await _player_reaper_task
+    except _player_asyncio.CancelledError:
+        pass
 
     # ── shutdown ──────────────────────────────────────────────────────────
     _bg_tasks = [t for t in (_redis_listener_task, _rath_ticker_task) if t is not None]
@@ -589,6 +605,14 @@ async def api_contract_middleware(request: Request, call_next):
                 status_code=403,
                 headers={"X-API-Version": API_VERSION, "X-Request-ID": request_id, "Cache-Control": "no-store"},
             )
+    path = request.scope.get('path', '')
+    if path.startswith('/api/'):
+        from platform_app.api._deps import current_user, json_response
+        user = current_user(request)
+        if user and user.get('account_mode','creator') == 'player' and user.get('role') != 'admin':
+            allowed = path.startswith(('/api/player/', '/api/auth/', '/api/policy/', '/api/splash', '/api/feedback'))
+            if not allowed:
+                return json_response({'ok':False,'error':'此账户只有游玩权限，请使用玩家入口'}, status_code=403)
     response = await call_next(request)
 
     # ── GPC 确认 ─────────────────────────────────────────────────────────

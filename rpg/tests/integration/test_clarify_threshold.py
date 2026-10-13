@@ -35,7 +35,14 @@ class ClarifyThresholdHelper(unittest.TestCase):
     def tearDownClass(cls):
         cleanup_test_users()
 
+    def setUp(self):
+        super().setUp()
+        import app as ui
+        ui._clear_prefs_cache()
+
     def _clear_prefs(self):
+        import app as ui
+        ui._clear_prefs_cache()
         from platform_app.db import connect
         with connect() as db:
             db.execute(
@@ -44,6 +51,8 @@ class ClarifyThresholdHelper(unittest.TestCase):
             )
 
     def _write_pref(self, value):
+        import app as ui
+        ui._clear_prefs_cache()
         from psycopg.types.json import Jsonb
 
         from platform_app.db import connect

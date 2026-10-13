@@ -426,6 +426,8 @@ class GameMaster:
         model: provider-native real model name.
         user_id: 当前用户 ID，用于按用户隔离取 API key。本地未登录 + RPG_REQUIRE_AUTH!=1 时回退环境变量。
         """
+        from core.llm_backend import resolve_text_model
+        api_id, model = resolve_text_model(user_id, api_id, model)
         from model_registry import find_api, load_model_catalog
         catalog = load_model_catalog()
         api = find_api(catalog, api_id)
@@ -436,7 +438,9 @@ class GameMaster:
         if api is None and kind not in {"anthropic", "vertex_ai", "openai", "openai_compat"}:
             try:
                 from platform_app.user_credentials import get_credential as _get_cred
-                _cred = _get_cred(user_id, api_id) if user_id else None
+                from platform_app.player.meter import credential_owner
+                _owner = credential_owner(user_id, api_id)
+                _cred = _get_cred(_owner, api_id) if _owner else None
                 if _cred and (_cred.get("base_url_override") or "").strip():
                     kind = "openai_compat"
             except Exception:
@@ -530,12 +534,15 @@ class GameMaster:
         # _SYSTEM_BASE intentionally contains literal JSON examples such as
         # {"op": "set", ...}.  Do not run the whole prompt through str.format(),
         # because those braces are prompt text, not Python placeholders.
+        from platform_app.player.meter import current as _player_run
+        from platform_app.player.experience import PLAYER_GUIDE
+        _player_guide = PLAYER_GUIDE if _player_run(getattr(self, 'user_id', None)) else ''
         return (
             _SYSTEM_BASE
             .replace("{world_section}", world_section)
             .replace("{style_block}", style_block)
         ) + _consequence_guide_block(getattr(self, "user_id", None)) \
-          + _agenda_guide_block(getattr(self, "user_id", None))
+          + _agenda_guide_block(getattr(self, "user_id", None)) + _player_guide
 
     def _active_script_id(self) -> int | None:
         """解出当前 active script_id,用于剧本级 gm_style 解析。无 → None。

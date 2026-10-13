@@ -169,7 +169,7 @@ def _build_system_prompt(tasks: frozenset[str], consequence_enabled: bool = Fals
         if agenda_enabled:
             _kinds += "|agenda"
         _extra = ',"due_turns":4' if consequence_enabled else ""
-        schema_fields.append('"ops": [{"op":"%s","path":"player.xxx","value":"..."%s}]' % (_kinds, _extra))
+        schema_fields.append(f'"ops": [{{"op":"{_kinds}","path":"player.xxx","value":"..."{_extra}}}]')
     if "anchors" in tasks:
         schema_fields.append('"reached": [{"anchor_key":"<来自列表>","drift_score":0.0}]')
         schema_fields.append('"current_chapter": <章号整数 或 null>')
@@ -705,12 +705,20 @@ def record_turn(
 
     system_prompt = _build_system_prompt(active_tasks, consequence_enabled=_consequence_on,
                                          agenda_enabled=_agenda_on)
+    if "ops" in active_tasks:
+        from platform_app.player.meter import current as _player_run
+        if _player_run(user_id):
+            from platform_app.player.pacing import RECORDING_GUIDE
+            system_prompt += "\n\n" + RECORDING_GUIDE
     user_prompt = _build_user_prompt(
         gm_prose, state_data, active_tasks,
         pending_anchors, chapter_map, acceptance_clauses,
         consequence_enabled=_consequence_on,
         agenda_enabled=_agenda_on,
     )
+    if "ops" in active_tasks and _player_run(user_id):
+        from platform_app.player.turn_updates import recording_packet
+        user_prompt += "\n\n【现有玩家状态，仅更新正文已确认的变化】\n" + recording_packet(state_data)
     tool_schema = _build_tool_schema(active_tasks, acceptance_clauses,
                                      consequence_enabled=_consequence_on,
                                      agenda_enabled=_agenda_on)

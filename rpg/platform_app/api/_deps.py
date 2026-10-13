@@ -211,7 +211,7 @@ def current_user(request: Request) -> dict | None:
                 user = _local_default_user()
         if user:
             uid = int(user["id"])
-            if uid not in _ENSURED_DEFAULT_USERS:
+            if uid not in _ENSURED_DEFAULT_USERS and user.get('account_mode','creator') != 'player':
                 workspace.ensure_default(uid)
                 _ENSURED_DEFAULT_USERS.add(uid)
         return user
@@ -268,6 +268,9 @@ def platform_for(user: dict | None) -> dict:
     安全：MCP server 的 command/args/env 含 secret，普通用户必须脱敏。
     与 ui.py:_redact_tools 共用同一份逻辑，避免再次出现"漏脱敏入口"。
     """
+    if user and user.get('account_mode','creator') == 'player' and user.get('role') != 'admin':
+        from ..security import public_user
+        return {'user':public_user(user),'player':True,'next':'/play'}
     payload = workspace.overview(user)
     is_admin = bool(user and user.get("role") == "admin")
     payload["tools"] = _redact_mcp_in_tools(tool_payload(), is_admin)

@@ -53,6 +53,8 @@ def load_sa_credentials(
             兜底 RAG embedding 成本(text-embedding-004 在 Vertex 有免费配额)。
             LLM 路径保持 False — 严格 BYOK,平台不为用户付 LLM 调用钱。
     """
+    from platform_app.player.meter import credential_owner
+    user_id = credential_owner(user_id)
     from google.oauth2 import service_account
 
     _SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]

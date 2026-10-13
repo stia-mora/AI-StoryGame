@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import modules as module_registry
 from rules.dnd5e.character import make_default_character
+from rules_bridge.checks import check_id, trap_check
+from rules_bridge.conditions import player_action
 from rules_bridge.entity_sync import _entities_from_room, _sync_active_entities_to_scene
 
 
@@ -13,7 +15,7 @@ def _loot_id(entry: dict) -> str:
 def _room_snapshot(room: dict, taken_loot: set[str] | None = None) -> dict:
     # 已拾取的 loot 不再出现在房间 snapshot 里，防止重新进房刷新可拾取项（重复刷）。
     taken = taken_loot or set()
-    loot = [l for l in (room.get("loot") or []) if _loot_id(l) not in taken]
+    loot = [entry for entry in (room.get("loot") or []) if _loot_id(entry) not in taken]
     return {
         "id": room.get("id"),
         "name": room.get("name"),
@@ -21,7 +23,8 @@ def _room_snapshot(room: dict, taken_loot: set[str] | None = None) -> dict:
         "description": room.get("description"),
         "exits": list(room.get("exits") or []),
         "visible_clues": list(room.get("visible_clues") or []),
-        "checks": list(room.get("checks") or []),
+        "checks": [{**{k: v for k, v in c.items() if k not in {"fact", "reveals", "sets_flag"}},
+                    "id": check_id(c, i)} for i, c in enumerate(room.get("checks") or [])],
         "hazards": list(room.get("hazards") or []),
         "npcs": list(room.get("npcs") or []),
         "enemies": list(room.get("enemies") or []),
@@ -149,7 +152,8 @@ def start_module(state, module_id: str, character_overrides: dict | None = None)
     }
 
 
-def enter_room(state, location_id: str) -> dict:
+@player_action
+def enter_room(state, location_id: str, seed: int | None = None) -> dict:
     """玩家移动到指定房间。返回新房间 snapshot 或 error。"""
     scene = state.data.setdefault("scene", {})
     module_id = scene.get("module_id")
@@ -189,6 +193,19 @@ def enter_room(state, location_id: str) -> dict:
                 # 未识别的 requires 前缀(item:/key:/quest: 等):锁应 fail-closed,不静默放行
                 # (原来非 flag: 前缀的上锁出口会被直接放行 = 锁失效穿门)。
                 return {"ok": False, "error": f"前往 {location_id} 的通行条件 {req!r} 暂不支持,通行被拒"}
+    hazards = []
+    if cur_room and target_exit:
+        for hazard_id in target_exit.get("hazards") or []:
+            hazard = next((h for h in cur_room.get("hazards", []) if h.get("id") == hazard_id), {})
+            if hazard.get("disabled_flag") and scene.get("flags", {}).get(hazard["disabled_flag"]):
+                continue
+            outcome = trap_check(state, cur_id, hazard_id, seed=seed)
+            if not outcome.get("ok"):
+                return outcome
+            hazards.append(outcome)
+        if int((state.data.get("player_character") or {}).get("hp", 0)) <= 0 and hazards:
+            return {"ok": True, "moved": False, "room": scene.get("current_room"),
+                    "hazard_results": hazards, "message": "危险使你倒下，无法继续移动。"}
     scene["location_id"] = location_id
     scene["exits"] = list(room.get("exits") or [])
     scene["visible_clues"] = list(room.get("visible_clues") or [])
@@ -197,4 +214,5 @@ def enter_room(state, location_id: str) -> dict:
     state.mark_scene_visit(location_id)
     # 同步 active_entities (覆盖 source='room_data',不动 encounter / gm_provisional)
     _sync_active_entities_to_scene(state, location_id)
-    return {"ok": True, "room": scene["current_room"], "scene": scene}
+    return {"ok": True, "moved": True, "room": scene["current_room"], "scene": scene,
+            "hazard_results": hazards}
