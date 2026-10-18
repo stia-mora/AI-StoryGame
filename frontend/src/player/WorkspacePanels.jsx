@@ -52,11 +52,6 @@ export function InformationPanel({ view, onRead }) {
   const { status, latest_progress: progress, journey = [] } = view;
   return (
     <div className="workspace-information">
-      <div className="workspace-world-id">
-        <User size={17} />
-        <strong>{status.name}</strong>
-        <small>存档 {view.save.id}</small>
-      </div>
       <div className="workspace-tabs" role="tablist" aria-label="存档信息">
         {tabs.map(([id, title, Icon]) => (
           <button
@@ -96,6 +91,11 @@ export function InformationPanel({ view, onRead }) {
             )}
           </button>
         ))}
+      </div>
+      <div className="workspace-world-id">
+        <User size={17} />
+        <strong>{status.name}</strong>
+        <small>存档 {view.save.id}</small>
       </div>
       <section
         className="workspace-information-scroll"

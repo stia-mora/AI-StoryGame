@@ -445,6 +445,15 @@ export function Reader({
   };
   return (
     <main id="player-main" className="play-workspace" data-view={mobileView} tabIndex={-1}>
+      {view.story?.cover && (
+        <img
+          className="workspace-backdrop"
+          src={view.story.cover}
+          alt=""
+          aria-hidden="true"
+          onError={(e) => { e.currentTarget.hidden = true; }}
+        />
+      )}
       <aside id="player-records" className="workspace-rail" aria-label="剧本与回合记录">
         {rail}
       </aside>
@@ -461,6 +470,13 @@ export function Reader({
                 ? "序章"
                 : `第 ${selected?.turn ?? view.save.turn} 回合`}
           </span>
+          {view.status.location && (
+            <span className="workspace-scene">
+              <MapPin size={14} />
+              <span>{description(view.status.location)}</span>
+              {view.status.time && <span>{description(view.status.time)}</span>}
+            </span>
+          )}
           <div className="workspace-reading-tools">
             <button
               className="icon-button"
@@ -481,13 +497,6 @@ export function Reader({
             </button>
           </div>
         </header>
-        {view.status.location && (
-          <div className="workspace-scene">
-            <MapPin size={14} />
-            <span>{description(view.status.location)}</span>
-            {view.status.time && <span>{description(view.status.time)}</span>}
-          </div>
-        )}
         <div
           className="workspace-reading"
           role="region"
@@ -590,6 +599,31 @@ export function Reader({
           <form className="workspace-composer" onSubmit={send}>
             {kind === "turn" && (
               <>
+                <label className="sr-only" htmlFor="player-action">
+                  你要如何行动？
+                </label>
+                <textarea
+                  id="player-action"
+                  ref={input}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  placeholder={
+                    inputMode === "dialogue"
+                      ? "写下你要对谁说什么……"
+                      : "描述你的行动、目标，或写一段对话……"
+                  }
+                  maxLength={6000}
+                  rows={2}
+                  disabled={busy || helperBusy}
+                  onKeyDown={(e) => {
+                    if (
+                      e.key === "Enter" &&
+                      (e.ctrlKey || e.metaKey) &&
+                      !e.nativeEvent.isComposing
+                    )
+                      send(e);
+                  }}
+                />
                 <div className="workspace-input-modes">
                   <button
                     type="button"
@@ -623,31 +657,6 @@ export function Reader({
                     {pace === "brisk" ? "快进开启" : "快进"}
                   </button>
                 </div>
-                <label className="sr-only" htmlFor="player-action">
-                  你要如何行动？
-                </label>
-                <textarea
-                  id="player-action"
-                  ref={input}
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  placeholder={
-                    inputMode === "dialogue"
-                      ? "写下你要对谁说什么……"
-                      : "描述你的行动、目标，或写一段对话……"
-                  }
-                  maxLength={6000}
-                  rows={2}
-                  disabled={busy || helperBusy}
-                  onKeyDown={(e) => {
-                    if (
-                      e.key === "Enter" &&
-                      (e.ctrlKey || e.metaKey) &&
-                      !e.nativeEvent.isComposing
-                    )
-                      send(e);
-                  }}
-                />
               </>
             )}
             <div className="workspace-composer-footer">
