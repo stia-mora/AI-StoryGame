@@ -78,6 +78,69 @@ it("binds the same fast-forward instruction to the choice quote and execution", 
   expect(screen.getByLabelText("你要如何行动？").value).toBe("向村长问路");
 });
 
+it("keeps reading position, selected state tab and drafts while switching mobile views", async () => {
+  const { container } = render(<Reader {...props} />);
+  const input = await screen.findByLabelText("你要如何行动？");
+  fireEvent.change(input, { target: { value: "先观察道路" } });
+  const reading = container.querySelector(".workspace-reading");
+  reading.scrollTop = 120;
+  const navigation = screen.getByRole("navigation", { name: "游玩视图" });
+  fireEvent.click(navigation.querySelectorAll("button")[1]);
+  fireEvent.click(screen.getByRole("tab", { name: "背包" }));
+  fireEvent.click(navigation.querySelectorAll("button")[2]);
+  fireEvent.click(navigation.querySelectorAll("button")[1]);
+  expect(screen.getByRole("tab", { name: "背包" }).getAttribute("aria-selected")).toBe("true");
+  fireEvent.click(navigation.querySelectorAll("button")[0]);
+  expect(container.querySelector(".workspace-reading")).toBe(reading);
+  expect(reading.scrollTop).toBe(120);
+  expect(input.value).toBe("先观察道路");
+  fireEvent.click(navigation.querySelectorAll("button")[3]);
+  fireEvent.change(screen.getByLabelText("向游玩助手提问"), { target: { value: "眼前有何风险？" } });
+  fireEvent.click(navigation.querySelectorAll("button")[0]);
+  fireEvent.click(navigation.querySelectorAll("button")[3]);
+  expect(screen.getByLabelText("向游玩助手提问").value).toBe("眼前有何风险？");
+  await waitFor(() => expect(screen.getByRole("button", { name: "A 向村长问路" }).disabled).toBe(false));
+  expect(window.api.player.execute).not.toHaveBeenCalled();
+});
+
+it("restores the assistant trigger on Escape and leaves focus on a selected navigation item", async () => {
+  render(<Reader {...props} />);
+  await screen.findByText("你抵达了村口。");
+  const buttons = screen.getByRole("navigation", { name: "游玩视图" }).querySelectorAll("button");
+  buttons[3].focus();
+  fireEvent.click(buttons[3]);
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(document.activeElement).toBe(buttons[3]);
+  fireEvent.click(buttons[3]);
+  buttons[1].focus();
+  fireEvent.click(buttons[1]);
+  expect(document.activeElement).toBe(buttons[1]);
+  await waitFor(() => expect(screen.getByRole("button", { name: "A 向村长问路" }).disabled).toBe(false));
+});
+
+it("moves focus into the story after selecting a round from records or worldline", async () => {
+  window.api.player.save.mockResolvedValue({
+    ...view,
+    journey: [{ turn: 0, message_id: "1-gm", summary: "抵达旧桥" }],
+  });
+  render(<Reader {...props} />);
+  await screen.findByText("你抵达了村口。");
+  const navigation = screen.getByRole("navigation", { name: "游玩视图" });
+  fireEvent.click(navigation.querySelectorAll("button")[2]);
+  const record = screen.getByRole("button", { name: /^序章/ });
+  record.focus();
+  fireEvent.click(record);
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("region", { name: "剧情正文" })));
+  expect(screen.getByText("你站在旧桥前。")).toBeTruthy();
+  fireEvent.click(navigation.querySelectorAll("button")[1]);
+  fireEvent.click(screen.getByRole("tab", { name: "世界线" }));
+  const step = screen.getByRole("button", { name: "序章" });
+  step.focus();
+  fireEvent.click(step);
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("region", { name: "剧情正文" })));
+  expect(window.api.player.execute).not.toHaveBeenCalled();
+});
+
 it("retains an interrupted execution through offline status checks and restores its saved reply", async () => {
   let resolve, handlers;
   window.api.player.execute.mockImplementation((body, callbacks) => {

@@ -53,8 +53,8 @@ export function InformationPanel({ view, onRead }) {
   return (
     <div className="workspace-information">
       <div className="workspace-world-id">
-        <GitBranch size={15} />
-        <span>世界线 · {status.name}</span>
+        <User size={17} />
+        <strong>{status.name}</strong>
         <small>存档 {view.save.id}</small>
       </div>
       <div className="workspace-tabs" role="tablist" aria-label="存档信息">
@@ -176,9 +176,6 @@ export function InformationPanel({ view, onRead }) {
               </section>
             )}
             <h3>任务与成长目标</h3>
-            <p className="muted workspace-explanation">
-              只展示已接触的任务，完成记录会保留。
-            </p>
             {status.tasks?.length ? (
               <ul className="workspace-task-list">
                 {status.tasks
@@ -220,10 +217,7 @@ export function InformationPanel({ view, onRead }) {
             {status.milestones?.length > 0 && (
               <Records title="已达成节点" values={status.milestones} />
             )}
-            <h3>你的选择留下的足迹</h3>
-            <p className="muted workspace-explanation">
-              仅展示当前世界线已发生的变化。
-            </p>
+            <h3>世界线记录</h3>
             <ol className="workspace-timeline">
               {journey.map((step, i) => (
                 <li key={`${step.turn}-${i}`}>
@@ -339,10 +333,10 @@ export function SaveRail({
               disabled={busy || save.id === view.save.id}
               onClick={() => navigate(`/play/saves/${save.id}`)}
             >
-              {save.name}
-              <small>
+              <span>{save.name}</span>
+              <span className="muted">
                 {save.story_title} · {save.turn} 回合
-              </small>
+              </span>
             </button>
           ))
         ) : (

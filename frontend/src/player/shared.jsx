@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
-import { X, ArrowRight } from "@phosphor-icons/react";
+import React, { useEffect, useState } from "react";
+import { ArrowRight, BookOpen } from "@phosphor-icons/react";
 
 export const points = (micro = 0) => (Number(micro) / 1e6).toFixed(2);
 export const actionLabel = (value = "") =>
@@ -69,76 +69,9 @@ export function Loading() {
 }
 export function Empty({ title, children }) {
   return (
-    <section className="player-empty">
-      <h2>{title}</h2>
-      <p>{children}</p>
+    <section className="player-empty" role="status">
+      <p><strong>{title}</strong>{children && <> · {children}</>}</p>
     </section>
-  );
-}
-export function Drawer({ title, onClose, children }) {
-  const ref = useRef(null);
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
-  useEffect(() => {
-    const old = document.activeElement;
-    ref.current?.querySelector("button")?.focus();
-    const key = (event) => {
-      if (event.key === "Escape") closeRef.current();
-      if (event.key === "Tab") {
-        const items = Array.from(
-          ref.current?.querySelectorAll(
-            'button,a,input,textarea,select,[tabindex="0"]',
-          ) || [],
-        ).filter(
-          (node) =>
-            !node.disabled &&
-            node.tabIndex >= 0 &&
-            node.getClientRects().length,
-        );
-        if (!items?.length) return;
-        const first = items[0],
-          last = items[items.length - 1];
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
-    };
-    document.addEventListener("keydown", key);
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", key);
-      document.body.style.overflow = previous;
-      old?.focus();
-    };
-  }, []);
-  return (
-    <div className="drawer-backdrop">
-      <button
-        className="drawer-shade"
-        aria-label="关闭面板"
-        onClick={onClose}
-      />
-      <aside
-        className="player-drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        ref={ref}
-      >
-        <header>
-          <h2>{title}</h2>
-          <button className="icon-button" onClick={onClose} aria-label="关闭">
-            <X size={22} />
-          </button>
-        </header>
-        {children}
-      </aside>
-    </div>
   );
 }
 export function Narration({ text }) {
@@ -222,17 +155,16 @@ export function Receipt({ receipt }) {
   );
 }
 export function BookCover({ story, large = false }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [story.cover]);
   return (
     <div className={`book-cover ${large ? "large" : ""}`} aria-hidden="true">
-      {story.cover ? (
-        <img src={story.cover} alt="" />
+      {story.cover && !failed ? (
+        <img src={story.cover} alt="" loading="lazy" onError={() => setFailed(true)} />
       ) : (
         <>
-          <div className="cover-orbit" />
-          <div className="cover-mountain back" />
-          <div className="cover-mountain" />
+          <BookOpen size={24} weight="light" className="cover-mark" />
           <span className="cover-title">{story.title.split(/[·｜|]/)[0]}</span>
-          <span className="cover-caption">一个世界 · 你的选择</span>
         </>
       )}
     </div>
@@ -243,11 +175,10 @@ export function StoryCard({ story, onStart }) {
     <article className="story-card">
       <BookCover story={story} />
       <div className="story-copy">
-        <span className="eyebrow">可游玩故事</span>
         <h2>{story.title}</h2>
-        <p>{story.introduction}</p>
+        {story.introduction && <details className="story-description"><summary>故事介绍</summary><p>{story.introduction}</p></details>}
         <Button onClick={onStart}>
-          走进故事 <ArrowRight size={18} />
+          开始故事 <ArrowRight size={18} />
         </Button>
       </div>
     </article>

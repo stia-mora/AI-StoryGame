@@ -41,8 +41,8 @@ export function ActionChoices({
   return (
     <section className="action-options" aria-label="剧情选项">
       <div className="choices-heading">
-        <span className="eyebrow">下一步，由你决定</span>
-        <span>点击即发送 · 日常步骤自动快进，也可自由输入</span>
+        <h2>选择行动</h2>
+        <span>点击即行动</span>
       </div>
       <div className="choices-grid">
         {options.map((message, i) => {
@@ -57,14 +57,12 @@ export function ActionChoices({
               onClick={() => onSend(transform(message), quote)}
             >
               <span>{letter}</span>
-              <div className="choice-body">
-                {message}
-                <small>
-                  {quote
-                    ? `预计 ${points(quote.estimate_micro)} · 封顶 ${points(quote.cap_micro)} 积分${quote.affordable ? "" : " · 余额不足"}`
-                    : error || "正在估算费用……"}
-                </small>
-              </div>
+              <span className="choice-body">{message}</span>
+              <span className="choice-cost">
+                {quote
+                  ? `预计 ${points(quote.estimate_micro)} · 封顶 ${points(quote.cap_micro)} 积分${quote.affordable ? "" : " · 余额不足"}`
+                  : error || "正在估算费用……"}
+              </span>
             </button>
           );
         })}

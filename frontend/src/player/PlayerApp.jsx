@@ -1,5 +1,15 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { BookOpen, ArrowLeft, Coins, Moon, Sun } from "@phosphor-icons/react";
+import {
+  BookOpen,
+  ArrowLeft,
+  ArrowRight,
+  Coins,
+  Moon,
+  Sun,
+  MagnifyingGlass,
+  Play,
+  Clock,
+} from "@phosphor-icons/react";
 import { lsGetJSON, lsSetJSON } from "../lib/storage.js";
 import {
   Button,
@@ -20,9 +30,20 @@ export function PlayerApp() {
   const [data, setData] = useState(null),
     [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [prefs, setPrefs] = useState(() =>
-    lsGetJSON("player-reading", { night: false, font: 18 }),
-  );
+  const [prefs, setPrefs] = useState(() => {
+    const saved = lsGetJSON("player-reading", {});
+    const theme =
+      saved.theme || (typeof saved.night === "boolean" ? "manual" : "system");
+    return {
+      font: 18,
+      ...saved,
+      theme,
+      night:
+        theme === "system"
+          ? window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false
+          : saved.night,
+    };
+  });
   const navigate = useCallback((url) => {
     history.pushState({}, "", url);
     setPath(url);
@@ -48,7 +69,17 @@ export function PlayerApp() {
   useEffect(() => {
     lsSetJSON("player-reading", prefs);
     document.documentElement.dataset.reading = prefs.night ? "night" : "day";
+    document.querySelector('meta[name="theme-color"]')?.setAttribute(
+      "content", prefs.night ? "oklch(20% 0.008 255)" : "oklch(96% 0.006 255)",
+    );
   }, [prefs]);
+  useEffect(() => {
+    if (prefs.theme !== "system") return;
+    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+    const change = (event) => setPrefs((p) => ({ ...p, night: event.matches }));
+    media?.addEventListener("change", change);
+    return () => media?.removeEventListener("change", change);
+  }, [prefs.theme]);
   const saveId = /^\/play\/saves\/(\d+)$/.exec(path)?.[1];
   const storyId = /^\/play\/stories\/(\d+)$/.exec(path)?.[1];
   const story = data?.stories.find((s) => String(s.id) === storyId);
@@ -65,11 +96,18 @@ export function PlayerApp() {
           <BookOpen size={25} weight="light" />
           <span>故事之间</span>
         </button>
+        <button
+          className="player-home-link"
+          aria-current={path === "/play" || path === "/Player.html" ? "page" : undefined}
+          onClick={() => navigate("/play")}
+        >
+          故事大厅
+        </button>
         <nav aria-label="玩家导航">
           <button
             className="icon-button"
             aria-label={prefs.night ? "切换日间阅读" : "切换夜间阅读"}
-            onClick={() => setPrefs((p) => ({ ...p, night: !p.night }))}
+            onClick={() => setPrefs((p) => ({ ...p, night: !p.night, theme: "manual" }))}
           >
             {prefs.night ? <Sun size={21} /> : <Moon size={21} />}
           </button>
@@ -123,16 +161,13 @@ export function PlayerApp() {
       ) : (
         <main id="player-main" className="player-shell home">
           <div className="home-intro">
-            <div>
-              <span className="eyebrow">你的冒险，从这里继续</span>
-              <h1>故事大厅</h1>
-              <p>选择世界，创建身份，用行动改变故事。</p>
-            </div>
+            <h1><BookOpen size={22} />故事大厅</h1>
             <label className="library-search">
               <span className="sr-only">搜索故事</span>
+              <MagnifyingGlass size={18} />
               <input
                 type="search"
-                placeholder="搜索剧本名称或介绍"
+                placeholder="搜索故事"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -140,23 +175,19 @@ export function PlayerApp() {
           </div>
           {data.saves.length > 0 && (
             <section className="continue-story">
-              <div>
-                <span className="eyebrow">继续上次的故事</span>
-                <h2>{data.saves[0].story_title}</h2>
-                <p>
-                  {data.saves[0].name} · 第 {data.saves[0].turn} 回合
-                </p>
-              </div>
+              <span className="continue-label"><Clock size={18} />最近游玩</span>
+              <h2>{data.saves[0].story_title}</h2>
+              <span className="save-metadata">{data.saves[0].name} · 第 {data.saves[0].turn} 回合</span>
               <Button
                 onClick={() => navigate(`/play/saves/${data.saves[0].id}`)}
               >
-                继续游玩
+                <Play size={16} weight="fill" />继续游玩
               </Button>
             </section>
           )}
           <div className="section-heading">
-            <h2>故事书架</h2>
-            <span>已为你准备好的世界</span>
+            <h2>全部故事</h2>
+            <span>{data.stories.length} 部</span>
           </div>
           <div className="workspace-library">
             {data.stories.length ? (
@@ -182,7 +213,7 @@ export function PlayerApp() {
               `${s.title} ${s.introduction}`.includes(search.trim()),
             ) && <Empty title="没有找到这个故事">换个关键词试试。</Empty>}
           {data.saves.length > 1 && (
-            <section className="older-saves">
+            <section className="older-saves" aria-label="其他存档">
               <h2>其他存档</h2>
               {data.saves.slice(1).map((s) => (
                 <button
@@ -193,6 +224,7 @@ export function PlayerApp() {
                     {s.story_title} · {s.name}
                   </span>
                   <span className="muted">第 {s.turn} 回合</span>
+                  <ArrowRight size={16} />
                 </button>
               ))}
             </section>

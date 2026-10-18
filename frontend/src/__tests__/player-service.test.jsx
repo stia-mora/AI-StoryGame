@@ -128,7 +128,7 @@ describe("player-only entry", () => {
         refreshWallet={vi.fn()}
       />,
     );
-    await screen.findByText("下一步，由你决定");
+    await screen.findByRole("heading", { name: "选择行动" });
     expect(screen.getAllByRole("button", { name: /^[ABCD] / })).toHaveLength(4);
     const choice = screen.getByRole("button", { name: "B 向同行者询问" });
     await waitFor(() => expect(choice.disabled).toBe(false));

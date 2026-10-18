@@ -18,10 +18,14 @@ export function Assistant({
   onBusy,
   onUse,
   refreshWallet,
+  open: controlledOpen,
+  onOpenChange,
 }) {
-  const [open, setOpen] = useState(false),
+  const [localOpen, setLocalOpen] = useState(false),
     [items, setItems] = useState([]),
     [busy, setBusy] = useState(false);
+  const open = controlledOpen ?? localOpen;
+  const setOpen = onOpenChange || setLocalOpen;
   const key = `player-guide-request-${uid}-${saveId}`,
     draftKey = `player-guide-draft-${uid}-${saveId}`;
   const [draft, setDraft] = useState(() => lsGet(draftKey, "")),
@@ -30,8 +34,11 @@ export function Assistant({
   const pending = useRef(null),
     mounted = useRef(true),
     panel = useRef(null),
-    trigger = useRef(null),
-    usingSuggestion = useRef(false);
+    returnFocus = useRef(null);
+  const closePanel = useCallback(() => {
+    returnFocus.current?.focus();
+    setOpen(false);
+  }, [setOpen]);
   const reload = useCallback(async () => {
     const result = await window.api.player.guideHistory(saveId);
     if (mounted.current) setItems(result.items);
@@ -140,18 +147,17 @@ export function Assistant({
   }, [draft, busy, gameBusy, open, saveId]);
   useEffect(() => {
     if (!open) return;
-    usingSuggestion.current = false;
-    const previous = document.activeElement;
-    panel.current?.querySelector("textarea")?.focus();
+    returnFocus.current = document.activeElement;
+    if (window.matchMedia?.("(max-width: 1199px)").matches) panel.current?.focus();
+    else panel.current?.querySelector("textarea")?.focus();
     const escape = (e) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") closePanel();
     };
     document.addEventListener("keydown", escape);
     return () => {
       document.removeEventListener("keydown", escape);
-      if (!usingSuggestion.current) previous?.focus();
     };
-  }, [open]);
+  }, [open, closePanel]);
   const send = async (e) => {
     e?.preventDefault();
     if (gameBusy || busy || pending.current || !quote?.affordable) return;
@@ -180,9 +186,8 @@ export function Assistant({
   return (
     <>
       <button
-        ref={trigger}
         className="workspace-assistant-trigger"
-        onClick={() => setOpen(!open)}
+        onClick={() => open ? closePanel() : setOpen(true)}
         aria-expanded={open}
         aria-label="打开游玩助手"
       >
@@ -190,128 +195,124 @@ export function Assistant({
         <span>游玩助手</span>
         {busy && <small>思考中</small>}
       </button>
-      {open && (
-        <section
-          className="workspace-assistant"
-          ref={panel}
-          role="region"
-          aria-label="游玩助手"
-        >
-          <header>
-            <div>
-              <ChatCircleText size={22} />
-              <strong>游玩助手</strong>
-            </div>
-            <button
-              className="icon-button"
-              aria-label="关闭游玩助手"
-              onClick={() => setOpen(false)}
-            >
-              <X size={19} />
-            </button>
-          </header>
-          <p className="workspace-assistant-binding">
-            已绑定 {name}的世界线 · 咨询不会推进回合
-          </p>
-          <div className="workspace-assistant-history">
-            {!items.length && (
-              <div className="workspace-assistant-empty">
-                <h3>一起想清楚下一步。</h3>
-                <p>分析眼前局势、整理人物关系，或拟定一条更具体的行动。</p>
-                {[
-                  "目前有什么值得注意的风险？",
-                  "根据当前目标，建议我怎样推进？",
-                ].map((s) => (
-                  <button key={s} onClick={() => setDraft(s)}>
-                    {s}
-                  </button>
-                ))}
-              </div>
-            )}
-            {items.map((item) => (
-              <article key={item.request_id}>
-                <p className="workspace-assistant-question">{item.question}</p>
-                <Narration text={item.text} />
-                {item.options?.map((option) => (
-                  <button
-                    className="workspace-assistant-suggestion"
-                    key={option}
-                    disabled={gameBusy || busy}
-                    onClick={() => {
-                      usingSuggestion.current = true;
-                      onUse(option);
-                      setOpen(false);
-                    }}
-                  >
-                    填入行动框 · {option}
-                  </button>
-                ))}
-                <Receipt receipt={item} />
-              </article>
-            ))}
-            {busy && (
-              <p role="status" className="muted">
-                正在结合当前存档分析……可以关闭面板，结果会保留。
-              </p>
-            )}
-            {error && <Notice error>{error}</Notice>}
+      <section
+        id="player-assistant-panel"
+        className="workspace-assistant"
+        hidden={!open}
+        ref={panel}
+        tabIndex={-1}
+        role="region"
+        aria-label="游玩助手"
+      >
+        <header>
+          <div>
+            <ChatCircleText size={22} />
+            <strong>游玩助手</strong>
           </div>
-          <form onSubmit={send}>
-            <label className="sr-only" htmlFor="player-guide">
-              向游玩助手提问
-            </label>
-            <textarea
-              id="player-guide"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              rows={2}
-              maxLength={6000}
-              placeholder="询问局势或请助手帮你拟定行动……"
-              disabled={busy || gameBusy}
-              onKeyDown={(e) => {
-                if (
-                  e.key === "Enter" &&
-                  (e.ctrlKey || e.metaKey) &&
-                  !e.nativeEvent.isComposing
-                )
-                  send(e);
-              }}
-            />
-            <div className="workspace-assistant-footer">
-              <small>
-                {gameBusy
-                  ? "回合完成后可咨询"
-                  : busy
-                    ? "已预留，完成后按实际用量结算"
-                    : quote
-                      ? `预计 ${points(quote.estimate_micro)} · 封顶 ${points(quote.cap_micro)} 积分${quote.affordable ? "" : " · 余额不足"}`
-                      : draft.trim()
-                        ? "正在获取报价……"
-                        : "咨询按实际用量计费"}
-              </small>
-              {busy ? (
-                <Button
-                  quiet
-                  type="button"
-                  onClick={() =>
-                    window.api.player
-                      .stop(pending.current.request_id)
-                      .catch((e) => setError(e.message))
-                  }
-                >
-                  <Stop size={15} />
-                  停止
-                </Button>
-              ) : (
-                <Button type="submit" disabled={gameBusy || !quote?.affordable}>
-                  发送
-                  <ArrowUp size={16} />
-                </Button>
-              )}
+          <button
+            className="icon-button"
+            aria-label="关闭游玩助手"
+            onClick={closePanel}
+          >
+            <X size={19} />
+          </button>
+        </header>
+        <div className="workspace-assistant-binding"><span>{name}</span><span>咨询不推进回合</span></div>
+        <div className="workspace-assistant-history">
+          {!items.length && (
+            <div className="workspace-assistant-empty">
+              {[
+                "目前有什么值得注意的风险？",
+                "根据当前目标，建议我怎样推进？",
+              ].map((s) => (
+                <button key={s} onClick={() => setDraft(s)}>
+                  {s}
+                </button>
+              ))}
             </div>
-          </form>
-        </section>
-      )}
+          )}
+          {items.map((item) => (
+            <article key={item.request_id}>
+              <p className="workspace-assistant-question">{item.question}</p>
+              <Narration text={item.text} />
+              {item.options?.map((option) => (
+                <button
+                  className="workspace-assistant-suggestion"
+                  key={option}
+                  disabled={gameBusy || busy}
+                  onClick={() => {
+                    onUse(option);
+                    setOpen(false);
+                  }}
+                >
+                  填入行动框 · {option}
+                </button>
+              ))}
+              <Receipt receipt={item} />
+            </article>
+          ))}
+          {busy && (
+            <p role="status" className="muted">
+              正在结合当前存档分析……可以关闭面板，结果会保留。
+            </p>
+          )}
+          {error && <Notice error>{error}</Notice>}
+        </div>
+        <form onSubmit={send}>
+          <label className="sr-only" htmlFor="player-guide">
+            向游玩助手提问
+          </label>
+          <textarea
+            id="player-guide"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={2}
+            maxLength={6000}
+            placeholder="询问局势或请助手帮你拟定行动……"
+            disabled={busy || gameBusy}
+            onKeyDown={(e) => {
+              if (
+                e.key === "Enter" &&
+                (e.ctrlKey || e.metaKey) &&
+                !e.nativeEvent.isComposing
+              )
+                send(e);
+            }}
+          />
+          <div className="workspace-assistant-footer">
+            <small>
+              {gameBusy
+                ? "回合完成后可咨询"
+                : busy
+                  ? "已预留，完成后按实际用量结算"
+                  : quote
+                    ? `预计 ${points(quote.estimate_micro)} · 封顶 ${points(quote.cap_micro)} 积分${quote.affordable ? "" : " · 余额不足"}`
+                    : draft.trim()
+                      ? "正在获取报价……"
+                      : "咨询按实际用量计费"}
+            </small>
+            {busy ? (
+              <Button
+                quiet
+                type="button"
+                onClick={() =>
+                  window.api.player
+                    .stop(pending.current.request_id)
+                    .catch((e) => setError(e.message))
+                }
+              >
+                <Stop size={15} />
+                停止
+              </Button>
+            ) : (
+              <Button type="submit" disabled={gameBusy || !quote?.affordable}>
+                发送
+                <ArrowUp size={16} />
+              </Button>
+            )}
+          </div>
+        </form>
+      </section>
     </>
   );
 }

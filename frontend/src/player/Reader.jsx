@@ -10,7 +10,7 @@ import {
   ArrowUp,
   Check,
   CircleNotch,
-  List,
+  BookOpen,
   Minus,
   Plus,
   Stop,
@@ -20,7 +20,8 @@ import {
   ChatCircleText,
   Lightning,
   PencilSimple,
-  SidebarSimple,
+  ClockCounterClockwise,
+  MapPin,
 } from "@phosphor-icons/react";
 import {
   lsGet,
@@ -36,7 +37,6 @@ import { Assistant } from "./Assistant.jsx";
 import { InformationPanel, SaveRail } from "./WorkspacePanels.jsx";
 import {
   Button,
-  Drawer,
   Loading,
   Narration,
   Notice,
@@ -64,13 +64,17 @@ export function Reader({
     [quoteError, setQuoteError] = useState(""),
     [busy, setBusy] = useState(false),
     [streamText, setStreamText] = useState("");
-  const [drawer, setDrawer] = useState(false),
+  const [mobileView, setMobileView] = useState("story"),
+    [assistantOpen, setAssistantOpen] = useState(false),
     [away, setAway] = useState(false),
     [saveState, setSaveState] = useState("已保存");
   const [quoteRevision, setQuoteRevision] = useState(0);
   const [selectedId, setSelectedId] = useState(null),
-    [railOpen, setRailOpen] = useState(false),
     [helperBusy, setHelperBusy] = useState(false);
+  const changeAssistant = useCallback((open) => {
+    setAssistantOpen(open);
+    setMobileView(open ? "assistant" : "story");
+  }, []);
   const [pace, setPace] = useState(() =>
       lsGet(`player-pace-${uid}-${saveId}`, "standard"),
     ),
@@ -104,10 +108,12 @@ export function Reader({
     view?.messages?.find((m) => m.id === selected.id.replace(/-gm$/, "-user"));
   const readRound = (id) => {
     setSelectedId(id || null);
-    setRailOpen(false);
-    setDrawer(false);
+    setMobileView("story");
     pinned.current = true;
     setAway(false);
+    if (mobileView !== "story") {
+      requestAnimationFrame(() => scroller.current?.focus({ preventScroll: true }));
+    }
   };
   useEffect(() => {
     lsSet(`player-pace-${uid}-${saveId}`, pace);
@@ -229,7 +235,10 @@ export function Reader({
     lsSet(`player-draft-${uid}-${saveId}`, draft);
   }, [draft, uid, saveId]);
   useEffect(() => {
-    if (pinned.current && streamText && latest && scroller.current)
+    if (
+      pinned.current && streamText && latest &&
+      scroller.current?.getClientRects().length
+    )
       scroller.current.scrollTop = scroller.current.scrollHeight;
   }, [streamText, latest]);
   const kind = view?.has_opening ? "turn" : "opening";
@@ -430,33 +439,28 @@ export function Reader({
     />
   );
   const information = <InformationPanel view={view} onRead={readRound} />;
+  const changeView = (next) => {
+    setMobileView(next);
+    setAssistantOpen(next === "assistant");
+  };
   return (
-    <div className="play-workspace">
-      <aside className="workspace-rail" aria-label="剧本与回合记录">
+    <main id="player-main" className="play-workspace" data-view={mobileView} tabIndex={-1}>
+      <aside id="player-records" className="workspace-rail" aria-label="剧本与回合记录">
         {rail}
       </aside>
-      <main id="player-main" className="workspace-center">
+      <section id="player-story" className="workspace-center" aria-label="当前剧情">
         <header className="workspace-reader-header">
-          <button
-            className="icon-button workspace-rail-toggle"
-            aria-label="打开剧本与回合记录"
-            onClick={() => setRailOpen(true)}
-          >
-            <SidebarSimple size={21} />
-          </button>
-          <div>
-            <span className="workspace-kicker">{view.save.story_title}</span>
-            <h1>
-              {view.status.name}的故事{" "}
-              <small>
-                {busy && latest
-                  ? "正在展开"
-                  : selected?.turn === 0
-                    ? "序章"
-                    : `第 ${selected?.turn ?? view.save.turn} 回合`}
-              </small>
-            </h1>
-          </div>
+          <h1>{view.save.story_title}</h1>
+          <span className="workspace-player-name">
+            <User size={14} />{view.status.name}
+          </span>
+          <span className="workspace-round-label">
+            {busy && latest
+              ? "正在展开"
+              : selected?.turn === 0
+                ? "序章"
+                : `第 ${selected?.turn ?? view.save.turn} 回合`}
+          </span>
           <div className="workspace-reading-tools">
             <button
               className="icon-button"
@@ -475,17 +479,20 @@ export function Reader({
             >
               <Plus size={16} />
             </button>
-            <button
-              className="icon-button workspace-info-toggle"
-              aria-label="查看角色状态"
-              onClick={() => setDrawer(true)}
-            >
-              <User size={20} />
-            </button>
           </div>
         </header>
+        {view.status.location && (
+          <div className="workspace-scene">
+            <MapPin size={14} />
+            <span>{description(view.status.location)}</span>
+            {view.status.time && <span>{description(view.status.time)}</span>}
+          </div>
+        )}
         <div
           className="workspace-reading"
+          role="region"
+          aria-label="剧情正文"
+          tabIndex={0}
           ref={scroller}
           onScroll={(e) => {
             const node = e.currentTarget;
@@ -497,14 +504,17 @@ export function Reader({
           <div className="workspace-paper">
             {!view.has_opening && !busy && (
               <section className="workspace-opening">
-                <BookOpenIcon />
-                <h2>准备进入这个世界</h2>
+                <div className="workspace-opening-identity">
+                  <User size={22} />
+                  <strong>{view.status.name}</strong>
+                  <span>{view.status.role}</span>
+                </div>
+                <h2><BookOpen size={18} />开场待生成</h2>
                 <p>
                   {view.character_setup && !view.character_setup.completed
                     ? `武魂${view.character_setup.mode === "random" ? "将在觉醒时随机揭晓" : `已选择「${view.character_setup.name}」`}。这次开场会直接完成觉醒、测定先天魂力，并进入下一处成长选择。`
                     : "角色已经创建。开场会推进起点事件，再从四个完整行动中选择，也可以写下自己的想法。"}
                 </p>
-                <small>{view.status.role}</small>
               </section>
             )}
             {selected && !(busy && latest) && (
@@ -694,8 +704,8 @@ export function Reader({
             )}
           </form>
         </div>
-      </main>
-      <aside className="workspace-right" aria-label="当前局势与世界线">
+      </section>
+      <aside id="player-state" className="workspace-right" aria-label="当前局势与世界线">
         {information}
       </aside>
       <Assistant
@@ -704,46 +714,37 @@ export function Reader({
         name={view.status.name}
         gameBusy={busy}
         onBusy={setHelperBusy}
+        open={assistantOpen}
+        onOpenChange={changeAssistant}
         onUse={(value) => {
+          setMobileView("story");
           setInputMode("action");
           setDraft(value);
-          input.current?.focus();
+          requestAnimationFrame(() => input.current?.focus());
         }}
         refreshWallet={refreshWallet}
       />
-      {drawer && (
-        <Drawer title="角色与世界线" onClose={() => setDrawer(false)}>
-          <div className="workspace-mobile-reading-tools" aria-label="阅读字号">
-            <span>阅读字号</span>
-            <button
-              className="icon-button"
-              aria-label="缩小阅读字号"
-              disabled={prefs.font <= 16}
-              onClick={() => setPrefs((p) => ({ ...p, font: p.font - 1 }))}
-            >
-              <Minus size={16} />
-            </button>
-            <span>{prefs.font}</span>
-            <button
-              className="icon-button"
-              aria-label="放大阅读字号"
-              disabled={prefs.font >= 24}
-              onClick={() => setPrefs((p) => ({ ...p, font: p.font + 1 }))}
-            >
-              <Plus size={16} />
-            </button>
-          </div>
-          {information}
-        </Drawer>
-      )}
-      {railOpen && (
-        <Drawer title="剧本与回合记录" onClose={() => setRailOpen(false)}>
-          {rail}
-        </Drawer>
-      )}
-    </div>
+      <nav className="workspace-mobile-nav" aria-label="游玩视图">
+        {[
+          ["story", "剧情", BookOpen, "player-story"],
+          ["state", "状态", User, "player-state"],
+          ["records", "记录", ClockCounterClockwise, "player-records"],
+          ["assistant", "助手", ChatCircleText, "player-assistant-panel"],
+        ].map(([id, label, Icon, controls]) => (
+          <button
+            key={id}
+            aria-current={mobileView === id ? "page" : undefined}
+            aria-controls={controls}
+            onClick={() => changeView(id)}
+          >
+            <Icon size={20} weight={mobileView === id ? "fill" : "regular"} />
+            {label}
+            {id === "assistant" && helperBusy && (
+              <span className="workspace-nav-busy" aria-label="正在咨询" />
+            )}
+          </button>
+        ))}
+      </nav>
+    </main>
   );
-}
-function BookOpenIcon() {
-  return <List size={28} weight="light" />;
 }
