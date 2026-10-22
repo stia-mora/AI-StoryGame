@@ -41,8 +41,8 @@ def _create_test_user(db, username: str) -> int:
     """创建最简测试用户，返回 user_id。"""
     row = db.execute(
         """
-        insert into users (username, password_hash, email)
-        values (%s, 'test-hash', %s)
+        insert into users (username, password_hash, email, display_name)
+        values (%s, 'test-hash', %s, 'Lifecycle test')
         returning id
         """,
         (username, f"{username}@test.invalid"),
@@ -110,7 +110,7 @@ def test_request_then_cancel_delete(db_conn):
 
 def test_hard_delete_executes(db_conn):
     """到期账号被 run_hard_delete 物理删除。"""
-    from rpg.cron.hard_delete import run_hard_delete
+    from cron.hard_delete import run_hard_delete
 
     db = db_conn
     username = f"lc_test_hd_{_rand()}"
@@ -151,7 +151,7 @@ def test_hard_delete_executes(db_conn):
 
 def test_prune_login_audit(db_conn):
     """超过 90 天的 login_audit 行被 prune_login_audit 清理。"""
-    from rpg.cron.prune_audit import run_prune_login_audit
+    from cron.prune_audit import run_prune_login_audit
 
     db = db_conn
     marker = f"prune_test_{_rand()}"

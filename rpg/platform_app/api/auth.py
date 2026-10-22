@@ -32,6 +32,23 @@ from ._deps import (
 router = APIRouter()
 
 
+@router.post("/api/auth/recovery/request")
+async def api_recovery_request(request: Request):
+    from ..account_recovery import request_code
+    body = await request.json()
+    return json_response(await asyncio.to_thread(request_code, body.get("email", ""), _client_ip(request)))
+
+
+@router.post("/api/auth/recovery/confirm")
+async def api_recovery_confirm(request: Request):
+    from ..account_recovery import confirm
+    body = await request.json()
+    user, token = await asyncio.to_thread(confirm, body.get("email", ""), body.get("code", ""), _client_ip(request))
+    response = json_response({"ok": True, "user": public_user(user)})
+    _set_session_cookie(response, request, token)
+    return response
+
+
 # 保留 request：register/login/logout 是认证类 endpoint，本身处理 cookie/IP
 @router.post("/api/auth/register")
 async def api_register(request: Request):
@@ -429,7 +446,8 @@ async def api_auth_schema():
     字段属性: key / label / type / required / min_length。
     后端是字段的唯一权威源 — 加减字段只改这里,前端零改动。
     """
-    pw_min = _auth.MIN_PASSWORD_LENGTH
+    from ..security_policy import read
+    pw_min = read()["password_min_length"]
     from core.config import effective_auth_required
     from core.config import setup_token as configured_setup_token
 

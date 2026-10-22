@@ -99,10 +99,13 @@ def generate_email_code(n_digits: int = 6) -> str:
 
 
 def _email_server_secret() -> bytes:
-    """从环境变量读取 HMAC 密钥；缺失时退回随机密钥(仅单进程有效,重启失效)。"""
+    """读取共享 HMAC 密钥；仅本地模式允许进程级临时密钥。"""
     key = os.environ.get("EMAIL_CODE_SECRET", "")
     if key:
         return key.encode()
+    from core.config import is_local_mode
+    if not is_local_mode():
+        raise RuntimeError("生产模式必须设置共享 EMAIL_CODE_SECRET")
     # fallback: 进程级随机 key（无 EMAIL_CODE_SECRET 时验证码不跨进程）
     global _PROC_SECRET
     if "_PROC_SECRET" not in globals():

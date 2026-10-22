@@ -102,8 +102,6 @@ from .registration import (
     admin_set_registration,
 )
 from .security import (
-    _DEFAULT_SECURITY,
-    _SECURITY_CFG_KEY,
     admin_get_security_config,
     admin_set_security_config,
 )

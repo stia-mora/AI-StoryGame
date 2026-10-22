@@ -2406,8 +2406,16 @@ MIGRATIONS.append((104, "player_stop_signal", [
 MIGRATIONS.append((105, "player_service_tool_policy", [
     "alter table player_model_profiles add column tools_mode text not null default 'internal' check(tools_mode in ('internal','none'))",
 ]))
+MIGRATIONS.append((106, "registration_bound_encrypted_payload", [
+    "alter table email_verifications add column pending_payload bytea",
+]))
 
 # 模块加载时立即自检，部署前就能发现列表写错
+MIGRATIONS.append((107, "player_quote_cleanup_indexes", [
+    "create index if not exists player_quotes_expiry on player_quotes(expires_at)",
+    "create index if not exists player_requests_quote on player_requests(quote_id)",
+]))
+
 _assert_migrations_monotonic()
 
 

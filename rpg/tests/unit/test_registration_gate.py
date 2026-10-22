@@ -55,7 +55,9 @@ class _Db:
         self.sql.append((s, tuple(params or ())))
         cur = MagicMock()
         row = None
-        if "from app_config" in s:
+        if "insert into email_verifications" in s:
+            row = {"id": 1}
+        elif "from app_config" in s:
             row = {"value": self.cfg} if self.cfg is not None else None
         elif "from registration_allowlist" in s:
             row = {"x": 1} if params and params[0] in self.allowlist else None
@@ -81,7 +83,7 @@ def _register(db: _Db, *, invite_code=None, email=_EMAIL):
     with patch.object(auth, "connect", return_value=db), \
          patch.object(auth, "init_db"), \
          patch.object(auth, "_ip_budget_exceeded", return_value=False), \
-         patch.object(auth, "_pending_store_set", side_effect=lambda k, v: stored.__setitem__(k, v)), \
+         patch("utils.crypto.encrypt_api_key", side_effect=lambda payload, *a: stored.__setitem__(email, payload) or b"encrypted"), \
          patch("core.config.require_auth", return_value=True), \
          patch("platform_app.email.send_verification_email", lambda *a, **k: None):
         out = auth.register(
@@ -341,7 +343,7 @@ class TestConfirmConsumesOnlyReservedCode(unittest.TestCase):
              patch.object(auth, "init_db"), \
              patch.object(auth, "_verify_locked", return_value=False), \
              patch.object(auth, "_clear_verify_fail"), \
-             patch.object(auth, "_pending_store_get", return_value=pending):
+             patch.object(auth, "_registration_payload", return_value=auth._decode_pending_register(pending)):
             auth.confirm_email_verification(_EMAIL, "123456")
         return [s for s in executed if s.startswith("update invite_codes")]
 
@@ -435,11 +437,11 @@ class TestInviteCodeUsedJudgedByUsedAt(unittest.TestCase):
              patch.object(auth, "_verify_locked", return_value=False), \
              patch.object(auth, "_clear_verify_fail"), \
              patch.object(auth, "_issue_session", return_value="tok"), \
-             patch.object(auth, "_pending_store_get", return_value=pending):
+             patch.object(auth, "_registration_payload", return_value=auth._decode_pending_register(pending)):
             return auth.confirm_email_verification(_EMAIL, "123456")
 
     def test_confirm_reservation_refuses_code_of_deleted_user(self):
-        with self.assertRaisesRegex(ValueError, "邀请码已被使用"):
+        with self.assertRaisesRegex(ValueError, "邀请码.*(已使用|已被使用)"):
             self._confirm_with(dict(self.ORPHANED))
 
     def test_confirm_reservation_takes_fresh_code(self):

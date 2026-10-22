@@ -113,24 +113,30 @@ def create_pat(user_id: int, name: str, scopes: list[str], ttl_days: int = PAT_D
                source: str = "manual") -> dict[str, Any]:
     """生成 PAT。明文令牌只在此处返回一次,库里只存哈希。source: manual|device。"""
     init_db()
+    with connect() as db:
+        _require_creator(db, user_id)
+        return _create_pat(db, user_id, name, scopes, ttl_days, source)
+
+
+def _create_pat(db, user_id, name, scopes, ttl_days=PAT_DEFAULT_TTL_DAYS, source="manual"):
+    """Issue under the caller's user lock and transaction."""
     token = PAT_PREFIX + secrets.token_urlsafe(32)
     token_hash = _hash(token)
     scopes = _clean_scopes(scopes)
     expires_at = _now() + timedelta(days=max(1, min(int(ttl_days or PAT_DEFAULT_TTL_DAYS), 3650)))
-    with connect() as db:
-        active = db.execute(
-            "select count(*) as n from personal_access_tokens "
-            "where user_id = %s and revoked_at is null",
-            (user_id,),
-        ).fetchone()
-        if int((dict(active) or {}).get("n", 0)) >= MAX_PATS_PER_USER:
-            raise ValueError(f"活跃令牌已达上限({MAX_PATS_PER_USER}),请先吊销不用的令牌")
-        row = db.execute(
-            "insert into personal_access_tokens(user_id, token_hash, name, scopes, expires_at, source) "
-            "values (%s, %s, %s, %s, %s, %s) returning id, name, scopes, created_at, expires_at, source",
-            (user_id, token_hash, (name or "")[:120], Jsonb(scopes), expires_at,
-             "device" if source == "device" else "manual"),
-        ).fetchone()
+    active = db.execute(
+        "select count(*) as n from personal_access_tokens "
+        "where user_id = %s and revoked_at is null",
+        (user_id,),
+    ).fetchone()
+    if int((dict(active) or {}).get("n", 0)) >= MAX_PATS_PER_USER:
+        raise ValueError(f"活跃令牌已达上限({MAX_PATS_PER_USER}),请先吊销不用的令牌")
+    row = db.execute(
+        "insert into personal_access_tokens(user_id, token_hash, name, scopes, expires_at, source) "
+        "values (%s, %s, %s, %s, %s, %s) returning id, name, scopes, created_at, expires_at, source",
+        (user_id, token_hash, (name or "")[:120], Jsonb(scopes), expires_at,
+         "device" if source == "device" else "manual"),
+    ).fetchone()
     return {"ok": True, "token": token, "pat": expose(row)}
 
 
@@ -165,7 +171,7 @@ def verify_pat(token: str, required_scope: str | None = None) -> dict[str, Any]:
     with connect() as db:
         row = db.execute(
             "select p.id, p.user_id, p.scopes, p.expires_at, p.revoked_at, "
-            "       u.username, u.role, u.public_id "
+            "       u.username, u.role, u.public_id, u.deactivated_at, u.account_mode "
             "from personal_access_tokens p join users u on u.id = p.user_id "
             "where p.token_hash = %s",
             (th,),
@@ -173,6 +179,8 @@ def verify_pat(token: str, required_scope: str | None = None) -> dict[str, Any]:
         if not row:
             raise PermissionError("invalid token")
         d = dict(row)
+        if d.get("deactivated_at") or (d.get("account_mode") == "player" and d.get("role") != "admin"):
+            raise PermissionError("account access revoked")
         if d.get("revoked_at"):
             raise PermissionError("token revoked")
         exp = d.get("expires_at")
@@ -187,6 +195,18 @@ def verify_pat(token: str, required_scope: str | None = None) -> dict[str, Any]:
                  "role": d.get("role"), "public_id": d.get("public_id")},
         "scopes": scopes,
     }
+
+
+def _require_creator(db, user_id):
+    user = db.execute("select role,account_mode,deactivated_at from users where id=%s for update", (user_id,)).fetchone()
+    if not user or user.get("deactivated_at") or (user.get("account_mode") == "player" and user.get("role") != "admin"):
+        raise PermissionError("account access revoked")
+
+
+def revoke_account_tokens(db, user_id):
+    db.execute("select id from users where id=%s for update", (user_id,)).fetchone()
+    db.execute("update personal_access_tokens set revoked_at=now() where user_id=%s and revoked_at is null", (user_id,))
+    db.execute("update device_authorizations set status='denied' where user_id=%s and status in ('pending','approved')", (user_id,))
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -253,8 +273,9 @@ def device_approve(user_id: int, user_code: str, deny: bool = False) -> dict[str
     init_db()
     uc = (user_code or "").strip().upper()
     with connect() as db:
+        _require_creator(db, user_id)
         row = db.execute(
-            "select id, status, expires_at from device_authorizations where user_code = %s",
+            "select id, status, expires_at from device_authorizations where user_code = %s for update",
             (uc,),
         ).fetchone()
         if not row:
@@ -285,6 +306,21 @@ def device_poll(device_code: str) -> dict[str, Any]:
         if not row:
             return {"error": "invalid_grant"}
         d = dict(row)
+        if not d.get("user_id"):
+            return {"error": "expired_token" if d["expires_at"] < _now() else "authorization_pending"}
+        if d.get("user_id"):
+            try:
+                _require_creator(db, int(d["user_id"]))
+            except PermissionError:
+                return {"error": "access_denied"}
+        # Match approval/revocation lock order: user first, then device.
+        row = db.execute(
+            "select id,user_id,scopes,status,expires_at,pat_id,client_name "
+            "from device_authorizations where id=%s for update", (d["id"],),
+        ).fetchone()
+        if not row:
+            return {"error": "invalid_grant"}
+        d = dict(row)
         if d.get("expires_at") and d["expires_at"] < _now():
             return {"error": "expired_token"}
         status = d.get("status")
@@ -295,7 +331,7 @@ def device_poll(device_code: str) -> dict[str, Any]:
         # approved
         if d.get("pat_id"):
             return {"error": "token_already_issued"}
-        res = create_pat(int(d["user_id"]), d.get("client_name") or "device",
+        res = _create_pat(db, int(d["user_id"]), d.get("client_name") or "device",
                          list(d.get("scopes") or []), source="device")
         db.execute(
             "update device_authorizations set pat_id = %s where id = %s",

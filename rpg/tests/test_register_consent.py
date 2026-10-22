@@ -119,7 +119,6 @@ def test_confirm_email_verification_persists_consent_fields(monkeypatch):
     from platform_app.security import hash_email_code
 
     # 清理 pending cache
-    auth_mod._PENDING_REGISTER.clear()
 
     email_norm = "consent_persist@example.com"
     real_code = "654321"
@@ -147,7 +146,7 @@ def test_confirm_email_verification_persists_consent_fields(monkeypatch):
     }
 
     # 预置 pending 注册参数（terms_accepted=True, age_confirmed=True）
-    auth_mod._PENDING_REGISTER[email_norm] = json.dumps({
+    pending = {
         "username": "consentuser",
         "password_hash": "$argon2id$fake",
         "display_name": "consentuser",
@@ -156,7 +155,9 @@ def test_confirm_email_verification_persists_consent_fields(monkeypatch):
         "age_confirmed": True,
         "invite_code": None,
         "setup_token": None,
-    })
+    }
+    monkeypatch.setattr(auth_mod, "_registration_payload", lambda _: pending)
+    monkeypatch.setattr(auth_mod, "_issue_session", lambda *a: "test-session-token-long-enough")
 
     capturing_conn = _CapturingConn(verif_row, user_row)
     monkeypatch.setattr(auth_mod, "init_db", lambda: None)

@@ -335,6 +335,12 @@ def heartbeat(uid, request_id):
 
 def reap(uid=None):
     with connect() as db:
+        # Preserve quotes referenced by requests/receipts. Batch and skip locked rows
+        # so cleanup never competes with a reservation transaction for long.
+        db.execute("""delete from player_quotes where id in (
+            select q.id from player_quotes q where q.expires_at<now()-interval '1 hour'
+            and not exists(select 1 from player_requests r where r.quote_id=q.id)
+            order by q.expires_at limit 1000 for update of q skip locked)""")
         rows = db.execute(
             "select id,user_id from player_requests where status in ('reserved','running') and expires_at<=now()"
             + (" and user_id=%s" if uid else ""),

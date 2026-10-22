@@ -41,8 +41,9 @@ def _make_db(rows: dict | None = None):
         if "select id from users" in sql_lower or "select * from users" in sql_lower:
             cursor.fetchone = lambda: rows.get("user")
         # SELECT email_verifications
-        elif "select" in sql_lower and "email_verifications" in sql_lower:
-            cursor.fetchone = lambda: rows.get("verif")
+        elif "email_verifications" in sql_lower and ("select" in sql_lower or "returning" in sql_lower):
+            verif = rows.get("verif")
+            cursor.fetchone = lambda: verif if verif and not verif.get("used_at") else None
         else:
             cursor.fetchone = lambda: None
         return cursor

@@ -33,7 +33,8 @@ async def index():
     try:
         from app import _FRONTEND_DIR, _FRONTEND_HAS_DIST
         if _FRONTEND_HAS_DIST:
-            shell = _FRONTEND_DIR / "Platform.html"
+            from core.config import is_local_mode
+            shell = _FRONTEND_DIR / ("Platform.html" if is_local_mode() else "Player.html")
             if shell.is_file():
                 # 与 _SPAStaticFiles 同步:HTML 壳 no-cache(防部署后停在旧版)。
                 return FileResponse(
@@ -55,8 +56,14 @@ async def index():
     })
 
 
+@router.get("/livez")
+def livez():
+    return json_response({"ok": True})
+
+
+@router.get("/readyz")
 @router.get("/api/health")
-async def api_health() -> JSONResponse:
+def api_health() -> JSONResponse:
     """Liveness probe — 检查 DB 连通性。无需鉴权，供 k8s/nginx/监控调用。"""
     from core.version import app_version
     try:
@@ -64,9 +71,9 @@ async def api_health() -> JSONResponse:
         with connect() as db:
             db.execute("SELECT 1")
         return json_response({"ok": True, "db": "ok", "app_version": app_version()})
-    except Exception as exc:
+    except Exception:
         return json_response(
-            {"ok": False, "db": "error", "detail": str(exc)[:200], "app_version": app_version()},
+            {"ok": False, "db": "error", "app_version": app_version()},
             status_code=503)
 
 

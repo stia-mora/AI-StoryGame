@@ -9,7 +9,7 @@ from __future__ import annotations
 import io
 import json
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from ..api import _client_ip, _delete_session_cookie, json_response, require_user
@@ -145,6 +145,8 @@ async def api_account_deactivate(request: Request):
             (user["id"],),
         )
         db.execute("delete from sessions where user_id = %s", (user["id"],))
+        from ..federation import revoke_account_tokens
+        revoke_account_tokens(db, user["id"])
     return json_response({"ok": True})
 
 
@@ -162,6 +164,10 @@ async def api_account_request_delete(request: Request):
     ip = _client_ip(request)
     init_db()
     with connect() as db:
+        if db.execute("select 1 from player_model_profiles where credential_owner_id=%s", (user["id"],)).fetchone():
+            raise HTTPException(409, "请先将玩家服务模型的凭据转交其他管理员，再申请删除账户")
+        if db.execute("select 1 from player_stories p join scripts s on s.id=p.script_id where s.owner_id=%s", (user["id"],)).fetchone():
+            raise HTTPException(409, "请先转交已上架玩家故事的剧本所有权，再申请删除账户")
         # 幂等：若已有未完成的队列行，直接返回现有计划时间
         existing = db.execute(
             "select scheduled_hard_delete_at from account_delete_queue where user_id = %s and completed_at is null",
@@ -197,6 +203,8 @@ async def api_account_request_delete(request: Request):
             (user["id"],),
         )
         db.execute("delete from sessions where user_id = %s", (user["id"],))
+        from ..federation import revoke_account_tokens
+        revoke_account_tokens(db, user["id"])
         row = db.execute(
             "select scheduled_hard_delete_at from account_delete_queue where user_id = %s",
             (user["id"],),
@@ -210,7 +218,7 @@ async def api_account_request_delete(request: Request):
     resp = json_response({
         "ok": True,
         "scheduled_hard_delete_at": sched_str,
-        "message": "删除申请已提交，30 天内可撤销。如需取消请调用 /api/account/cancel-delete。",
+        "message": "删除申请已提交，30 天内可在登录页通过邮箱验证码撤销。",
     })
     _delete_session_cookie(resp, request)
     return resp
@@ -224,7 +232,7 @@ async def api_account_cancel_delete(request: Request):
     init_db()
     with connect() as db:
         queue_row = db.execute(
-            "select user_id from account_delete_queue where user_id = %s and completed_at is null",
+            "select user_id from account_delete_queue where user_id = %s and completed_at is null and scheduled_hard_delete_at>now() for update",
             (user["id"],),
         ).fetchone()
         if not queue_row:

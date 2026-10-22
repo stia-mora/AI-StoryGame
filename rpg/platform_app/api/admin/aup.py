@@ -52,6 +52,8 @@ async def admin_suspend_user(
             "delete from sessions where user_id = %s returning token",
             (user_id,),
         ).fetchall()
+        from ...federation import revoke_account_tokens
+        revoke_account_tokens(db, user_id)
         sessions_revoked = len(result)
         _write_audit(db, admin, "aup.suspend",
                      target_type="user", target_id=str(user_id),

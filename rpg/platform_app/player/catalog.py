@@ -40,6 +40,8 @@ def public_story(row):
     from .character_creation import public_config
 
     public = {k: row[k] for k in ("id", "title", "introduction", "cover")}
+    if public["cover"].startswith("/api/storage/"):
+        public["cover"] = f"/api/player/stories/{row['id']}/cover"
     public["identities"] = [
         {k: i[k] for k in ("id", "name", "role", "background", "description") if k in i}
         for i in row["identities"]
@@ -107,7 +109,8 @@ def scalar(value):
     return ""
 
 
-def view(uid, sid):
+def view(uid, sid, before=None, limit=20):
+    limit = max(1, min(int(limit), 50))
     from .character_creation import public_setup
     from .turn_updates import milestones, tasks
 
@@ -127,19 +130,21 @@ def view(uid, sid):
         # Only the active branch ancestors are readable; raw snapshots and future canon never leave this DTO.
         rows = db.execute(
             f"""with recursive path as (
-            select id,parent_id,player_input,gm_output,turn_index from branch_commits where id=%s and save_id=%s
-            union all select c.id,c.parent_id,c.player_input,c.gm_output,c.turn_index from branch_commits c
+            select id,parent_id from branch_commits where id=%s and save_id=%s
+            union all select c.id,c.parent_id from branch_commits c
             join path p on p.parent_id=c.id where c.save_id=%s)
-            select p.*, {experience.snapshot_sql("c.state_snapshot")} as display_state,
+            select c.id,c.parent_id,c.player_input,c.gm_output,c.turn_index, {experience.snapshot_sql("c.state_snapshot")} as display_state,
                    {experience.snapshot_sql("parent.state_snapshot")} as previous_state
             from path p join branch_commits c on c.id=p.id
             left join branch_commits parent on parent.id=p.parent_id and parent.save_id=%s
-            where coalesce(p.gm_output,'')<>'' order by p.id""",
-            (save["active_commit_id"], sid, sid, sid),
+            where coalesce(c.gm_output,'')<>'' and (%s::bigint is null or c.id<%s) order by c.id desc limit %s""",
+            (save["active_commit_id"], sid, sid, sid, before, before, limit+1),
         ).fetchall()
+        has_more = len(rows) > limit
+        rows = list(reversed(rows[:limit]))
         receipts = db.execute(
-            "select commit_id,receipt from player_requests where user_id=%s and save_id=%s and status='settled' and kind<>'guide'",
-            (uid, sid),
+            "select commit_id,receipt from player_requests where user_id=%s and save_id=%s and status='settled' and kind<>'guide' and commit_id=any(%s)",
+            (uid, sid, [r["id"] for r in rows]),
         ).fetchall()
     by_commit = {r["commit_id"]: r["receipt"] for r in receipts}
     messages = []
@@ -181,6 +186,7 @@ def view(uid, sid):
         save=save_summary(save, title),
         story=public_story(selected) if selected else None,
         messages=messages,
+        history_before=rows[0]["id"] if has_more and rows else None,
         status=status,
         options=experience.choices(data, narration=rows[-1]["gm_output"] if rows else ""),
         latest_progress=next(

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from platform_app.api._deps import json_response
-from routes._deps_fastapi import get_current_admin
+from routes._deps_fastapi import get_current_admin_strict
 from schemas._common import COMMON_ERROR_RESPONSES, ErrorResponse, GenericOkResponse
 from schemas.skills import SkillRunRequest, SkillsImportRequest
 
@@ -17,7 +17,7 @@ router = APIRouter()
 @router.post("/api/skills/import", response_model=GenericOkResponse, responses=COMMON_ERROR_RESPONSES)
 async def api_skills_import(
     body: SkillsImportRequest,
-    api_user: dict[str, Any] | None = Depends(get_current_admin),
+    api_user: dict[str, Any] | None = Depends(get_current_admin_strict),
 ) -> JSONResponse:
     from app import import_skill_bundle, tool_payload
     body_dict = body.model_dump(exclude_none=True)
@@ -32,7 +32,7 @@ async def api_skills_import(
 async def api_skill_run(
     body: SkillRunRequest,
     skill_id: str,
-    api_user: dict[str, Any] = Depends(get_current_admin),
+    api_user: dict[str, Any] = Depends(get_current_admin_strict),
 ) -> JSONResponse:
     """在沙箱里跑某个 imported skill。
 

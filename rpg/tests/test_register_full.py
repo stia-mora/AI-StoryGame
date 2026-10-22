@@ -47,10 +47,8 @@ def _security():
 def clear_pending(monkeypatch):
     """每个测试清理进程内 pending cache。"""
     import platform_app.auth as auth_mod
-    auth_mod._PENDING_REGISTER.clear()
     auth_mod._RESEND_LAST.clear()
     yield
-    auth_mod._PENDING_REGISTER.clear()
     auth_mod._RESEND_LAST.clear()
 
 
@@ -108,6 +106,8 @@ class _FakeConn:
 
     def execute(self, sql: str, params=None):
         self._executed.append(sql.strip()[:80])
+        if "insert into email_verifications" in sql.lower():
+            return _FakeCursor([{"id": 1}])
         for fragment, rows in self._presets.items():
             if fragment in sql:
                 return _FakeCursor(rows)
@@ -177,7 +177,7 @@ def test_register_and_verify_success(monkeypatch, mock_email):
         "role": "user", "email": email_norm, "email_verified": True,
         "email_verified_at": datetime.now(UTC),
         "birthday": date(2000, 1, 1),
-        "password_hash": auth_mod._PENDING_REGISTER.get(email_norm, "{}"),
+        "password_hash": "hash",
         "public_id": None, "bio": "", "created_at": datetime.now(UTC),
         "updated_at": datetime.now(UTC), "row_version": 1,
         "deactivated_at": None, "ban_reason": "",
@@ -207,6 +207,11 @@ def test_register_and_verify_success(monkeypatch, mock_email):
         def __exit__(self, *_):
             pass
 
+    monkeypatch.setattr(auth_mod, "_registration_payload", lambda _: {
+        "username": "alice", "password_hash": "hash", "display_name": "alice", "birthday": "2000-01-01",
+        "terms_accepted": True, "age_confirmed": True, "invite_code": None, "allow_admin": False,
+    })
+    monkeypatch.setattr(auth_mod, "_issue_session", lambda *a: "test-session-token-long-enough")
     monkeypatch.setattr(auth_mod, "connect", _FakeConnVerify)
 
     user, token = auth_mod.confirm_email_verification("alice@example.com", code)
@@ -312,14 +317,6 @@ def test_verify_wrong_code_rejected(monkeypatch):
         "expires_at": datetime.now(UTC) + timedelta(minutes=5),
         "used_at": None,
     }
-    # 放入 pending
-    auth_mod._PENDING_REGISTER[email_norm] = json.dumps({
-        "username": "user", "password_hash": "pbkdf2_sha256$salt$hash",
-        "display_name": "user", "birthday": "1995-01-01",
-        "terms_accepted": True, "age_confirmed": True,
-        "invite_code": None, "setup_token": None,
-    })
-
     monkeypatch.setattr(auth_mod, "connect", lambda: _FakeConn({
         "email_verifications": [fake_verif_row],
     }))

@@ -8,8 +8,8 @@ import logging
 import uuid
 from contextlib import suppress
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from core.sse import SSE_HEADERS, with_keepalive
@@ -17,7 +17,7 @@ from platform_app.db import connect, expose
 from platform_app.player import catalog, wallet
 from platform_app.player.meter import Run, active_run
 
-from ._deps import require_user
+from ._deps import current_user, require_user
 
 router = APIRouter(prefix="/api/player")
 RUNS: dict[str, Run] = {}
@@ -129,6 +129,35 @@ def bootstrap(user=Depends(require_player)):
     )
 
 
+@router.get("/catalog")
+def public_catalog():
+    with connect() as db:
+        rows = db.execute(
+            "select p.* from player_stories p join player_model_profiles m on m.id=p.profile_id "
+            "where p.status='published' and m.enabled order by p.sort_order,p.id limit 200"
+        ).fetchall()
+    return {"stories": [catalog.public_story(row) for row in rows]}
+
+
+@router.get("/session")
+def player_session(user=Depends(current_user)):
+    # Anonymous discovery must never pass through the private bootstrap endpoint.
+    return {"authenticated": bool(user)}
+
+
+@router.get("/stories/{story_id}/cover")
+def story_cover(story_id: int):
+    from platform_app.storage import resolve_path
+    selected = catalog.story(story_id, new=True)
+    cover = selected.get("cover") or ""
+    if not cover.startswith("/api/storage/"):
+        raise HTTPException(404, "封面不存在")
+    path = resolve_path(cover.removeprefix("/api/storage/"))
+    if not path.is_file() or path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"}:
+        raise HTTPException(404, "封面不存在")
+    return FileResponse(path, headers={"Cache-Control": "public,max-age=300"})
+
+
 @router.post("/saves")
 def create(body: Create, user=Depends(require_player)):
     with wallet.idle_account(user["id"]):
@@ -180,8 +209,17 @@ def view(sid: int, user=Depends(require_player)):
     return catalog.view(user["id"], sid)
 
 
+@router.get("/saves/{sid}/history")
+def history(sid: int, before: int = Query(gt=0), limit: int = Query(default=20, ge=1, le=50), user=Depends(require_player)):
+    result = catalog.view(user["id"], sid, before=before, limit=limit)
+    return {key: result[key] for key in ("messages", "history_before")}
+
+
 @router.post("/quote")
 def quote(body: Quote, user=Depends(require_player)):
+    from core.request_limits import rate_allowed
+    if not rate_allowed(f"player-quote:{user['id']}", 60):
+        raise HTTPException(429, "报价过于频繁，请稍后重试", headers={"Retry-After": "60"})
     save = catalog.player_save(user["id"], body.save_id)
     selected = catalog.story(save["player_story_id"])
     from platform_app.player.character_creation import pending

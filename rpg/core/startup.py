@@ -202,6 +202,8 @@ def _wait_for_db_ready() -> bool:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI lifespan: startup → yield → shutdown。"""
+    from core.production import validate
+    validate()
     # ── startup ──────────────────────────────────────────────────────────
     # 0a. 放大默认线程执行器。run_in_executor(None)/asyncio.to_thread 默认池 =
     #     min(32, cpu+4) = 10/worker,是聊天并发天花板(每轮 chat 占 1~4 线程)。LLM 流多为
@@ -606,14 +608,34 @@ async def api_contract_middleware(request: Request, call_next):
                 headers={"X-API-Version": API_VERSION, "X-Request-ID": request_id, "Cache-Control": "no-store"},
             )
     path = request.scope.get('path', '')
-    if path.startswith('/api/'):
+    if path.startswith('/api/') and path != '/api/health':
+        import asyncio
+        from core.request_limits import check
+        from fastapi import HTTPException
+        from platform_app.api._deps import _client_ip, json_response
+        from platform_app.security_policy import blocked, read
+        try:
+            await check(request)
+            policy = await asyncio.to_thread(read)
+            if blocked(_client_ip(request), policy):
+                raise HTTPException(403, "此地址的访问已被限制")
+        except HTTPException as exc:
+            return json_response({"ok": False, "error": exc.detail}, status_code=exc.status_code, headers=exc.headers)
+        except TimeoutError:
+            return json_response({"ok": False, "error": "请求超时，请重试"}, status_code=408)
         from platform_app.api._deps import current_user, json_response
         user = current_user(request)
         if user and user.get('account_mode','creator') == 'player' and user.get('role') != 'admin':
-            allowed = path.startswith(('/api/player/', '/api/auth/', '/api/policy/', '/api/splash', '/api/feedback'))
+            allowed = path.startswith(('/api/player/', '/api/auth/', '/api/account/', '/api/policy/', '/api/splash', '/api/feedback'))
             if not allowed:
                 return json_response({'ok':False,'error':'此账户只有游玩权限，请使用玩家入口'}, status_code=403)
-    response = await call_next(request)
+    import asyncio
+    try:
+        # Limit time to response headers; SSE bodies retain their own lease/stop lifecycle.
+        response = await asyncio.wait_for(call_next(request), float(os.getenv("RPG_REQUEST_TIMEOUT_SECS", "30")))
+    except TimeoutError:
+        from platform_app.api._deps import json_response
+        return json_response({"ok": False, "error": "请求超时，请重试"}, status_code=504)
 
     # ── GPC 确认 ─────────────────────────────────────────────────────────
     from platform_app.privacy import annotate_gpc

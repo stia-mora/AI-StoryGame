@@ -27,8 +27,8 @@ from fastapi.responses import JSONResponse
 
 # .env 可能在两处:仓库根 (生产 /opt/rpg-roleplay/.env) 或 rpg/.env (本地 setup.sh 写的位置)。
 # 两处都加载,缺失的一侧是无害空操作。rpg/.env 后加载,本地优先生效。
-load_dotenv(Path(__file__).parent.parent / ".env", override=True)
-load_dotenv(Path(__file__).parent / ".env", override=True)
+load_dotenv(Path(__file__).parent.parent / ".env", override=False)
+load_dotenv(Path(__file__).parent / ".env", override=False)
 
 sys.path.insert(0, str(Path(__file__).parent))
 

@@ -94,7 +94,7 @@ async def admin_update_user(
         raise HTTPException(status_code=400, detail="不允许将自己降级为普通用户")
 
     with connect() as db:
-        if not db.execute("SELECT 1 FROM users WHERE id = %s", (user_id,)).fetchone():
+        if not db.execute("SELECT 1 FROM users WHERE id = %s for update", (user_id,)).fetchone():
             raise HTTPException(status_code=404, detail="用户不存在")
         if new_role is not None:
             # task: vip_user 享受平台 RAG embedder 兜底,但仍 LLM BYOK,跟 admin 区别
@@ -130,6 +130,10 @@ async def admin_update_user(
                          target_type="user", target_id=str(user_id),
                          details={k: v for k, v in body.items() if k != "role"}, ip=ip)
 
+        if new_role is not None or body.get("account_mode") is not None:
+            from ...federation import revoke_account_tokens
+            revoke_account_tokens(db, user_id)
+
     return json_response({"ok": True})
 
 
@@ -154,6 +158,8 @@ async def admin_deactivate_user(
             (user_id,),
         ).fetchall()
         sessions_revoked = len(result)
+        from ...federation import revoke_account_tokens
+        revoke_account_tokens(db, user_id)
         _write_audit(db, admin, "user.deactivate",
                      target_type="user", target_id=str(user_id),
                      details={"sessions_revoked": sessions_revoked}, ip=ip)
@@ -193,6 +199,8 @@ async def admin_force_logout_user(
             (user_id,),
         ).fetchall()
         sessions_revoked = len(result)
+        from ...federation import revoke_account_tokens
+        revoke_account_tokens(db, user_id)
         _write_audit(db, admin, "user.force_logout",
                      target_type="user", target_id=str(user_id),
                      details={"sessions_revoked": sessions_revoked}, ip=ip)

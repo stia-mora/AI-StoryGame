@@ -29,7 +29,7 @@ def _write_audit(db, action: str, details: dict) -> None:
     (调用方 6 处均传 result dict,永不 None)。cron「失败不阻断」语义由本 try/except 保留。
     """
     try:
-        from rpg.platform_app.api.admin._shared import _write_audit as _admin_write_audit
+        from platform_app.api.admin._shared import _write_audit as _admin_write_audit
         _admin_write_audit(
             db,
             actor={"id": None, "username": "cron"},

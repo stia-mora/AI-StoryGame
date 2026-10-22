@@ -279,6 +279,13 @@ def send_login_code_email(to: str, code: str, lang: str = "zh-CN") -> None:
     _send_resend(to, subject, text, html)
 
 
+def send_recovery_code_email(to: str, code: str) -> None:
+    subject = "撤销账户删除申请"
+    text = f"你的账户恢复验证码：{code}，10 分钟内有效。此验证码仅用于撤销删除申请。非本人操作请忽略。"
+    html = f"<p>你的账户恢复验证码：<strong>{escape(code)}</strong></p><p>10 分钟内有效，仅用于撤销删除申请。非本人操作请忽略。</p>"
+    _send_resend(to, subject, text, html)
+
+
 def build_password_reset_email(to: str, token: str, lang: str = "zh-CN") -> tuple[str, str, str]:
     is_zh = lang.lower().startswith("zh")
     link = f"{_public_base_url()}/Login.html#reset?token={token}"

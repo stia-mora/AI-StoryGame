@@ -23,41 +23,9 @@ from .security import (
     verify_password_with_rehash,
 )
 
-SESSION_DAYS = 14
-
-from core.config import (
-    login_lockout_sec as _login_lockout_sec,
-)
-from core.config import (
-    login_max_fails as _login_max_fails,
-)
-from core.config import (
-    login_window_sec as _login_window_sec,
-)
-from core.config import (
-    min_password_length as _min_password_length,
-)
-
-MIN_PASSWORD_LENGTH = _min_password_length()
-
-# ── 登录速率限制 ──────────────────────────────────────────────────────────
-#
-# 警告: 此速率限制使用进程内 dict 实现。
-# 多 worker 部署（uvicorn --workers N / gunicorn）下，每个 worker 有独立内存，
-# 速率限制 **不在 worker 间共享**，攻击者可以通过轮询 worker 绕过限制。
-# 如需多 worker 部署，请将速率限制迁移至 Redis 或数据库后端。
-#
-LOGIN_MAX_FAILS = _login_max_fails()
-LOGIN_LOCKOUT_SEC = _login_lockout_sec()
-LOGIN_WINDOW_SEC = _login_window_sec()  # 5min 内累计失败计数
-
-# P2-5 修复: 维护双独立 bucket，防止组合 key "ip|username" 可被任一维度绕过
-# per-IP: 30次/10min; per-username: 5次/10min
-_IP_MAX_FAILS = 30
-_IP_WINDOW_SEC = 600  # 10min
-_USER_MAX_FAILS = 5
-_USER_WINDOW_SEC = 600  # 10min
-
+# Redis shares failure counters across workers; process-local buckets
+# preserve basic protection while Redis is unavailable. Thresholds come from
+# platform_app.security_policy, the same policy edited by the admin UI.
 _FAIL_BUCKETS_IP: dict[str, list[float]] = {}    # key=ip → [失败时间戳...]
 _FAIL_BUCKETS_USER: dict[str, list[float]] = {}  # key=username → [失败时间戳...]
 _LOCKED_UNTIL_IP: dict[str, float] = {}          # ip → 解锁时间
@@ -100,6 +68,10 @@ def _bucket_key(ip: str, username: str) -> str:
     return f"{ip or '-'}|{(username or '').lower()}"
 
 
+def _login_identifier(value: str) -> str:
+    return normalize_email(value) if "@" in (value or "") else normalize_username(value)
+
+
 def _check_rate_limit(ip: str, username: str) -> None:
     # P2-5: 双独立 bucket — per-IP 和 per-username 任一超阈值即拒绝。
     # Redis 可用时用共享锁定键(跨 worker 一致,根治多 worker 限流 ×N 绕过);
@@ -107,7 +79,7 @@ def _check_rate_limit(ip: str, username: str) -> None:
     ip_key = ip or "-"
     # [round-3-P2] 用 normalize_username 做规范键(不只 .lower()):调用方虽多已先归一,
     # 但内部统一规范可彻底消除「同一账号经不同表示得到不同限流桶」的绕过面(只会合并桶,不会放宽)。
-    user_key = normalize_username(username)
+    user_key = _login_identifier(username)
     import redis_bus
     if redis_bus.get_sync_client() is not None:
         for scope, k in (("ip", ip_key), ("user", user_key)):
@@ -115,6 +87,8 @@ def _check_rate_limit(ip: str, username: str) -> None:
             if rem and rem > 0:
                 raise RateLimited(int(rem), f"{scope}:{k}")
         return
+    from .security_policy import read
+    window = read()["rate_window_minutes"] * 60
     now = time.monotonic()
     with _FAIL_LOCK:
         # 检查 IP 锁定
@@ -130,8 +104,8 @@ def _check_rate_limit(ip: str, username: str) -> None:
         elif unlock_user:
             _LOCKED_UNTIL_USER.pop(user_key, None)
         # 清理窗口外记录（只读，不计数）
-        _FAIL_BUCKETS_IP[ip_key] = [t for t in _FAIL_BUCKETS_IP.get(ip_key, []) if now - t < _IP_WINDOW_SEC]
-        _FAIL_BUCKETS_USER[user_key] = [t for t in _FAIL_BUCKETS_USER.get(user_key, []) if now - t < _USER_WINDOW_SEC]
+        _FAIL_BUCKETS_IP[ip_key] = [t for t in _FAIL_BUCKETS_IP.get(ip_key, []) if now - t < window]
+        _FAIL_BUCKETS_USER[user_key] = [t for t in _FAIL_BUCKETS_USER.get(user_key, []) if now - t < window]
 
 
 def _ip_budget_exceeded(bucket: str, ip: str, limit: int, window_sec: int = 600) -> bool:
@@ -154,19 +128,24 @@ def _ip_budget_exceeded(bucket: str, ip: str, limit: int, window_sec: int = 600)
 def _record_login_fail(ip: str, username: str) -> int:
     """记录一次失败。返回 username bucket 内累计失败次数。超阈值会被锁定。"""
     # P2-5: 分别记录 per-IP 和 per-username bucket
+    from .security_policy import read
+    cfg = read()
+    window = cfg["rate_window_minutes"] * 60
+    lockout = cfg["login_lock_duration_min"] * 60
+    user_limit = min(cfg["rate_limit_per_user"], cfg["login_lock_threshold"])
     ip_key = ip or "-"
     # [round-3-P2] 用 normalize_username 做规范键(不只 .lower()):调用方虽多已先归一,
     # 但内部统一规范可彻底消除「同一账号经不同表示得到不同限流桶」的绕过面(只会合并桶,不会放宽)。
-    user_key = normalize_username(username)
+    user_key = _login_identifier(username)
     import redis_bus
     if redis_bus.get_sync_client() is not None:
-        ip_cnt = redis_bus.rate_incr(f"loginfail:ip:{ip_key}", _IP_WINDOW_SEC) or 0
-        if ip_cnt >= _IP_MAX_FAILS:
-            redis_bus.lock_set(f"login:ip:{ip_key}", LOGIN_LOCKOUT_SEC)
+        ip_cnt = redis_bus.rate_incr(f"loginfail:ip:{ip_key}", window) or 0
+        if ip_cnt >= cfg["rate_limit_per_ip"]:
+            redis_bus.lock_set(f"login:ip:{ip_key}", lockout)
             redis_bus.rate_reset(f"loginfail:ip:{ip_key}")  # 锁定即清计数,避免锁到期后一击复锁
-        user_cnt = redis_bus.rate_incr(f"loginfail:user:{user_key}", _USER_WINDOW_SEC) or 0
-        if user_cnt >= _USER_MAX_FAILS:
-            redis_bus.lock_set(f"login:user:{user_key}", LOGIN_LOCKOUT_SEC)
+        user_cnt = redis_bus.rate_incr(f"loginfail:user:{user_key}", window) or 0
+        if user_cnt >= user_limit:
+            redis_bus.lock_set(f"login:user:{user_key}", lockout)
             # 关键:锁定后清空固定窗口计数器。否则计数 TTL(600s)≫ 锁定 TTL(60s),
             # 锁到期后计数仍 ≥ 阈值,用户再失败 1 次就立即复锁,反复锁死 ~9 分钟。
             # 清零后锁到期需重新累积满阈值才再锁,语义与进程内滑动窗口一致。
@@ -178,16 +157,16 @@ def _record_login_fail(ip: str, username: str) -> int:
         # per-IP bucket
         ip_bucket = _FAIL_BUCKETS_IP.setdefault(ip_key, [])
         ip_bucket.append(now)
-        ip_bucket[:] = [t for t in ip_bucket if now - t < _IP_WINDOW_SEC]
-        if len(ip_bucket) >= _IP_MAX_FAILS:
-            _LOCKED_UNTIL_IP[ip_key] = now + LOGIN_LOCKOUT_SEC
+        ip_bucket[:] = [t for t in ip_bucket if now - t < window]
+        if len(ip_bucket) >= cfg["rate_limit_per_ip"]:
+            _LOCKED_UNTIL_IP[ip_key] = now + lockout
         # per-username bucket
         user_bucket = _FAIL_BUCKETS_USER.setdefault(user_key, [])
         user_bucket.append(now)
-        user_bucket[:] = [t for t in user_bucket if now - t < _USER_WINDOW_SEC]
+        user_bucket[:] = [t for t in user_bucket if now - t < window]
         count = len(user_bucket)
-        if count >= _USER_MAX_FAILS:
-            _LOCKED_UNTIL_USER[user_key] = now + LOGIN_LOCKOUT_SEC
+        if count >= user_limit:
+            _LOCKED_UNTIL_USER[user_key] = now + lockout
     _write_audit(username, ip, "login_fail", {"count": count})
     return count
 
@@ -196,7 +175,7 @@ def _record_login_success(ip: str, username: str) -> None:
     ip_key = ip or "-"
     # [round-3-P2] 用 normalize_username 做规范键(不只 .lower()):调用方虽多已先归一,
     # 但内部统一规范可彻底消除「同一账号经不同表示得到不同限流桶」的绕过面(只会合并桶,不会放宽)。
-    user_key = normalize_username(username)
+    user_key = _login_identifier(username)
     import redis_bus
     if redis_bus.get_sync_client() is not None:
         for scope, k in (("ip", ip_key), ("user", user_key)):
@@ -261,7 +240,7 @@ def admin_unlock(ip: str, username: str) -> None:
     ip_key = ip or "-"
     # [round-3-P2] 用 normalize_username 做规范键(不只 .lower()):调用方虽多已先归一,
     # 但内部统一规范可彻底消除「同一账号经不同表示得到不同限流桶」的绕过面(只会合并桶,不会放宽)。
-    user_key = normalize_username(username)
+    user_key = _login_identifier(username)
     # Redis 模式:清共享锁定键 + 失败计数
     try:
         import redis_bus
@@ -325,8 +304,8 @@ def register(
         raise ValueError("用户名不能为空")
     if len(password or "") > 1024:
         raise ValueError("密码超长")
-    if len(password or "") < MIN_PASSWORD_LENGTH:
-        raise ValueError(f"密码至少 {MIN_PASSWORD_LENGTH} 位")
+    from .security_policy import validate_password
+    validate_password(password)
 
     # ── REG-01: email 必填 ────────────────────────────────────────────────────
     email_norm = normalize_email(email)
@@ -415,21 +394,25 @@ def register(
         expires_at = datetime.now(UTC) + timedelta(minutes=10)
 
         # 失效同邮箱之前的未使用记录（防积累），再插入新记录
+        db.execute("select pg_advisory_xact_lock(hashtextextended(%s, 0))", (email_norm,))
         db.execute(
-            "update email_verifications set used_at = now() where lower(email) = %s and used_at is null and purpose = 'register'",
+            "update email_verifications set used_at = now(), pending_payload = null where lower(email) = %s and used_at is null and purpose = 'register'",
             (email_norm,),
         )
-        db.execute(
+        verification = db.execute(
             """
             insert into email_verifications
               (email, code_hash, purpose, expires_at, ip, ua)
-            values (%s, %s, 'register', %s, %s, %s)
+            values (%s, %s, 'register', %s, %s, %s) returning id
             """,
             # SEC(H-7): ua 列存真实 user-agent,不再塞含 password_hash 的 pending_json。
             (email_norm, code_h, expires_at, ip or "", (ua or "")[:512]),
-        )
-
-    _pending_store_set(email_norm, _encode_pending_register(pending_payload))
+        ).fetchone()
+        from utils.crypto import encrypt_api_key
+        encrypted = encrypt_api_key(_encode_pending_register(pending_payload), 0,
+                                    f"registration:{verification['id']}")
+        db.execute("update email_verifications set pending_payload=%s where id=%s",
+                   (encrypted, verification["id"]))
 
     # ── 本地/自托管模式:跳过邮箱验证 ──────────────────────────────────────────
     # 开源用户反馈:自托管没有 RESEND_API_KEY → 验证码发不出(Resend 403)→ 卡注册,
@@ -465,51 +448,15 @@ def register(
     return {"ok": True, "pending_verify": True, "email_mask": _mask_email(email_norm)}
 
 
-# 进程内 pending 注册缓存(回退用);跨 worker 走 Redis(见 _pending_store_*)
-_PENDING_REGISTER: dict[str, str] = {}
-_PENDING_TTL_SEC = 1800  # 待确认注册暂存有效期(覆盖 10 分钟验证码 + resend)
-
-
-def _pending_redis_key(email_norm: str) -> str:
-    return f"rpg:pending_reg:{email_norm}"
-
-
-def _pending_store_set(email_norm: str, pending_json: str) -> None:
-    """SEC(H-7): 跨 worker 暂存待确认注册(内含 Argon2 password_hash)。优先 Redis(有 TTL、
-    生产多 worker 共享),回退进程内 dict。**不再写入 email_verifications.ua**——那是 DB 明文
-    哈希暴露面(DB 读权限即可离线爆破未完成注册的密码)。"""
-    _PENDING_REGISTER[email_norm] = pending_json
-    try:
-        import redis_bus
-        c = redis_bus.get_sync_client()
-        if c is not None:
-            c.setex(_pending_redis_key(email_norm), _PENDING_TTL_SEC, pending_json)
-    except Exception:
-        pass
-
-
-def _pending_store_get(email_norm: str, *, consume: bool = False) -> str | None:
-    val = _PENDING_REGISTER.get(email_norm)
-    if val is None:
-        try:
-            import redis_bus
-            c = redis_bus.get_sync_client()
-            if c is not None:
-                raw = c.get(_pending_redis_key(email_norm))
-                if raw is not None:
-                    val = raw.decode() if isinstance(raw, (bytes, bytearray)) else str(raw)
-        except Exception:
-            val = None
-    if consume:
-        _PENDING_REGISTER.pop(email_norm, None)
-        try:
-            import redis_bus
-            c = redis_bus.get_sync_client()
-            if c is not None:
-                c.delete(_pending_redis_key(email_norm))
-        except Exception:
-            pass
-    return val
+def _registration_payload(verification):
+    """Decrypt only the credentials bound to this locked verification record."""
+    from utils.crypto import decrypt_api_key
+    raw = decrypt_api_key(verification.get("pending_payload"), 0,
+                          f"registration:{verification['id']}")
+    pending = _decode_pending_register(raw)
+    if not pending:
+        raise ValueError("注册会话已过期，请重新注册")
+    return pending
 
 
 def _encode_pending_register(payload: dict[str, Any]) -> str:
@@ -704,6 +651,7 @@ def confirm_email_verification(email: str, code: str) -> tuple[dict[str, Any], s
 
     with connect() as db:
         # 查有效 verif 记录
+        db.execute("select pg_advisory_xact_lock(hashtextextended(%s, 0))", (email_norm,))
         verif = db.execute(
             """
             select * from email_verifications
@@ -711,8 +659,8 @@ def confirm_email_verification(email: str, code: str) -> tuple[dict[str, Any], s
               and purpose = 'register'
               and used_at is null
               and expires_at > now()
-            order by created_at desc
-            limit 1
+            order by created_at desc, id desc
+            limit 1 for update
             """,
             (email_norm,),
         ).fetchone()
@@ -724,13 +672,9 @@ def confirm_email_verification(email: str, code: str) -> tuple[dict[str, Any], s
             raise ValueError("验证码错误")
         _clear_verify_fail(email_norm)  # 验证通过,清失败计数 + 解锁
 
-        # 取 pending 注册参数。优先读进程缓存；若部署重启导致缓存丢失，
-        # 从 email_verifications.ua 中恢复，保证验证码窗口内仍可完成注册。
-        # SEC(H-7): 从 Redis/进程内取 pending(不再从 ua 列恢复 password_hash)。
-        pending_json = _pending_store_get(email_norm, consume=True)
-        pending = _decode_pending_register(pending_json)
-        if not pending:
-            raise ValueError("注册会话已过期，请重新注册")
+        pending = _registration_payload(verif)
+        _assert_email_not_banned(db, email_norm)
+        _registration_gate(db, email_norm, pending.get("invite_code"))
 
         allow_admin = (
             bool(pending.get("allow_admin"))
@@ -806,7 +750,7 @@ def confirm_email_verification(email: str, code: str) -> tuple[dict[str, Any], s
 
         # 标记验证码已使用。放在用户创建之后，避免 pending 恢复失败时吞掉有效验证码。
         db.execute(
-            "update email_verifications set used_at = now() where id = %s",
+            "update email_verifications set used_at = now(), pending_payload = null where id = %s",
             (verif["id"],),
         )
 
@@ -846,7 +790,8 @@ def _issue_session(db, user_id: int) -> str:
             (user_id, int(active_count) - 19),
         )
     token = secrets.token_urlsafe(32)
-    expires_at = datetime.now(UTC) + timedelta(days=SESSION_DAYS)
+    from .security_policy import read
+    expires_at = datetime.now(UTC) + timedelta(days=read(db)["session_timeout_days"])
     db.execute(
         "insert into sessions(token, token_hash, user_id, expires_at) values (%s, %s, %s, %s)",
         ("", _hash_token(token), user_id, expires_at),
@@ -909,9 +854,15 @@ def verify_apple_identity_token(identity_token: str, raw_nonce: str = "") -> dic
     return {"sub": sub, "email": email, "email_verified": claims.get("email_verified") in (True, "true", "1")}
 
 
+def _assert_email_not_banned(db, email_norm: str) -> None:
+    if db.execute("select 1 from banned_users where email_norm=%s limit 1", (email_norm,)).fetchone():
+        raise ValueError("该邮箱已被限制注册")
+
+
 def _assert_registration_allowed(db, email_norm: str) -> None:
     """Apple 新建账号的准入:关闭注册一律拒;allowlist/invite 下邮箱必须在白名单
     (Apple 登录没有邀请码输入);open/dev 不拦。模式读取与密码注册同源(registration_mode)。"""
+    _assert_email_not_banned(db, email_norm)
     mode = _assert_new_accounts_open(db)
     if mode in ("allowlist", "invite") and not _email_allowlisted(db, email_norm):
         raise ValueError("该邮箱不在内测白名单。本批次仅向早期预约者开放。")
@@ -932,7 +883,7 @@ def login_or_create_apple_user(apple_sub: str, email: str = "", name: str = "") 
     apple_sub = (apple_sub or "").strip()
     if not apple_sub:
         raise ValueError("缺 apple_sub")
-    email_norm = (email or "").strip().lower()
+    email_norm = normalize_email(email)
     with connect() as db:
         row = db.execute("select * from users where apple_sub = %s", (apple_sub,)).fetchone()
         if row:
@@ -1045,12 +996,20 @@ def set_account_password(user_id: int, password: str) -> None:
     """设/改/清除本地账户密码。空字符串 = 清除(回到回环免登录)。
     不撤销现有 session(避免把正打开的浏览器/控制台踢掉)。"""
     pw = password or ""
+    from core.config import effective_auth_required
+    from .security_policy import validate_password
+    if pw:
+        validate_password(pw)
+    elif effective_auth_required():
+        raise ValueError("服务器模式不能清除密码")
     pw_hash = hash_password(pw) if pw else None
     with connect() as db:
         db.execute(
             "update users set password_hash = %s, updated_at = now() where id = %s",
             (pw_hash, int(user_id)),
         )
+        from .federation import revoke_account_tokens
+        revoke_account_tokens(db, user_id)
 
 
 def create_desktop_login_token(user_id: int) -> str:
@@ -1151,8 +1110,8 @@ def register_via_invite(
     username = normalize_username(username)
     if not username:
         raise ValueError("用户名不能为空")
-    if len(password or "") < MIN_PASSWORD_LENGTH:
-        raise ValueError(f"密码至少 {MIN_PASSWORD_LENGTH} 位")
+    from .security_policy import validate_password
+    validate_password(password)
     if len(password or "") > 1024:
         raise ValueError("密码超长")
     init_db()
@@ -1332,7 +1291,7 @@ def login(username: str, password: str, *, ip: str = "") -> tuple[dict[str, Any]
         raise ValueError("密码超长")
     init_db()
     normalized = normalize_username(username)
-    _check_rate_limit(ip, normalized)  # 锁定中直接抛 RateLimited
+    _check_rate_limit(ip, _login_identifier(username))  # 锁定中直接抛 RateLimited
     with connect() as db:
         # 先尝试 username，再尝试 email（REG-01：支持邮箱登录）
         row = db.execute(
@@ -1351,6 +1310,8 @@ def login(username: str, password: str, *, ip: str = "") -> tuple[dict[str, Any]
             _record_login_fail(ip, normalized)
             raise ValueError("用户名或密码错误")
 
+        normalized = row["username"]
+        _check_rate_limit(ip, normalized)
         ok, needs_rehash = verify_password_with_rehash(row["password_hash"], password)
         if not ok:
             _record_login_fail(ip, normalized)
@@ -1365,35 +1326,7 @@ def login(username: str, password: str, *, ip: str = "") -> tuple[dict[str, Any]
             )
             _log.info("rehashed password to argon2id for user_id=%s", row["id"])
 
-        token = secrets.token_urlsafe(32)
-        # 使用 timezone-aware UTC 时间, 避免 server 本地时区漂移 session 过期
-        expires_at = datetime.now(UTC) + timedelta(days=SESSION_DAYS)
-
-        # P2-2: 并发会话上限 20，超出时驱逐最旧的会话
-        active_count = db.execute(
-            "select count(*) as n from sessions where user_id = %s and expires_at > now()",
-            (row["id"],),
-        ).fetchone()["n"]
-        if active_count >= 20:
-            evict_count = int(active_count) - 19
-            db.execute(
-                """
-                delete from sessions where id in (
-                  select id from sessions
-                  where user_id = %s and expires_at > now()
-                  order by created_at asc
-                  limit %s
-                )
-                """,
-                (row["id"], evict_count),
-            )
-
-        # 安全:DB 只存 token 的 sha256 哈希,不存可直接使用的明文(拖库不得有效会话)
-        # 注: token 列保留为 '' 兼容老 schema, 后续 migration 删除该列
-        db.execute(
-            "insert into sessions(token, token_hash, user_id, expires_at) values (%s, %s, %s, %s)",
-            ("", _hash_token(token), row["id"], expires_at),
-        )
+        token = _issue_session(db, int(row["id"]))
         _record_login_success(ip, normalized)
         return dict(row), token
 
@@ -1412,6 +1345,7 @@ def user_from_token(token: str | None) -> dict[str, Any] | None:
     if not token:
         return None
     init_db()
+    from .security_policy import read
     with connect() as db:
         # 仅按 token_hash 查找。旧明文行已不接受 — 拖库后历史 token 立即失效。
         # P1-1: 加 users.deactivated_at IS NULL，停用账号的 token 立即失效
@@ -1421,9 +1355,10 @@ def user_from_token(token: str | None) -> dict[str, Any] | None:
             join users on users.id = sessions.user_id
             where sessions.token_hash = %s
               and sessions.expires_at > now()
+              and sessions.created_at + (%s * interval '1 day') > now()
               and users.deactivated_at is null
             """,
-            (_hash_token(token),),
+            (_hash_token(token), read(db)["session_timeout_days"]),
         ).fetchone()
         return dict(row) if row else None
 
@@ -1478,27 +1413,19 @@ def resend_verification_code(email: str, ip: str = "") -> None:
 
     init_db()
     with connect() as db:
-        # SEC(H-7): pending 只从 Redis/进程内取(不再从 ua 列恢复 password_hash)。
-        pending = _decode_pending_register(_pending_store_get(email_norm))
-        if not pending:
-            raise ValueError("注册会话已过期，请重新注册")
-
-        pending_json = _encode_pending_register(pending)
-        _pending_store_set(email_norm, pending_json)
-
-        # 废弃旧记录，发新验证码
-        db.execute(
-            "update email_verifications set used_at = now() where lower(email) = %s and used_at is null and purpose = 'register'",
+        db.execute("select pg_advisory_xact_lock(hashtextextended(%s, 0))", (email_norm,))
+        verification = db.execute(
+            "select * from email_verifications where lower(email)=%s and purpose='register' "
+            "and used_at is null and expires_at>now() order by created_at desc,id desc limit 1 for update",
             (email_norm,),
-        )
+        ).fetchone()
+        if not verification:
+            raise ValueError("注册会话已过期，请重新注册")
+        _registration_payload(verification)
         code = generate_email_code(6)
-        code_h = hash_email_code(code)
-        from datetime import timedelta as _td
-        expires_at = datetime.now(UTC) + _td(minutes=10)
         db.execute(
-            "insert into email_verifications (email, code_hash, purpose, expires_at, ip, ua) values (%s, %s, 'register', %s, %s, %s)",
-            # SEC(H-7): ua 列存真实 user-agent,不再塞含 password_hash 的 pending_json。
-            (email_norm, code_h, expires_at, ip or "", str(pending.get("ua") or "")[:512]),
+            "update email_verifications set code_hash=%s, expires_at=now()+interval '10 minutes' where id=%s",
+            (hash_email_code(code), verification["id"]),
         )
 
     from .email import EmailSendError, send_verification_email
@@ -1720,6 +1647,7 @@ def verify_passwordless_and_login(email: str, code: str, ip: str = "") -> dict:
         if user_row is None:
             # 未注册 = 新建账号:先过注册闸(关闭注册一律拒,与密码注册 / Apple 一致),再查白名单。
             # 抛错时整个事务回滚,上面消费掉的验证码也还原。
+            _assert_email_not_banned(db, email_norm)
             _assert_new_accounts_open(db)
             # 未注册：必须在白名单里
             wl_row = db.execute(
@@ -1794,6 +1722,7 @@ def login_via_magic_token(email: str, ip: str = "", *, magic_token: str = "") ->
         if user_row is None:
             # 未注册 = 新建账号:先过注册闸(关闭注册一律拒,与密码注册 / Apple 一致)。
             # 魔法链接只在这里被消费,拒掉时链接保持未用,重新开放注册后还能用。
+            _assert_email_not_banned(db, email_norm)
             _assert_new_accounts_open(db)
             # 未注册:必须在白名单(magic token 已通过 consume_magic_token 校验,这里二次保险)
             wl_row = db.execute(
@@ -1867,8 +1796,8 @@ def confirm_password_reset(token: str, new_password: str, ip: str = "") -> dict:
     """
     if not token:
         raise ValueError("invalid_token")
-    if len(new_password or "") < MIN_PASSWORD_LENGTH:
-        raise ValueError(f"密码至少 {MIN_PASSWORD_LENGTH} 位")
+    from .security_policy import validate_password
+    validate_password(new_password)
     if len(new_password or "") > 1024:
         raise ValueError("密码超长")
 
@@ -1921,6 +1850,8 @@ def confirm_password_reset(token: str, new_password: str, ip: str = "") -> dict:
                    (pw_hash, user["id"]))
         # used_at 已在上面的原子 UPDATE 消费,无需重复置
         # 安全：重置密码后废除所有旧 session
+        from .federation import revoke_account_tokens
+        revoke_account_tokens(db, user["id"])
         db.execute("DELETE FROM sessions WHERE user_id = %s", (user["id"],))
 
     _log.info("password_reset: user_id=%s ip=%s", user["id"], ip)

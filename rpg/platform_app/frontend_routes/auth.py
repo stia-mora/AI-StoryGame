@@ -28,8 +28,8 @@ async def api_change_password(request: Request):
     body = await request.json()
     cur_pw = body.get("current") or ""
     next_pw = body.get("next") or ""
-    if len(next_pw) < _auth.MIN_PASSWORD_LENGTH:
-        return _bad(f"新密码至少 {_auth.MIN_PASSWORD_LENGTH} 位")
+    from ..security_policy import validate_password
+    validate_password(next_pw)
     init_db()
     with connect() as db:
         row = db.execute("select password_hash from users where id = %s", (user["id"],)).fetchone()
@@ -42,6 +42,8 @@ async def api_change_password(request: Request):
             "update users set password_hash = %s, row_version = row_version + 1, updated_at = now() where id = %s",
             (hash_password(next_pw), user["id"]),
         )
+        from ..federation import revoke_account_tokens
+        revoke_account_tokens(db, user["id"])
         # Optional: revoke all OTHER sessions (keep current cookie).
         # 用 token_hash 而非明文 token — 新会话 token=''，旧查法对新会话全部静默失效。
         token = request.cookies.get(SESSION_COOKIE)

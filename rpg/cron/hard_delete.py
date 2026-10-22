@@ -4,7 +4,7 @@
 且 completed_at IS NULL 的账号物理删除（级联所有用户数据）。
 
 用法:
-    from rpg.cron.hard_delete import run_hard_delete
+    from cron.hard_delete import run_hard_delete
     result = run_hard_delete(db)   # db = psycopg.Connection (dict_row)
 """
 from __future__ import annotations
@@ -35,6 +35,10 @@ logger = logging.getLogger(__name__)
 
 TABLES_USER_OWNED_ORDER: list[str] = [
     # --- 轻量 per-user 元数据（无子 FK 依赖）---
+    "player_ledger",
+    "player_requests",
+    "player_quotes",
+    "player_redemptions",
     "feedback_consent_log",
     "feedback",
     "splash_acks",
@@ -46,8 +50,6 @@ TABLES_USER_OWNED_ORDER: list[str] = [
     "import_jobs",
     # --- 人物卡 / 身份卡（合并多态表，user_id nullable）---
     "character_cards",         # user_id nullable，PC/persona 卡
-    "user_character_cards",    # 旧分立表（v28 前），保留兜底
-    "user_personas",           # 旧分立表（v28 前），保留兜底
     # --- 存档体系（game_saves 级联子表）---
     "user_runtime",            # user_id PK → CASCADE
     "game_saves",              # user_id → CASCADE（branch_commits/nodes/sessions/memories 全跟）
@@ -84,31 +86,38 @@ def run_hard_delete(db) -> dict:
 
     due_at_run = len(due_rows)
     deleted = 0
+    failed = 0
 
     for row in due_rows:
         user_id = row["user_id"]
         logger.info("hard_delete: starting deletion for user_id=%s", user_id)
 
         try:
-            # 先标 completed_at，避免幂等重复执行（即使 users 行已不存在也安全）
-            db.execute(
-                "update account_delete_queue set completed_at = now() where user_id = %s",
-                (user_id,),
-            )
-
-            # 显式按依赖顺序删（pgbouncer transaction 模式下安全）
-            for table in TABLES_USER_OWNED_ORDER:
-                if table in _SKIP_FOR_HARD_DELETE:
+            with db.transaction():
+                # Recovery and credential revocation use this same user -> queue lock order.
+                db.execute("select id from users where id=%s for update", (user_id,)).fetchone()
+                eligible = db.execute(
+                    "update account_delete_queue set completed_at=now() where user_id=%s "
+                    "and completed_at is null and scheduled_hard_delete_at<=now() returning user_id", (user_id,),
+                ).fetchone()
+                if not eligible:
                     continue
-                db.execute(f"delete from {table} where user_id = %s", (user_id,))
 
-            # 最后删主行（触发 ON DELETE CASCADE 清理剩余 FK）
-            db.execute("delete from users where id = %s", (user_id,))
+                db.execute("delete from player_llm_calls where request_id in (select id from player_requests where user_id=%s)", (user_id,))
+                # 显式按依赖顺序删（pgbouncer transaction 模式下安全）
+                for table in TABLES_USER_OWNED_ORDER:
+                    if table in _SKIP_FOR_HARD_DELETE:
+                        continue
+                    db.execute(f"delete from {table} where user_id = %s", (user_id,))
+
+                # 最后删主行（触发 ON DELETE CASCADE 清理剩余 FK）
+                db.execute("delete from users where id = %s", (user_id,))
 
             deleted += 1
             logger.info("hard_delete: done user_id=%s", user_id)
         except Exception:
+            failed += 1
             logger.exception("hard_delete: failed for user_id=%s", user_id)
             # 继续处理其他用户，不中止整批
 
-    return {"deleted": deleted, "due_at_run": due_at_run}
+    return {"deleted": deleted, "due_at_run": due_at_run, "failed": failed}

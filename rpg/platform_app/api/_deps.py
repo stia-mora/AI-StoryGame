@@ -154,10 +154,11 @@ def _cookie_security_kwargs(request: Request) -> dict:
 
 
 def _set_session_cookie(response: BaseJSONResponse, request: Request, token: str) -> None:
+    from ..security_policy import read
     response.set_cookie(
         SESSION_COOKIE,
         token,
-        max_age=auth.SESSION_DAYS * 24 * 60 * 60,
+        max_age=read()["session_timeout_days"] * 24 * 60 * 60,
         **_cookie_security_kwargs(request),
     )
 
@@ -317,9 +318,28 @@ def _client_ip(request: Request) -> str:
     tcp_ip = request.client.host if request.client else ""
     from core.config import trusted_proxies_raw as _trusted_proxies_raw
 
-    trusted = {ip.strip() for ip in _trusted_proxies_raw().split(",") if ip.strip()}
-    if tcp_ip and tcp_ip in trusted:
-        xff = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-        if xff:
-            return xff
+    from ipaddress import ip_address, ip_network
+    networks = []
+    for value in _trusted_proxies_raw().split(","):
+        try:
+            networks.append(ip_network(value.strip(), strict=False))
+        except ValueError:
+            continue
+    def trusted(value):
+        try:
+            return any(ip_address(value) in network for network in networks)
+        except ValueError:
+            return False
+    if trusted(tcp_ip):
+        # Walk from our trusted peer towards the client, ignoring spoofed left prefixes.
+        chain = [value.strip() for value in request.headers.get("x-forwarded-for", "").split(",") if value.strip()]
+        for value in reversed(chain):
+            try:
+                ip_address(value)
+            except ValueError:
+                return tcp_ip
+            if not trusted(value):
+                return value
+        if chain:
+            return chain[0]
     return tcp_ip
