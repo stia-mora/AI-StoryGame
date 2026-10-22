@@ -362,6 +362,9 @@
     base: BASE,
     raw: { GET, POST, PATCH, PUT, DEL, sseStream },
     player: {
+      catalog: () => GET(`${API_PREFIX}/player/catalog`),
+      session: () => GET(`${API_PREFIX}/player/session`),
+      history: (sid, before) => GET(`${API_PREFIX}/player/saves/${sid}/history?before=${before}`),
       bootstrap: () => GET(`${API_PREFIX}/player/bootstrap`),
       create: (body) => POST(`${API_PREFIX}/player/saves`, body),
       save: (id) => GET(`${API_PREFIX}/player/saves/${id}`),

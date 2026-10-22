@@ -18,7 +18,7 @@ beforeEach(() => {
   window.scrollTo = vi.fn();
   Element.prototype.scrollIntoView = vi.fn();
   window.api = {
-    player: {
+    player: { session: vi.fn().mockResolvedValue({ authenticated: true }),
       bootstrap: vi.fn().mockResolvedValue({
         user: { id: 1, name: "Test", creator: false, admin: false },
         wallet: { free_micro: 100000000, permanent_micro: 0 },

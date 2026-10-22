@@ -20,7 +20,10 @@ import { InviteScreen } from './components/login/InviteScreen.jsx';
 import { VerifyForm, MagicOtpForm, NeedsProfileForm, CodeLoginForm, ForgotForm, ResetForm, MainAuthForm } from './components/login/AuthForms.jsx';
 function LoginApp() {
   const { t } = useTranslation();
-  const [mode, setMode] = useState('login');     // 'login' | 'code-login' | 'register' | 'verify' | 'forgot' | 'reset' | 'magic-otp' | 'needs-profile'
+  const [mode, setMode] = useState('login');
+  const [recoveryEmail, setRecoveryEmail] = useState('');
+  const [recoveryCode, setRecoveryCode] = useState('');
+  const [recoverySent, setRecoverySent] = useState(false);
   const [schema, setSchema] = useState(null);    // { login: [...], register: [...], notes: {...} }
   const [schemaErr, setSchemaErr] = useState('');
   const [values, setValues] = useState({});      // {[fieldKey]: string}
@@ -63,11 +66,12 @@ function LoginApp() {
   // 1) 已登录直接走开 — 不要让用户重复登录
   useEffect(() => {
     let cancelled = false;
+    if (location.hash.startsWith("#reset") || new URLSearchParams(location.search).has("magic")) return;
     (async () => {
       try {
         const me = await window.api?.auth.me();
         if (!cancelled && me && me.user) {
-          window.api.auth.me().then(me => location.replace(__resolveNextOrDefault(me.user)));
+          location.replace(__resolveNextOrDefault(me.user));
         }
       } catch (_) { /* 未登录,正常停留 */ }
     })();
@@ -139,8 +143,10 @@ function LoginApp() {
           setNotice(t('auth.app.magic_login_ok'));
           setErr('');
           // 清掉 magic 参数防回退按钮重放
+          const me = await window.api.auth.me();
+          const target = __resolveNextOrDefault(me.user);
           try { history.replaceState(null, '', location.pathname); } catch (_) {}
-          setTimeout(() => { location.href = (j.needs_profile ? '/profile-setup' : '/profile'); }, 500);
+          location.replace(target);
         } else if (j.ok && j.next === 'otp') {
           // 旧版后端兼容(部署期回退)
           setMagicEmail(j.email || emailParam);
@@ -585,6 +591,22 @@ function LoginApp() {
     }
   };
 
+  const submitRecovery = async (event) => {
+    event.preventDefault();
+    setBusy(true); setErr(''); setNotice('');
+    try {
+      const response = await fetch(`${window.__API_BASE || ''}/api/auth/recovery/${recoverySent ? 'confirm' : 'request'}`, {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: recoveryEmail, code: recoveryCode }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || result.detail || '恢复失败，请重试');
+      if (recoverySent) location.replace(__resolveNextOrDefault(result.user));
+      else { setRecoverySent(true); setNotice('如该邮箱有宽限期内的删除申请，将收到验证码。验证码仅用于撤销删除申请，10 分钟内有效。'); }
+    } catch (error) { setErr(error.message); }
+    finally { setBusy(false); }
+  };
+
   const submitInvite = async (e) => {
     e?.preventDefault?.();
     setInviteErr('');
@@ -635,7 +657,7 @@ function LoginApp() {
           </div>
         </div>
 
-        {mode !== 'verify' && mode !== 'forgot' && mode !== 'reset' && mode !== 'magic-otp' && mode !== 'needs-profile' && (
+        {mode !== 'recovery' && mode !== 'verify' && mode !== 'forgot' && mode !== 'reset' && mode !== 'magic-otp' && mode !== 'needs-profile' && (
           <div className="pl-auth-tabs" role="tablist">
             <button type="button" role="tab"
                     className={mode === 'login' ? 'active' : ''}
@@ -653,6 +675,17 @@ function LoginApp() {
                     data-tip={registrationClosed ? t('auth.registration_closed_tip') : undefined}>{t('auth.register_tab')}</button>
           </div>
         )}
+
+        {mode === 'recovery' && <form onSubmit={submitRecovery} className="pl-auth-form pl-auth-recovery">
+          <h2>撤销账户删除</h2>
+          <p>申请删除后的 30 天宽限期内，通过已验证邮箱恢复账户。封禁账户不能在这里恢复。</p>
+          <label htmlFor="recovery-email">账户邮箱</label>
+          <input id="recovery-email" type="email" autoComplete="email" required value={recoveryEmail} disabled={recoverySent} onChange={(e) => setRecoveryEmail(e.target.value)} />
+          {recoverySent && <><label htmlFor="recovery-code">验证码</label><input id="recovery-code" inputMode="numeric" autoComplete="one-time-code" required maxLength={6} pattern="[0-9]{6}" value={recoveryCode} onChange={(e) => setRecoveryCode(e.target.value)} /></>}
+          {err && <p role="alert">{err}</p>}{notice && <p role="status">{notice}</p>}
+          <button className="btn primary" disabled={busy}>{busy ? '正在处理……' : recoverySent ? '验证并撤销删除' : '发送恢复验证码'}</button>
+          <button type="button" onClick={() => { setMode('login'); setErr(''); setNotice(''); setRecoverySent(false); }}>返回登录</button>
+        </form>}
 
         {/* ── 验证码步骤 ─────────────────────────────────────────────── */}
         {mode === 'verify' && (
@@ -695,10 +728,12 @@ function LoginApp() {
         )}
 
         {/* ── 登录 / 注册表单 ────────────────────────────────────────── */}
-        {mode !== 'verify' && mode !== 'code-login' && mode !== 'forgot' && mode !== 'reset' && mode !== 'magic-otp' && mode !== 'needs-profile' && <MainAuthForm
+        {mode !== 'recovery' && mode !== 'verify' && mode !== 'code-login' && mode !== 'forgot' && mode !== 'reset' && mode !== 'magic-otp' && mode !== 'needs-profile' && <MainAuthForm
           submit={submit} schemaErr={schemaErr} schema={schema} fields={fields} values={values} setField={setField}
           err={err} notice={notice} mode={mode} turnstileSitekey={turnstileSitekey} tsRef={tsRef} busy={busy} minPw={minPw}
           setForgotEmail={setForgotEmail} setErr={setErr} setNotice={setNotice} setMode={setMode} />}
+        {mode === 'login' && <button type="button" className="pl-auth-link" onClick={() => { setMode('recovery'); setErr(''); setNotice(''); }}>撤销账户删除申请</button>}
+        <a className="pl-auth-link" href="/play">游客浏览故事</a>
       </div>
     </div>
   );

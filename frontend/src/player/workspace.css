@@ -1572,3 +1572,22 @@
     animation: none;
   }
 }
+
+/* Public lobby, account menu and reusable player guidance. */
+.player-account { position: relative; font-size: .8125rem; }
+.player-account > summary { list-style: none; padding: 8px; }
+.player-account-menu { position: absolute; right: 0; top: 100%; z-index: 50; width: min(260px, calc(100vw - 24px)); padding: 16px; display: grid; gap: 12px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: 0 8px 24px var(--shadow); overflow-wrap: anywhere; }
+.player-account-menu button { min-height: 44px; text-align: left; }
+.player-onboarding { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0 20px; color: var(--muted); font-size: .875rem; }
+.player-help-dialog { width: min(640px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); margin: auto; padding: 24px; color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; overflow-y: auto; }
+.player-help-dialog::backdrop { background: oklch(10% .01 255 / 60%); }
+.player-help-dialog ol { padding-left: 24px; }
+.player-help-dialog li { margin-block: 20px; line-height: 1.7; }
+.player-help-dialog p { margin-block: 8px; overflow-wrap: anywhere; }
+.player-help-dialog button { min-width: 44px; min-height: 44px; }
+.guest-story-details h2 { font-size: 1rem; margin-top: 28px; }
+@media (max-width: 600px) {
+  .player-header > .player-brand span { display: none; }
+  .player-onboarding { align-items: flex-start; flex-direction: column; gap: 0; }
+  .player-help-dialog { padding: 20px; }
+}

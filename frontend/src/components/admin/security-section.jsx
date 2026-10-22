@@ -91,22 +91,22 @@ export function AdminSecurityPage() {
               <CSFormField label={t('admin_page.security.field_max_per_ip')}>
                 <CSInput
                   type="number"
-                  value={String(d.rate_limit?.max_per_ip ?? '')}
-                  onChange={({ detail }) => upd('rate_limit.max_per_ip', Number(detail.value))}
+                  value={String(d.rate_limit_per_ip ?? '')}
+                  onChange={({ detail }) => upd('rate_limit_per_ip', Number(detail.value))}
                 />
               </CSFormField>
               <CSFormField label={t('admin_page.security.field_max_per_user')}>
                 <CSInput
                   type="number"
-                  value={String(d.rate_limit?.max_per_user ?? '')}
-                  onChange={({ detail }) => upd('rate_limit.max_per_user', Number(detail.value))}
+                  value={String(d.rate_limit_per_user ?? '')}
+                  onChange={({ detail }) => upd('rate_limit_per_user', Number(detail.value))}
                 />
               </CSFormField>
               <CSFormField label={t('admin_page.security.field_window_min')}>
                 <CSInput
                   type="number"
-                  value={String(d.rate_limit?.window_minutes ?? '')}
-                  onChange={({ detail }) => upd('rate_limit.window_minutes', Number(detail.value))}
+                  value={String(d.rate_window_minutes ?? '')}
+                  onChange={({ detail }) => upd('rate_window_minutes', Number(detail.value))}
                 />
               </CSFormField>
             </CSColumnLayout>
@@ -120,16 +120,16 @@ export function AdminSecurityPage() {
               <CSFormField label={t('admin_page.security.field_min_length')}>
                 <CSInput
                   type="number"
-                  value={String(d.password?.min_length ?? '')}
-                  onChange={({ detail }) => upd('password.min_length', Number(detail.value))}
+                  value={String(d.password_min_length ?? '')}
+                  onChange={({ detail }) => upd('password_min_length', Number(detail.value))}
                 />
               </CSFormField>
               <CSFormField label={t('admin_page.security.field_require_digit')}>
                 <CSToggle
-                  checked={!!d.password?.require_digit}
-                  onChange={({ detail }) => upd('password.require_digit', detail.checked)}
+                  checked={!!d.password_require_numbers}
+                  onChange={({ detail }) => upd('password_require_numbers', detail.checked)}
                 >
-                  {d.password?.require_digit ? t('admin_page.security.digit_yes') : t('admin_page.security.digit_no')}
+                  {d.password_require_numbers ? t('admin_page.security.digit_yes') : t('admin_page.security.digit_no')}
                 </CSToggle>
               </CSFormField>
             </CSColumnLayout>
@@ -141,8 +141,8 @@ export function AdminSecurityPage() {
           <CSFormField label={t('admin_page.security.field_session_timeout')}>
             <CSInput
               type="number"
-              value={String(d.session?.timeout_days ?? '')}
-              onChange={({ detail }) => upd('session.timeout_days', Number(detail.value))}
+              value={String(d.session_timeout_days ?? '')}
+              onChange={({ detail }) => upd('session_timeout_days', Number(detail.value))}
               style={{ maxWidth: 200 }}
             />
           </CSFormField>
@@ -154,15 +154,15 @@ export function AdminSecurityPage() {
             <CSFormField label={t('admin_page.security.field_max_attempts')}>
               <CSInput
                 type="number"
-                value={String(d.lockout?.max_attempts ?? '')}
-                onChange={({ detail }) => upd('lockout.max_attempts', Number(detail.value))}
+                value={String(d.login_lock_threshold ?? '')}
+                onChange={({ detail }) => upd('login_lock_threshold', Number(detail.value))}
               />
             </CSFormField>
             <CSFormField label={t('admin_page.security.field_lockout_minutes')}>
               <CSInput
                 type="number"
-                value={String(d.lockout?.lockout_minutes ?? '')}
-                onChange={({ detail }) => upd('lockout.lockout_minutes', Number(detail.value))}
+                value={String(d.login_lock_duration_min ?? '')}
+                onChange={({ detail }) => upd('login_lock_duration_min', Number(detail.value))}
               />
             </CSFormField>
           </CSColumnLayout>

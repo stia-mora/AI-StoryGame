@@ -70,3 +70,18 @@ export function plGoto(id, opts = {}) {
   } catch (_) { /* 弹窗被拦 → 落到整页导航 */ }
   try { window.location.assign(url); } catch (_) {}
 }
+
+export const PL_PAGE_IDS = [
+  'profile', 'scripts', 'modules', 'saves', 'cards', 'cards-online', 'library', 'settings',
+  'me', 'me-edit', 'me-settings', 'saves-branches', 'scripts-import', 'cards-npc', 'cards-online',
+  // 新 IA 子页(Cloudscape 迁移后):剧本 / 开始游戏 / 设置&账户 各模块的左栏子页
+  'scripts-library', 'scripts-editor', 'scripts-settings', 'play-settings',
+  'settings-models', 'settings-modelparams', 'settings-modules', 'settings-memory',
+  'settings-permissions', 'settings-account', 'settings-danger', 'admin-deploy',
+  'admin-users', 'admin-usage', 'admin-audit', 'admin-health',
+  'admin-logs', 'admin-registration', 'admin-security', 'admin-maintenance',
+  'admin-dmca-takedowns', 'admin-dmca-strikes', 'admin-csam-reports', 'admin-aup-actions',
+  'admin-feedback', 'admin-achievements',
+  'usage', 'plugins', 'mcp', 'skills', 'apis', 'feedback', 'device', 'wall',
+  'tavern', 'rath', 'md-editor',
+];

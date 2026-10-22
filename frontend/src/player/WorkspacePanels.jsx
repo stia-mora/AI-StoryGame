@@ -267,6 +267,8 @@ export function InformationPanel({ view, onRead }) {
 
 export function SaveRail({
   view,
+  loadEarlier,
+  historyBusy,
   saves = [],
   navigate,
   rounds,
@@ -300,6 +302,7 @@ export function SaveRail({
         <Check size={13} />
         {busy ? saveState : "已自动保存"}
       </div>
+      {view.history_before && <button className="text-button" disabled={historyBusy} onClick={loadEarlier}>{historyBusy ? "正在加载……" : "加载更早回合"}</button>}
       <nav className="workspace-rounds" aria-label="回合记录">
         {rounds
           .slice()

@@ -49,7 +49,7 @@ function SectionSecurity({ nav }) {
   const numField = (label, path, placeholder) => (
     <div key={path}>
       <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>{label}</div>
-      <input type="number" value={String(d[path.split('.')[0]]?.[path.split('.')[1]] ?? '')}
+      <input type="number" value={String(d[path] ?? '')}
         onChange={(e) => upd(path, Number(e.target.value))}
         placeholder={placeholder}
         style={{ width: '100%', background: 'var(--panel-2)', border: '1px solid var(--line)', borderRadius: 10, padding: '8px 10px', color: 'var(--text)', fontSize: 14, fontFamily: 'inherit', boxSizing: 'border-box' }}
@@ -70,30 +70,30 @@ function SectionSecurity({ nav }) {
               <div className="pl-sec">
                 <div className="pl-sec-head"><h2>{t('mobile.admin.security.rate_limit_heading')}</h2></div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  {numField(t('mobile.admin.security.max_per_ip'), 'rate_limit.max_per_ip', '100')}
-                  {numField(t('mobile.admin.security.max_per_user'), 'rate_limit.max_per_user', '50')}
-                  {numField(t('mobile.admin.security.window_minutes'), 'rate_limit.window_minutes', '60')}
+                  {numField(t('mobile.admin.security.max_per_ip'), 'rate_limit_per_ip', '100')}
+                  {numField(t('mobile.admin.security.max_per_user'), 'rate_limit_per_user', '50')}
+                  {numField(t('mobile.admin.security.window_minutes'), 'rate_window_minutes', '60')}
                 </div>
               </div>
 
               <div className="pl-sec">
                 <div className="pl-sec-head"><h2>{t('mobile.admin.security.password_heading')}</h2></div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  {numField(t('mobile.admin.security.min_length'), 'password.min_length', '8')}
+                  {numField(t('mobile.admin.security.min_length'), 'password_min_length', '8')}
                 </div>
-                <div className="pl-row" style={{ cursor: 'pointer', marginTop: 8 }} onClick={() => upd('password.require_digit', !d.password?.require_digit)}>
-                  <span className={`pl-row-ic ${d.password?.require_digit ? 'ok' : ''}`}><Icon name={d.password?.require_digit ? 'check' : 'close'} size={17} /></span>
+                <div className="pl-row" style={{ cursor: 'pointer', marginTop: 8 }} onClick={() => upd('password_require_numbers', !d.password_require_numbers)}>
+                  <span className={`pl-row-ic ${d.password_require_numbers ? 'ok' : ''}`}><Icon name={d.password_require_numbers ? 'check' : 'close'} size={17} /></span>
                   <span className="pl-row-tx"><strong style={{ fontSize: 13.5 }}>{t('mobile.admin.security.require_digit')}</strong></span>
-                  <span style={{ fontSize: 12, color: d.password?.require_digit ? 'var(--ok)' : 'var(--muted)' }}>{d.password?.require_digit ? t('mobile.admin.yes') : t('mobile.admin.no')}</span>
+                  <span style={{ fontSize: 12, color: d.password_require_numbers ? 'var(--ok)' : 'var(--muted)' }}>{d.password_require_numbers ? t('mobile.admin.yes') : t('mobile.admin.no')}</span>
                 </div>
               </div>
 
               <div className="pl-sec">
                 <div className="pl-sec-head"><h2>{t('mobile.admin.security.session_heading')}</h2></div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  {numField(t('mobile.admin.security.session_timeout'), 'session.timeout_days', '30')}
-                  {numField(t('mobile.admin.security.max_attempts'), 'lockout.max_attempts', '5')}
-                  {numField(t('mobile.admin.security.lockout_minutes'), 'lockout.lockout_minutes', '15')}
+                  {numField(t('mobile.admin.security.session_timeout'), 'session_timeout_days', '30')}
+                  {numField(t('mobile.admin.security.max_attempts'), 'login_lock_threshold', '5')}
+                  {numField(t('mobile.admin.security.lockout_minutes'), 'login_lock_duration_min', '15')}
                 </div>
               </div>
 

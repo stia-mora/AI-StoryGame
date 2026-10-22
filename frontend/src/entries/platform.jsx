@@ -39,7 +39,7 @@ import RathPage from '../pages/rath.jsx';
 import { SettingsPage } from '../pages/settings.jsx';
 import { FeedbackPage } from '../pages/feedback.jsx';
 import { DeviceAuthorizePage } from '../pages/device.jsx';
-import { plPathToPage, plNavigate, plPageToPath } from '../router.js';
+import { PL_PAGE_IDS, plPathToPage, plNavigate, plPageToPath } from '../router.js';
 
 // 本文档 = Platform SPA。plGoto() 据此决定「无刷新换页」还是「新标签打开」——
 // 显式置位,不让下游再去 /Platform\.html/ 或 data-screen-label 上猜(干净路由后已失准)。
@@ -84,20 +84,7 @@ const MOBILE_V2_MAX_WIDTH = 600;
 
 // 合法 page id 全集(History 路由 /<id> 校验用)。settings-deploy 等旧别名在 router.js
 // PL_HASH_ALIASES 里归一。
-const PL_IDS = [
-  ...((PL_NAV || []).filter((i) => i.id).map((i) => i.id)),
-  'me', 'me-edit', 'me-settings', 'saves-branches', 'scripts-import', 'cards-npc', 'cards-online',
-  // 新 IA 子页(Cloudscape 迁移后):剧本 / 开始游戏 / 设置&账户 各模块的左栏子页
-  'scripts-library', 'scripts-editor', 'scripts-settings', 'play-settings',
-  'settings-models', 'settings-modelparams', 'settings-modules', 'settings-memory',
-  'settings-permissions', 'settings-account', 'settings-danger', 'admin-deploy',
-  'admin-users', 'admin-usage', 'admin-audit', 'admin-health',
-  'admin-logs', 'admin-registration', 'admin-security', 'admin-maintenance',
-  'admin-dmca-takedowns', 'admin-dmca-strikes', 'admin-csam-reports', 'admin-aup-actions',
-  'admin-feedback', 'admin-achievements',
-  'usage', 'plugins', 'mcp', 'skills', 'apis', 'feedback', 'device', 'wall',
-  'tavern', 'rath', 'md-editor',
-];
+const PL_IDS = PL_PAGE_IDS;
 function parsePage() {
   return plPathToPage(PL_IDS);
 }

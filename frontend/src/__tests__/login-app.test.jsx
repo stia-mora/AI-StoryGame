@@ -56,6 +56,15 @@ describe('LoginApp', () => {
     expect(container).toBeTruthy();
   });
 
+  it('keeps an explicit password reset page even with an existing session', async () => {
+    history.replaceState({}, '', '/Login.html#reset?token=test-reset-token');
+    window.api.auth.me.mockResolvedValue({ user: { id: 1 } });
+    render(<LoginApp />);
+    await waitFor(() => expect(document.querySelector('input[type="password"]')).toBeTruthy());
+    expect(window.api.auth.me).not.toHaveBeenCalled();
+    history.replaceState({}, '', '/Login.html');
+  });
+
   it('fetches auth schema on mount', async () => {
     render(<LoginApp />);
     await waitFor(() => {

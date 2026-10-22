@@ -46,6 +46,11 @@ import {
   actionLabel,
 } from "./shared.jsx";
 
+function mergeMessages(older, newer) {
+  const entries = new Map([...older, ...newer].map((message) => [message.id, message]));
+  return [...entries.values()].sort((a, b) => parseInt(a.id) - parseInt(b.id) || (a.role === "user" ? -1 : 1));
+}
+
 export function Reader({
   saveId,
   uid,
@@ -69,6 +74,7 @@ export function Reader({
     [away, setAway] = useState(false),
     [saveState, setSaveState] = useState("已保存");
   const [quoteRevision, setQuoteRevision] = useState(0);
+  const [historyBusy, setHistoryBusy] = useState(false);
   const [selectedId, setSelectedId] = useState(null),
     [helperBusy, setHelperBusy] = useState(false);
   const changeAssistant = useCallback((open) => {
@@ -142,9 +148,20 @@ export function Reader({
     const v = await window.api.player.save(saveId);
     if (v.pending_action?.id)
       action.current = { ...v.pending_action, kind: "turn" };
-    if (mounted.current) setView(v);
+    if (mounted.current) setView((old) => old ? {
+      ...v, messages: mergeMessages(old.messages, v.messages), history_before: old.history_before,
+    } : v);
     return v;
   }, [saveId]);
+  const loadEarlier = async () => {
+    if (historyBusy || !view?.history_before) return;
+    setHistoryBusy(true);
+    try {
+      const page = await window.api.player.history(saveId, view.history_before);
+      if (mounted.current) setView((old) => ({ ...old, messages: mergeMessages(page.messages, old.messages), history_before: page.history_before }));
+    } catch (e) { if (mounted.current) setError(e.message); }
+    finally { if (mounted.current) setHistoryBusy(false); }
+  };
   const finish = useCallback(
     async (id) => {
       try {
@@ -436,6 +453,8 @@ export function Reader({
       onRead={readRound}
       busy={busy || helperBusy}
       saveState={saveState}
+      loadEarlier={loadEarlier}
+      historyBusy={historyBusy}
     />
   );
   const information = <InformationPanel view={view} onRead={readRound} />;

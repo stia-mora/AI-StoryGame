@@ -24,12 +24,27 @@ import { Reader } from "./Reader.jsx";
 import { Wallet } from "./Wallet.jsx";
 import { Manage } from "./Manage.jsx";
 import { MartialSoulPicker } from "./MartialSoulPicker.jsx";
+import { PlayerHelp } from "./PlayerHelp.jsx";
 
 export function PlayerApp() {
   const [path, setPath] = useState(location.pathname);
   const [data, setData] = useState(null),
     [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const login = () => location.assign(`/Login.html?next=${encodeURIComponent(location.pathname)}`);
+  const logout = async () => {
+    setSigningOut(true);
+    try {
+      await window.api.auth.logout();
+      setData(null);
+      location.replace("/play");
+    } catch (e) {
+      setError(`退出失败：${e.message}。请重试。`);
+      setSigningOut(false);
+    }
+  };
   const [prefs, setPrefs] = useState(() => {
     const saved = lsGetJSON("player-reading", {});
     const theme =
@@ -51,8 +66,11 @@ export function PlayerApp() {
   }, []);
   const reload = useCallback(async () => {
     try {
-      const result = await window.api.player.bootstrap();
-      if (!Array.isArray(result?.stories) || !result?.wallet)
+      const session = await window.api.player.session();
+      const result = session.authenticated
+        ? await window.api.player.bootstrap()
+        : { ...(await window.api.player.catalog()), user: null, saves: [], wallet: null };
+      if (!Array.isArray(result?.stories))
         throw new Error("玩家服务尚未启动，请刷新或重启后端服务。");
       setData(result);
       setError("");
@@ -92,7 +110,7 @@ export function PlayerApp() {
         跳到正文
       </a>
       <header className="player-header">
-        <button className="player-brand" onClick={() => navigate("/play")}>
+        <button aria-label="故事大厅" className="player-brand" onClick={() => navigate("/play")}>
           <BookOpen size={25} weight="light" />
           <span>故事之间</span>
         </button>
@@ -104,6 +122,7 @@ export function PlayerApp() {
           故事大厅
         </button>
         <nav aria-label="玩家导航">
+          <button className="text-button" onClick={() => setHelpOpen(true)}>指引</button>
           <button
             className="icon-button"
             aria-label={prefs.night ? "切换日间阅读" : "切换夜间阅读"}
@@ -111,20 +130,33 @@ export function PlayerApp() {
           >
             {prefs.night ? <Sun size={21} /> : <Moon size={21} />}
           </button>
-          <button
+          {data?.user && <button
             className="wallet-link"
             onClick={() => navigate("/play/wallet")}
           >
             <Coins size={19} />
             <span>
-              {data
+              {data?.wallet
                 ? points(data.wallet.free_micro + data.wallet.permanent_micro)
                 : "—"}{" "}
               积分
             </span>
-          </button>
+          </button>}
+          {data?.user ? (
+            <details className="player-account" onKeyDown={(event) => {
+              if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary").focus(); }
+            }}>
+              <summary aria-label="账户菜单">账户</summary>
+              <div className="player-account-menu">
+                <strong>{data.user.name}</strong>
+                <button disabled={signingOut} onClick={logout}>{signingOut ? "正在退出……" : "退出登录 / 切换账号"}</button>
+              </div>
+            </details>
+          ) : <button className="text-button" onClick={login}>登录 / 注册</button>}
         </nav>
       </header>
+      <PlayerHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
+      {data && error && <div className="player-shell" role="alert"><Notice error>{error}</Notice></div>}
       {!data ? (
         error ? (
           <main id="player-main" className="player-shell">
@@ -134,6 +166,12 @@ export function PlayerApp() {
         ) : (
           <Loading />
         )
+      ) : !data.user && (saveId || path === "/play/wallet" || path === "/play/manage") ? (
+        <main id="player-main" className="player-shell">
+          <Empty title="登录后继续">存档、游玩和积分信息仅对本人开放。</Empty>
+          <Button onClick={login}>登录后继续</Button>
+          <Button onClick={() => navigate("/play")}>浏览故事</Button>
+        </main>
       ) : saveId ? (
         <Reader
           key={saveId}
@@ -147,11 +185,11 @@ export function PlayerApp() {
         />
       ) : path === "/play/wallet" ? (
         <Wallet refresh={reload} navigate={navigate} />
-      ) : path === "/play/manage" && data.user.admin ? (
+      ) : path === "/play/manage" && data.user?.admin ? (
         <Manage navigate={navigate} />
       ) : storyId ? (
         story ? (
-          <Start story={story} navigate={navigate} refresh={reload} />
+          <Start key={story.id} story={story} navigate={navigate} refresh={reload} guest={!data.user} login={login} />
         ) : (
           <main id="player-main" className="player-shell">
             <Empty title="故事暂未上架">可以返回故事书架，选择其他故事。</Empty>
@@ -173,6 +211,10 @@ export function PlayerApp() {
               />
             </label>
           </div>
+          {(!data.user || data.saves.length === 0) && <div className="player-onboarding">
+            <span>{data.user ? "选择故事与身份，开始你的第一段冒险。" : "以游客身份浏览故事，登录后创建角色并保存进度。"}</span>
+            <button className="text-button" onClick={() => setHelpOpen(true)}>查看游玩指引</button>
+          </div>}
           {data.saves.length > 0 && (
             <section className="continue-story">
               <span className="continue-label"><Clock size={18} />最近游玩</span>
@@ -231,8 +273,8 @@ export function PlayerApp() {
           )}
           <footer className="player-footer">
             <span>开局和行动按实际模型用量消耗积分，阅读存档免费。</span>
-            {data.user.creator && <a href="/Platform.html">创作工作台</a>}
-            {data.user.admin && (
+            {data.user?.creator && <a href="/Platform.html">创作工作台</a>}
+            {data.user?.admin && (
               <button onClick={() => navigate("/play/manage")}>
                 玩家服务管理
               </button>
@@ -244,7 +286,7 @@ export function PlayerApp() {
   );
 }
 
-export function Start({ story, navigate, refresh }) {
+export function Start({ story, navigate, refresh, guest = false, login }) {
   const [identity, setIdentity] = useState(
     String(story.identities[0]?.id || ""),
   );
@@ -287,7 +329,12 @@ export function Start({ story, navigate, refresh }) {
           <span className="eyebrow">你会是谁？</span>
           <h1>{story.title}</h1>
           <p className="muted">{story.introduction}</p>
-          <form onSubmit={start}>
+          {guest ? <div className="guest-story-details">
+            <h2>可选身份</h2>
+            {story.identities.map((i) => <p key={i.id}><strong>{i.name}</strong><br />{i.description || i.role}</p>)}
+            <Button onClick={login}>登录后创建角色</Button>
+            <p className="fine-print">创建角色免费，生成前会显示积分估算与费用上限。</p>
+          </div> : <form onSubmit={start}>
             <fieldset>
               <legend>选择一个起点</legend>
               {story.identities.map((i) => (
@@ -346,7 +393,7 @@ export function Start({ story, navigate, refresh }) {
             <p className="fine-print">
               创建角色免费。进入后会先显示开场的积分估算，由你开始生成。
             </p>
-          </form>
+          </form>}
         </section>
       </div>
     </main>

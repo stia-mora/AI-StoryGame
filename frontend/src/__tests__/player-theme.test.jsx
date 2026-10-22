@@ -11,7 +11,7 @@ beforeEach(() => {
   window.scrollTo = vi.fn();
   media = { matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() };
   vi.stubGlobal("matchMedia", vi.fn(() => media));
-  window.api = { player: { bootstrap: vi.fn().mockResolvedValue({
+  window.api = { player: { session: vi.fn().mockResolvedValue({ authenticated: true }), bootstrap: vi.fn().mockResolvedValue({
     user: { id: 1 }, wallet: { free_micro: 1000000, permanent_micro: 0 }, stories: [], saves: [],
   }) } };
 });

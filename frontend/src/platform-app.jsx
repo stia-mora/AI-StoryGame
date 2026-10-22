@@ -529,7 +529,7 @@ function PlatformShellCS({ page, setPage, children, assistant, assistantOpen, on
   const onUserMenu = ({ detail }) => {
     const id = detail.id;
     if (id === 'signout') {
-      (async () => { try { await window.api?.auth?.logout?.(); } catch (_) {} location.replace('Login.html'); })();
+      (async () => { try { await window.api.auth.logout(); location.replace('/Login.html'); } catch (error) { __platformToast.fire(`退出失败：${error.message}，请重试`, { kind: 'danger' }); } })();
     } else if (id === 'feedback') {
       setFeedbackOpen(true);
     } else if (id === 'help') {

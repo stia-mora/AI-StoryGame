@@ -2170,3 +2170,8 @@ button, a, [role="button"], .btn, .iconbtn, summary, label {
   .pl-stat { border-right: 0; border-bottom: 1px solid var(--line-soft); }
   .pl-table { font-size: 12px; }
 }
+
+/* Login recovery and the public player entry. */
+.pl-auth .pl-auth-link { display: inline-flex; align-items: center; min-height: 44px; margin-right: 16px; padding: 4px 0; border: 0; background: transparent; color: var(--accent); font-size: 13px; cursor: pointer; }
+.pl-auth-recovery input, .pl-auth-recovery button { min-height: 44px; }
+.pl-auth-recovery p { line-height: 1.65; overflow-wrap: anywhere; }

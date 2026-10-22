@@ -1,15 +1,21 @@
+import { PL_PAGE_IDS, PL_HASH_ALIASES } from "../../router.js";
 // nextTarget.js — resolve post-login redirect target.
-// Mechanically split out of login-app.jsx; body byte-for-byte unchanged.
-
-const __DEFAULT_NEXT = 'Platform.html';
+// Validate browser-normalized same-origin routes before navigating.
 
 export function __resolveNextOrDefault(user) {
-  if (user?.account_mode === 'player' && user?.role !== 'admin') return '/play';
+  const player = user?.account_mode === 'player' && user?.role !== 'admin';
+  const fallback = player ? '/play' : '/Platform.html';
   try {
-    const raw = new URLSearchParams(location.search).get('next') || '';
-    if (!raw) return __DEFAULT_NEXT;
-    // 拒绝绝对 URL / 协议相对 URL / 包含换行的输入(开放重定向防御)
-    if (/^[a-z][a-z0-9+.\-]*:|^\/\//i.test(raw) || /[\r\n]/.test(raw)) return __DEFAULT_NEXT;
-    return raw;
-  } catch (_) { return __DEFAULT_NEXT; }
+    const values = new URLSearchParams(location.search).getAll('next');
+    if (values.length !== 1) return fallback;
+    const raw = values[0];
+    if (!raw || /[\\\u0000-\u0020\u007f]/.test(raw)) return fallback;
+    const target = new URL(raw, location.origin);
+    if (!['http:', 'https:'].includes(target.protocol) || target.origin !== location.origin) return fallback;
+    const play = /^\/play(?:\/(?:saves\/\d+|stories\/\d+|wallet|manage))?\/?$/.test(target.pathname) || target.pathname === '/Player.html';
+    const page = target.pathname.replace(/^\/|\/$/g, '');
+    const creator = page === 'Platform.html' || PL_PAGE_IDS.includes(PL_HASH_ALIASES[page] || page);
+    if (!play && (player || !creator)) return fallback;
+    return target.pathname + target.search + target.hash;
+  } catch (_) { return fallback; }
 }
