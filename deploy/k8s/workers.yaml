@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rpg-postproc
+  namespace: rpg
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rpg-postproc
+  template:
+    metadata:
+      labels:
+        app: rpg-postproc
+    spec:
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: worker
+          image: rpg-server:latest
+          command: [python, -m, scripts.run_postproc_worker]
+          envFrom:
+            - configMapRef:
+                name: rpg-server-config
+            - secretRef:
+                name: rpg-server-secrets
+          env:
+            - name: DATABASE_URL
+              value: "postgres://rpg:$(POSTGRES_PASSWORD)@postgres-svc:5432/rpg"
+          volumeMounts:
+            - name: player-files
+              mountPath: /app/data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: player-files
+          persistentVolumeClaim:
+            claimName: rpg-player-files
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: rpg-retention
+  namespace: rpg
+spec:
+  schedule: "0 3 * * *" # Cluster timezone; set your operational schedule explicitly.
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+          containers:
+            - name: cron
+              image: rpg-server:latest
+              command: [python, -m, scripts.run_cron, all]
+              envFrom:
+                - configMapRef:
+                    name: rpg-server-config
+                - secretRef:
+                    name: rpg-server-secrets
+              env:
+                - name: DATABASE_URL
+                  value: "postgres://rpg:$(POSTGRES_PASSWORD)@pgbouncer-svc:6432/rpg"
+              volumeMounts:
+                - name: player-files
+                  mountPath: /app/data
+          volumes:
+            - name: player-files
+              persistentVolumeClaim:
+                claimName: rpg-player-files

@@ -1,0 +1,12 @@
+# All replicas and postproc consumers must mount the SAME ReadWriteMany filesystem.
+# Set storageClassName to your cluster's NFS/Ceph/shared-filesystem storage class.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rpg-player-files
+  namespace: rpg
+spec:
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: 20Gi

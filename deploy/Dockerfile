@@ -33,7 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # 非 root 运行
-RUN groupadd -r rpg && useradd -r -g rpg -s /bin/false rpg
+RUN groupadd -g 10001 rpg && useradd -u 10001 -g rpg -s /bin/false rpg
 
 WORKDIR /app
 
@@ -47,7 +47,7 @@ COPY rpg/ /app/rpg/
 COPY frontend/ /app/frontend/
 COPY --from=frontend /build/frontend/dist /app/frontend/dist
 
-RUN chown -R rpg:rpg /app
+RUN mkdir -p /app/data && chown -R rpg:rpg /app
 USER rpg
 
 # app.py 的 import 用裸模块名(from app / from core.config),工作目录必须在 rpg/
@@ -55,9 +55,9 @@ WORKDIR /app/rpg
 
 EXPOSE 7860
 
-# 健康检查:/api/state 始终 200(匿名也返回基础状态)
+# 就绪检查：无鉴权，数据库不可用时返回 503
 HEALTHCHECK --interval=15s --timeout=5s --start-period=40s --retries=3 \
-    CMD curl -sf http://localhost:7860/api/state || exit 1
+    CMD curl -sf http://localhost:7860/readyz || exit 1
 
 # Docker stop → SIGTERM → uvicorn 优雅 drain
 STOPSIGNAL SIGTERM

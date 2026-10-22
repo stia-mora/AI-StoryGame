@@ -56,6 +56,49 @@ jobs:
           --ignore=tests/unit/test_suggestions_cross_setting_filter.py
           --ignore=tests/unit/test_suggestions_no_berlin_leak.py
 
+  launch-readiness:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: rpg_launch_test
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/rpg_launch_test
+      PYTHON_DOTENV_DISABLED: "1"
+      RPG_DEPLOYMENT_MODE: local
+      RPG_REQUIRE_AUTH: "0"
+      RPG_MASTER_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      EMAIL_CODE_SECRET: "launch-ci-shared-test-key-not-for-production"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+        working-directory: rpg
+      - name: Migrate disposable database
+        working-directory: rpg
+        run: python -m platform_app.migrate full
+      - name: Seed explicit administrator fixture
+        working-directory: rpg
+        run: |
+          python - <<'PY'
+          from platform_app.db import connect
+          with connect() as db:
+              db.execute("insert into users(username,password_hash,display_name,role,account_mode) values('ci_admin','','CI admin','admin','creator')")
+          PY
+      - name: Authentication, lifecycle and player transaction gates
+        working-directory: rpg
+        run: >
+          python -m pytest -q tests/integration/test_launch_readiness.py
+          tests/integration/test_security_regressions.py tests/integration/test_player_credits.py
+          tests/test_account_lifecycle.py tests/test_register_full.py tests/test_register_consent.py
+          tests/test_password_reset.py tests/unit/test_launch_request_guards.py
+
   frontend:
     runs-on: ubuntu-latest
     steps:

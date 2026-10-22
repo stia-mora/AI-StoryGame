@@ -1,0 +1,21 @@
+# Run this Job to completion before applying/updating the web Deployment.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rpg-migrate
+  namespace: rpg
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: rpg-server:latest
+          command: [python, -m, platform_app.migrate, full]
+          envFrom:
+            - secretRef:
+                name: rpg-server-secrets
+          env:
+            - name: DATABASE_URL
+              value: "postgres://rpg:$(POSTGRES_PASSWORD)@postgres-svc:5432/rpg"

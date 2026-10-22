@@ -206,7 +206,7 @@ npm run build    # 产物在 frontend/dist/
 ```bash
 cd /opt/rpg-roleplay/rpg
 # 若无 rpg/.env.example，从测试服模板复制
-cp .env.example .env 2>/dev/null || cp ../deploy/test-server/.env.example .env
+cp ../deploy/production.env.example .env
 $EDITOR .env
 ```
 
@@ -217,6 +217,10 @@ $EDITOR .env
 | `DATABASE_URL` | **首次配成直连 5432**（migration 用）；migration 完成后改 6432 见 §6 | `postgresql://rpg:PASS@127.0.0.1:5432/rpg` |
 | `POSTGRES_PASSWORD` | 与 createuser 一致 | `openssl rand -base64 32` |
 | `REDIS_PASSWORD` | — | `openssl rand -base64 32` |
+| `RPG_DEPLOYMENT_MODE` / `RPG_REQUIRE_AUTH` | 固定 `server` / `1` | 生产必须启用 |
+| `EMAIL_CODE_SECRET` | 所有进程稳定共享；备份后安全保存 | `openssl rand -hex 32` |
+| `PUBLIC_BASE_URL` | 本站公网 HTTPS 源；邮件与设备回调使用 | `https://your-domain.com` |
+| `RPG_DATA_ROOT` | 持久化文件目录，与数据库一起备份 | `/var/lib/rpg/platform_data` |
 | `RPG_MASTER_KEY` | 泄露则所有用户 API key 可解 | `openssl rand -hex 32` |
 | `RPG_SETUP_TOKEN` | 首位 admin 注册令牌，用完即删 | `openssl rand -hex 32` |
 | `RESEND_API_KEY` | 注册验证邮件 | Resend dashboard |
@@ -250,7 +254,7 @@ DATABASE_URL=postgresql://rpg:CHANGE_ME@127.0.0.1:5432/rpg \
 > `up` 假设基线表已经存在。fresh DB 上直接跑 `up`
 > 会因为 ALTER TABLE 目标表不存在而失败。`full` 先建基线表再跑增量。
 >
-> `platform_app.migrate` 不自动读取 `rpg/.env`。这里显式把 `DATABASE_URL` 写在命令前，
+> `platform_app.migrate` 会读取 dotenv，但不会覆盖显式环境。这里将 `DATABASE_URL` 写在命令前，
 > 是为了确保 migration 走直连 5432，而不是运行时 PgBouncer 6432。
 
 ---
@@ -299,7 +303,8 @@ SyslogIdentifier=rpg-backend
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/opt/rpg-roleplay
+StateDirectory=rpg
+ReadWritePaths=/opt/rpg-roleplay /var/lib/rpg
 
 [Install]
 WantedBy=multi-user.target
@@ -368,6 +373,14 @@ worker 启动时若检测到 `:6432` 会立即崩溃并打印明确报错，防�
 
 ### 7.5.1 创建 systemd service
 
+先复制运行配置为专用 worker 环境文件，将其中 `DATABASE_URL` 改为 **5432 直连**，并限制权限：
+
+```bash
+sudo cp /opt/rpg-roleplay/rpg/.env /opt/rpg-roleplay/rpg/.env.postproc
+sudo chmod 600 /opt/rpg-roleplay/rpg/.env.postproc
+sudo $EDITOR /opt/rpg-roleplay/rpg/.env.postproc
+```
+
 ```bash
 sudo tee /etc/systemd/system/rpg-postproc.service <<'EOF'
 [Unit]
@@ -381,9 +394,8 @@ User=rpg
 Group=rpg
 WorkingDirectory=/opt/rpg-roleplay/rpg
 # 直连 5432！LISTEN/NOTIFY 不能过 PgBouncer 6432
-Environment="DATABASE_URL=postgresql://rpg:PASSWORD@127.0.0.1:5432/rpg"
-EnvironmentFile=/opt/rpg-roleplay/rpg/.env
-ExecStart=/opt/rpg-roleplay/rpg/.venv/bin/python -m rpg.scripts.run_postproc_worker
+EnvironmentFile=/opt/rpg-roleplay/rpg/.env.postproc
+ExecStart=/opt/rpg-roleplay/rpg/.venv/bin/python -m scripts.run_postproc_worker
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -398,8 +410,7 @@ sudo systemctl enable --now rpg-postproc
 sudo systemctl status rpg-postproc
 ```
 
-> 注意：`Environment="DATABASE_URL=..."` 那行必须写直连 5432 地址，
-> 即使 `EnvironmentFile` 里的 DATABASE_URL 是 6432 也会被上面一行覆盖。
+> 专用 `.env.postproc` 必须使用直连 5432；systemd 的 EnvironmentFile 会覆盖 Environment，不能依赖书写顺序覆盖 DSN。
 
 ### 7.5.2 查看日志
 
@@ -456,11 +467,15 @@ server {
 
     # 静态前端
     root /opt/rpg-roleplay/frontend/dist;
-    index Login.html;
+    index Player.html;
 
-    location / {
-        try_files $uri $uri/ /Login.html;
-    }
+    location = /play { try_files /Player.html =404; }
+    location ^~ /play/ { try_files $uri /Player.html; }
+    location = / { try_files /Player.html =404; }
+    location / { try_files $uri $uri/ /Platform.html; }
+    location = /livez { proxy_pass http://127.0.0.1:7860; }
+    location = /readyz { proxy_pass http://127.0.0.1:7860; }
+    client_max_body_size 50m;
 
     # 后端 API（含 SSE — 关闭 buffering）
     location /api/ {

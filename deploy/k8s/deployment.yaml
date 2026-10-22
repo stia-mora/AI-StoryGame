@@ -33,6 +33,11 @@ spec:
       terminationGracePeriodSeconds: 60
 
       serviceAccountName: rpg-server
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
 
       # 确保同一节点不会聚集过多副本
       topologySpreadConstraints:
@@ -65,6 +70,10 @@ spec:
               value: "postgres://rpg:$(POSTGRES_PASSWORD)@pgbouncer-svc:6432/rpg"
             - name: REDIS_URL
               value: "redis://:$(REDIS_PASSWORD)@redis-svc:6379"
+
+          volumeMounts:
+            - name: player-files
+              mountPath: /app/data
 
           # ─── 探针 ────────────────────────────────────────────────────────
           # livenessProbe: 进程是否存活(/livez 不检查 DB,只返回 200)
@@ -114,6 +123,11 @@ spec:
             preStop:
               exec:
                 command: ["sh", "-c", "sleep 5"]
+
+      volumes:
+        - name: player-files
+          persistentVolumeClaim:
+            claimName: rpg-player-files
 
       # ─── 镜像拉取 Secret(如使用私有 registry) ────────────────────────────
       # imagePullSecrets:

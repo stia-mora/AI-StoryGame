@@ -109,6 +109,8 @@ services:
     container_name: rpg-backend
     restart: unless-stopped
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       pgbouncer:
         condition: service_healthy
       redis:
@@ -126,8 +128,9 @@ services:
       # ── 多用户隔离(生产必须!)─────────────────────────────────────────
       # local/desktop/self_hosted 模式会把所有人当匿名 uid 0 共享一份 state。
       # 生产必须设非 local 模式 + 强制鉴权,否则 100 用户全部串档 = 灾难。
-      RPG_DEPLOYMENT_MODE: ${RPG_DEPLOYMENT_MODE:-multiuser}
-      RPG_REQUIRE_AUTH: ${RPG_REQUIRE_AUTH:-1}
+      RPG_DEPLOYMENT_MODE: server
+      RPG_REQUIRE_AUTH: "1"
+      RPG_ENV: prod
       # DB 连接池:100 用户峰值并发写,10 偏小,调 25(pgbouncer 在前再兜一层)
       RPG_DB_POOL_MAX: ${RPG_DB_POOL_MAX:-25}
       # uvicorn worker 数(6核默认 4,吃满多核;停止信号经 cluster DB 表跨 worker 安全)
@@ -135,12 +138,13 @@ services:
       # 服务器配置
       RPG_PORT: "7860"
       RPG_HOST: "0.0.0.0"
+      RPG_SKIP_AUTO_MIGRATE: "1"
       # CORS:同源服务(Python 挂 frontend/dist),设成你的真实域名
-      RPG_CORS_ORIGINS: ${RPG_CORS_ORIGINS:-https://play.stellatrix.icu}
+      RPG_CORS_ORIGINS: ${PUBLIC_BASE_URL:?必须设置本站 HTTPS 地址}
       RPG_COOKIE_SAMESITE: ${RPG_COOKIE_SAMESITE:-lax}
       RPG_COOKIE_SECURE: ${RPG_COOKIE_SECURE:-1}
       # 限流 / 超时 / 请求体
-      RPG_RATE_LIMIT_PER_MIN: ${RPG_RATE_LIMIT_PER_MIN:-100}
+      RPG_RATE_LIMIT_PER_MIN: ${RPG_RATE_LIMIT_PER_MIN:-600}
       RPG_REQUEST_TIMEOUT_SECS: ${RPG_REQUEST_TIMEOUT_SECS:-30}
       RPG_BODY_LIMIT_BYTES: ${RPG_BODY_LIMIT_BYTES:-2097152}
       RPG_UPLOAD_BODY_LIMIT_BYTES: ${RPG_UPLOAD_BODY_LIMIT_BYTES:-52428800}
@@ -149,8 +153,16 @@ services:
       EMBED_BASE_URL: ${EMBED_BASE_URL}
       EMBED_MODEL: ${EMBED_MODEL:-text-embedding-004}
       EMBED_API_KEY: ${EMBED_API_KEY}
+      EMAIL_CODE_SECRET: ${EMAIL_CODE_SECRET:?必须设置共享 EMAIL_CODE_SECRET}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?必须设置本站 HTTPS 地址}
+      RPG_DATA_ROOT: /app/data
+      RESEND_API_KEY: ${RESEND_API_KEY:?必须设置邮件服务}
+      RESEND_FROM: ${RESEND_FROM:?必须设置已验证发件地址}
+      RPG_SETUP_TOKEN: ${RPG_SETUP_TOKEN:-}
+    volumes:
+      - player_files:/app/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:7860/api/state || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:7860/readyz || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -167,24 +179,76 @@ services:
       - rpg-net
 
   # ─── 5. cron — 账号硬删 + 审计日志清理 ──────────────────────────────────────
+  migrate:
+    image: rpg-app:latest
+    command: ["python", "-m", "platform_app.migrate", "full"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://rpg:${POSTGRES_PASSWORD:?}@postgres:5432/rpg
+      RPG_MASTER_KEY: ${RPG_MASTER_KEY:?}
+    healthcheck:
+      disable: true
+    networks:
+      - rpg-net
+
+  postproc:
+    image: rpg-app:latest
+    restart: unless-stopped
+    command: ["python", "-m", "scripts.run_postproc_worker"]
+    healthcheck:
+      disable: true
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://rpg:${POSTGRES_PASSWORD:?}@postgres:5432/rpg
+      RPG_DEPLOYMENT_MODE: server
+      RPG_REQUIRE_AUTH: "1"
+      RPG_MASTER_KEY: ${RPG_MASTER_KEY:?}
+      EMAIL_CODE_SECRET: ${EMAIL_CODE_SECRET:?}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?}
+      RPG_CORS_ORIGINS: ${PUBLIC_BASE_URL:?}
+      RPG_DATA_ROOT: /app/data
+      REDIS_URL: redis://:${REDIS_PASSWORD:?}@redis:6379
+    volumes:
+      - player_files:/app/data
+    networks:
+      - rpg-net
+
   cron:
     image: rpg-app:latest
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+    healthcheck:
+      disable: true
     container_name: rpg-cron
     restart: unless-stopped
     command:
       - "/bin/sh"
       - "-c"
-      - "while true; do python -m rpg.scripts.run_cron all; sleep 86400; done"
+      - "while true; do python -m scripts.run_cron all; sleep 86400; done"
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       pgbouncer:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://rpg:${POSTGRES_PASSWORD:?必须设 POSTGRES_PASSWORD(勿用弱口令)}@pgbouncer:6432/rpg
-      RPG_MASTER_KEY: ${RPG_MASTER_KEY:?必须设 RPG_MASTER_KEY}
-      RPG_DEPLOYMENT_MODE: ${RPG_DEPLOYMENT_MODE:-multiuser}
+      DATABASE_URL: postgres://rpg:${POSTGRES_PASSWORD:?}@pgbouncer:6432/rpg
+      RPG_MASTER_KEY: ${RPG_MASTER_KEY:?}
+      RPG_DEPLOYMENT_MODE: server
+      RPG_SKIP_AUTO_MIGRATE: "1"
+      EMAIL_CODE_SECRET: ${EMAIL_CODE_SECRET:?}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM: ${RESEND_FROM:-}
+      RPG_DATA_ROOT: /app/data
+    volumes:
+      - player_files:/app/data
     networks:
       - rpg-net
     deploy:
@@ -197,6 +261,7 @@ services:
           memory: 64M
 
 volumes:
+  player_files:
   postgres_data:
   redis_data:
 

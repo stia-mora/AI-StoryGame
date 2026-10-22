@@ -80,6 +80,8 @@ services:
     container_name: rpg-backend
     restart: unless-stopped
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       pgbouncer:
         condition: service_started
       redis:
@@ -94,7 +96,7 @@ services:
       # 加密主密钥 — 拒绝启动如缺
       RPG_MASTER_KEY: ${RPG_MASTER_KEY:?必须设 RPG_MASTER_KEY=$(openssl rand -hex 32)}
 
-      RPG_DEPLOYMENT_MODE: multiuser
+      RPG_DEPLOYMENT_MODE: server
       RPG_REQUIRE_AUTH: "1"
       # task 63: 单 worker 已是瓶颈 (~80 并发对话),开放测试期提到 3
       # 3 worker × ~80 asyncio = ~240 并发对话。ECS06 4 vCPU 够撑。
@@ -105,15 +107,16 @@ services:
 
       RPG_PORT: "7860"
       RPG_HOST: "0.0.0.0"
+      RPG_SKIP_AUTO_MIGRATE: "1"
 
       # 反代识别 + HSTS 反代修正(B7 sonnet 实现)
       RPG_TRUSTED_PROXIES: "127.0.0.1,172.16.0.0/12,10.0.0.0/8"
 
-      RPG_CORS_ORIGINS: "https://rpg-roleplay.stellatrix.icu"
+      RPG_CORS_ORIGINS: ${PUBLIC_BASE_URL:?必须设置本站 HTTPS 地址}
       RPG_COOKIE_SAMESITE: "lax"
       RPG_COOKIE_SECURE: "1"
 
-      RPG_RATE_LIMIT_PER_MIN: "60"
+      RPG_RATE_LIMIT_PER_MIN: "600"
       RPG_REQUEST_TIMEOUT_SECS: "30"
       RPG_BODY_LIMIT_BYTES: "2097152"
       RPG_UPLOAD_BODY_LIMIT_BYTES: "52428800"
@@ -133,8 +136,13 @@ services:
       EMBED_BASE_URL: ${EMBED_BASE_URL}
       EMBED_MODEL: ${EMBED_MODEL:-text-embedding-004}
       EMBED_API_KEY: ${EMBED_API_KEY}
+      EMAIL_CODE_SECRET: ${EMAIL_CODE_SECRET:?必须设置共享 EMAIL_CODE_SECRET}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?必须设置本站 HTTPS 地址}
+      RPG_DATA_ROOT: /app/data
+    volumes:
+      - player_files:/app/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:7860/api/state || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:7860/readyz || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -142,8 +150,50 @@ services:
     networks:
       - rpg-net
 
+  migrate:
+    image: rpg-app:test
+    command: ["python", "-m", "platform_app.migrate", "full"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://rpg:${POSTGRES_PASSWORD:?}@postgres:5432/rpg
+      RPG_MASTER_KEY: ${RPG_MASTER_KEY:?}
+    healthcheck:
+      disable: true
+    networks:
+      - rpg-net
+
+  postproc:
+    image: rpg-app:test
+    restart: unless-stopped
+    command: ["python", "-m", "scripts.run_postproc_worker"]
+    healthcheck:
+      disable: true
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://rpg:${POSTGRES_PASSWORD:?}@postgres:5432/rpg
+      RPG_DEPLOYMENT_MODE: server
+      RPG_REQUIRE_AUTH: "1"
+      RPG_MASTER_KEY: ${RPG_MASTER_KEY:?}
+      EMAIL_CODE_SECRET: ${EMAIL_CODE_SECRET:?}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?}
+      RPG_CORS_ORIGINS: ${PUBLIC_BASE_URL:?}
+      RPG_DATA_ROOT: /app/data
+      REDIS_URL: redis://:${REDIS_PASSWORD:?}@redis:6379
+    volumes:
+      - player_files:/app/data
+    networks:
+      - rpg-net
+
   cron:
     image: rpg-app:test
+    healthcheck:
+      disable: true
     container_name: rpg-cron
     restart: unless-stopped
     command:
@@ -151,13 +201,22 @@ services:
       - "-c"
       - "while true; do python -m scripts.run_cron all; sleep 86400; done"
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       pgbouncer:
         condition: service_started
     environment:
       DATABASE_URL: postgres://rpg:${POSTGRES_PASSWORD:?}@pgbouncer:6432/rpg
       RPG_MASTER_KEY: ${RPG_MASTER_KEY:?}
-      RPG_DEPLOYMENT_MODE: multiuser
-      RESEND_API_KEY: ${RESEND_API_KEY}
+      RPG_DEPLOYMENT_MODE: server
+      RPG_SKIP_AUTO_MIGRATE: "1"
+      EMAIL_CODE_SECRET: ${EMAIL_CODE_SECRET:?}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM: ${RESEND_FROM:-}
+      RPG_DATA_ROOT: /app/data
+    volumes:
+      - player_files:/app/data
     networks:
       - rpg-net
 
@@ -182,6 +241,7 @@ services:
       - rpg-net
 
 volumes:
+  player_files:
   postgres_data:
   redis_data:
 
