@@ -180,7 +180,7 @@ export function Initialize({ story, uid, navigate, refresh, guest = false, login
                       <span className="setup-choice-copy"><strong>{item.name}</strong><span>{item.description}</span></span><ArrowRight size={16} aria-hidden="true" />
                     </button>
                   ))}
-                  {soul.allow_random && <button className="setup-random" disabled={busy} onClick={() => changeStep(nextStep("background"), { martial: { mode: "random", name: "" } }, true)}><Shuffle size={18} /><span className="setup-choice-copy"><strong>随机觉醒</strong><span>觉醒时揭晓，重试不会重抽。</span></span><ArrowRight size={16} aria-hidden="true" /></button>}
+                  {soul.allow_random && <button className="setup-random" disabled={busy} aria-pressed={setup.martial?.mode === "random"} onClick={() => changeStep(nextStep("background"), { martial: { mode: "random", name: "" } }, true)}><Shuffle size={18} /><span className="setup-choice-copy"><strong>随机觉醒</strong><span>觉醒时揭晓，重试不会重抽。</span></span><ArrowRight size={16} aria-hidden="true" /></button>}
                 </div>
               )}
               {!guest && setup.step === "background" && <Button quiet disabled={busy} onClick={() => changeStep("review", { background: "", backgroundDone: true }, true)}>{setup.background ? "清空背景，返回确认" : "跳过，使用当前设定"}</Button>}
