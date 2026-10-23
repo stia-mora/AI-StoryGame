@@ -12,6 +12,7 @@ const send = (label, value) => {
 };
 beforeEach(() => {
   localStorage.clear();
+  vi.clearAllMocks();
   window.api = { player: { create: vi.fn().mockResolvedValue({ save: { id: 99 } }) } };
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
@@ -37,6 +38,73 @@ it("restores both the current step and unsent text without creating a save", () 
   render(<Initialize {...props} />);
   expect(screen.getByLabelText("你的名字").value).toBe("未发送的名字");
   expect(window.api.player.create).not.toHaveBeenCalled();
+});
+
+it("keeps unsent drafts for each step while navigating and after reopening", () => {
+  const first = render(<Initialize {...props} />);
+  fireEvent.click(screen.getByRole("button", { name: "同龄伙伴" }));
+  fireEvent.change(screen.getByLabelText("你的名字"), { target: { value: "未发送的名字" } });
+  fireEvent.click(screen.getByRole("button", { name: "身份", exact: true }));
+  fireEvent.change(screen.getByLabelText("初始化设定"), { target: { value: "还在考虑的身份" } });
+  fireEvent.click(screen.getByRole("button", { name: "名字", exact: true }));
+  expect(screen.getByLabelText("你的名字")).toHaveValue("未发送的名字");
+  first.unmount();
+  render(<Initialize {...props} />);
+  fireEvent.click(screen.getByRole("button", { name: "身份", exact: true }));
+  expect(screen.getByLabelText("初始化设定")).toHaveValue("还在考虑的身份");
+  expect(window.api.player.create).not.toHaveBeenCalled();
+});
+
+it("edits a single confirmed field and returns directly to review without losing other settings", async () => {
+  render(<Initialize {...props} />);
+  fireEvent.click(screen.getByRole("button", { name: "同龄伙伴" }));
+  send("你的名字", "小林");
+  send("初始化设定", "想调查街灯异常。");
+  fireEvent.click(screen.getByRole("button", { name: "修改名字" }));
+  expect(screen.getByLabelText("你的名字")).toHaveValue("小林");
+  send("你的名字", "林晓");
+  expect(screen.getByRole("heading", { name: "确认角色设定" })).toBeTruthy();
+  expect(window.api.player.create).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "确认设定，进入故事" }));
+  await waitFor(() => expect(window.api.player.create).toHaveBeenCalledWith(expect.objectContaining({ name: "林晓", identity_id: "friend", background: "想调查街灯异常。" })));
+});
+
+it("keeps future steps unavailable until their prerequisites are confirmed", () => {
+  render(<Initialize {...props} />);
+  expect(screen.getByRole("button", { name: "名字", exact: true })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "背景", exact: true })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "确认", exact: true })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "武魂", exact: true })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "同龄伙伴" }));
+  expect(screen.getByRole("button", { name: "名字", exact: true })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "背景", exact: true })).toBeDisabled();
+  send("你的名字", "小林");
+  expect(screen.getByRole("button", { name: "背景", exact: true })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "确认", exact: true })).toBeDisabled();
+});
+
+it("opens the created save even when refreshing the lobby fails", async () => {
+  const refresh = vi.fn().mockRejectedValue(new Error("目录刷新失败"));
+  render(<Initialize {...props} refresh={refresh} />);
+  fireEvent.click(screen.getByRole("button", { name: "同龄伙伴" }));
+  send("你的名字", "小林");
+  fireEvent.click(screen.getByRole("button", { name: "跳过，使用当前设定" }));
+  fireEvent.click(screen.getByRole("button", { name: "确认设定，进入故事" }));
+  await waitFor(() => expect(props.navigate).toHaveBeenCalledWith("/play/saves/99"));
+  expect(window.api.player.create).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(localStorage.getItem("player-setup-44-538")).toBeNull();
+});
+
+it("restores an existing review and explicitly allows clearing its background", async () => {
+  localStorage.setItem("player-setup-44-538", JSON.stringify({ step: "review", identity: "friend", name: "小林", background: "旧背景", draft: "" }));
+  render(<Initialize {...props} />);
+  expect(screen.getByRole("button", { name: "确认设定，进入故事" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "修改背景" }));
+  expect(screen.getByLabelText("初始化设定")).toHaveValue("旧背景");
+  fireEvent.click(screen.getByRole("button", { name: "清空背景，返回确认" }));
+  fireEvent.click(screen.getByRole("button", { name: "确认设定，进入故事" }));
+  await waitFor(() => expect(window.api.player.create).toHaveBeenCalledWith(expect.objectContaining({ background: "" })));
 });
 
 it("locks creation while a request is outstanding and restores copy feedback after 2.5 seconds", async () => {

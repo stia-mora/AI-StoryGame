@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowUp, BookOpen, Check, Copy, PencilSimple, User } from "@phosphor-icons/react";
+import { ArrowLeft, ArrowUp, ArrowRight, BookOpen, CaretDown, Check, CircleNotch, Copy, PencilSimple, Shuffle, User } from "@phosphor-icons/react";
 import { lsGetJSON, lsRemove, lsSetJSON } from "../lib/storage.js";
 import { BookCover, Button, Notice } from "./shared.jsx";
 import { useComposerKeys } from "./useComposerKeys.js";
@@ -7,47 +7,93 @@ import { useComposerKeys } from "./useComposerKeys.js";
 export function Initialize({ story, uid, navigate, refresh, guest = false, login }) {
   const key = `player-setup-${uid || "guest"}-${story.id}`;
   const soul = story.martial_soul_creation;
-  const initial = { step: "identity", identity: "", custom: "", name: "", background: "", martial: null, draft: "" };
-  const [setup, setSetup] = useState(() => ({ ...initial, ...lsGetJSON(key, {}) }));
+  const steps = ["identity", "name", ...(soul ? ["soul"] : []), "background", "review"];
+  const [setup, setSetup] = useState(() => {
+    const saved = lsGetJSON(key, {});
+    return {
+      identity: "", custom: "", name: "", background: "", martial: null, draft: "", drafts: {},
+      ...saved,
+      step: steps.includes(saved.step) ? saved.step : "identity",
+      backgroundDone: saved.backgroundDone || saved.step === "review" || Boolean(saved.background),
+      reviewed: saved.reviewed || saved.step === "review",
+    };
+  });
   const [error, setError] = useState(""), [busy, setBusy] = useState(false), [copied, setCopied] = useState(false);
-  const inFlight = useRef(false), scroller = useRef(null), copyTimer = useRef(null), input = useRef(null), lastStep = useRef(setup.step);
+  const inFlight = useRef(false), copyTimer = useRef(null), input = useRef(null), question = useRef(null), scroller = useRef(null), lastStep = useRef(setup.step);
   const identity = story.identities.find((item) => String(item.id) === setup.identity);
   const identityName = setup.custom || identity?.name;
-  const patch = (value) => { setError(""); setSetup((old) => ({ ...old, draft: "", ...value })); };
+  const soulValid = !soul || (
+    (setup.martial?.mode === "random" && soul.allow_random) ||
+    (setup.martial?.mode === "custom" && soul.allow_custom && setup.martial.name?.trim()) ||
+    (setup.martial?.mode === "recommended" && soul.choices.some((item) => item.name === setup.martial.name))
+  );
+  const named = Boolean(identityName && setup.name.trim());
+  const ready = Boolean(named && soulValid && setup.backgroundDone);
+  const fields = [
+    { id: "identity", label: "身份", value: identityName, complete: Boolean(identityName), available: true },
+    { id: "name", label: "名字", value: setup.name, complete: Boolean(setup.name.trim()), available: Boolean(identityName) },
+    ...(soul ? [{ id: "soul", label: "武魂", value: setup.martial?.mode === "random" ? "随机觉醒" : setup.martial?.name, complete: Boolean(soulValid), available: named }] : []),
+    { id: "background", label: "背景", value: setup.background || (setup.backgroundDone ? "未补充" : "可选"), complete: Boolean(setup.backgroundDone), available: Boolean(named && soulValid) },
+  ];
+  const navigation = [...fields, { id: "review", label: "确认", complete: false, available: ready }];
+  const prompts = {
+    identity: ["你想以什么身份进入故事？", "选择一个推荐身份，或在下方写下自己的想法。"],
+    name: ["这个世界该怎样称呼你？", "写下你的角色名字。"],
+    soul: ["选择你的武魂", soul?.allow_custom ? "选择推荐武魂，也可以在下方输入名称。" : "从下方选项中选择武魂。"],
+    background: ["还有想带入故事的设定吗？", "经历、性格、目标都可以，也可以直接跳过。"],
+    review: ["确认角色设定", "每项设定都可以单独修改，确认后创建角色。"],
+  };
+  const maxLength = setup.step === "background" ? 1200 : setup.step === "identity" ? 80 : 40;
+  const canType = setup.step !== "soul" || soul?.allow_custom;
+  const reviewed = setup.step === "review";
+  const summaryText = fields.map((field) => `${field.label}：${field.value || "待设定"}`).join("\n");
+
+  const changeStep = (next, values = {}, submitted = false) => {
+    if (inFlight.current) return;
+    setError("");
+    setCopied(false);
+    clearTimeout(copyTimer.current);
+    setSetup((old) => {
+      const updated = { ...old, ...values };
+      const drafts = { ...old.drafts, [old.step]: submitted ? "" : old.draft };
+      const existing = {
+        identity: updated.custom,
+        name: updated.name,
+        soul: updated.martial?.mode === "custom" ? updated.martial.name : "",
+        background: updated.background,
+      };
+      // Submitted values become edit fallbacks; other unsent steps survive.
+      if (submitted) delete drafts[old.step];
+      return { ...updated, step: next, drafts, draft: drafts[next] ?? existing[next] ?? "", reviewed: updated.reviewed || next === "review" };
+    });
+  };
+  const nextStep = (normal) => setup.reviewed ? "review" : normal;
   useEffect(() => { lsSetJSON(key, setup); }, [key, setup]);
   useEffect(() => {
-    if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
-    if (lastStep.current !== setup.step) input.current?.focus({ preventScroll: true });
+    if (lastStep.current === setup.step) return;
+    if (scroller.current && question.current) {
+      scroller.current.scrollTop += question.current.getBoundingClientRect().top - scroller.current.getBoundingClientRect().top - 16;
+    }
+    if (input.current && !input.current.disabled) input.current.focus({ preventScroll: true });
+    else question.current?.focus({ preventScroll: true });
     lastStep.current = setup.step;
   }, [setup.step]);
   useEffect(() => () => clearTimeout(copyTimer.current), []);
-  const prompts = {
-    identity: "先选一个身份。你也可以直接写下自己想扮演的人。",
-    name: "这个世界该怎样称呼你？发送你的角色名字。",
-    soul: "你想觉醒什么武魂？点击推荐项，也可以填写自己的武魂名称，或选择随机觉醒。",
-    background: "还有想带入故事的经历、性格或目标吗？写在下方，也可以直接跳过。",
-    review: "设定已整理好。确认后创建角色，接下来在这里查看开场报价，再决定开始生成。",
-  };
-  const summary = [
-    ["身份", identityName, "identity"], ["名字", setup.name, "name"],
-    ...(soul ? [["武魂", setup.martial?.mode === "random" ? "随机觉醒" : setup.martial?.name, "soul"]] : []),
-    ["背景", setup.background || "未补充", "background"],
-  ];
-  const summaryText = summary.map(([label, value]) => `${label}：${value || "待设定"}`).join("\n");
+
   const send = (event) => {
     event.preventDefault();
-    if (inFlight.current) return;
+    if (guest || inFlight.current || !canType) return;
     const text = setup.draft.trim();
     if (!text) return;
-    if (setup.step === "identity") patch({ identity: "", custom: text, step: "name" });
-    if (setup.step === "name") patch({ name: text, step: soul ? "soul" : "background" });
-    if (setup.step === "soul") patch({ martial: { mode: "custom", name: text }, step: "background" });
-    if (setup.step === "background") patch({ background: text, step: "review" });
+    if (setup.step === "identity") changeStep(nextStep("name"), { identity: "", custom: text }, true);
+    if (setup.step === "name") changeStep(nextStep(soul ? "soul" : "background"), { name: text }, true);
+    if (setup.step === "soul") changeStep(nextStep("background"), { martial: { mode: "custom", name: text } }, true);
+    if (setup.step === "background") changeStep("review", { background: text, backgroundDone: true }, true);
   };
   const composerKeys = useComposerKeys(send);
   const create = async () => {
     if (inFlight.current || guest) return;
-    if (!setup.name.trim() || !identityName || (soul && !setup.martial)) { setError("请先完成身份、名字及故事需要的选项。"); return; }
+    if (!ready) { setError("请先完成身份、名字及故事需要的选项。"); return; }
     inFlight.current = true;
     setBusy(true); setError("");
     try {
@@ -57,7 +103,8 @@ export function Initialize({ story, uid, navigate, refresh, guest = false, login
         ...(soul ? { martial_soul: setup.martial } : {}),
       });
       lsRemove(key);
-      await refresh();
+      // Refreshing the lobby must not turn an already created character into a retry.
+      try { await refresh(); } catch { /* The saved character can be opened directly. */ }
       navigate(`/play/saves/${result.save.id}`);
     } catch (e) { setError(e.message); }
     finally { inFlight.current = false; setBusy(false); }
@@ -70,46 +117,117 @@ export function Initialize({ story, uid, navigate, refresh, guest = false, login
       copyTimer.current = setTimeout(() => setCopied(false), 2500);
     } catch { setError("复制失败，可以直接选择设定文字复制。"); }
   };
+
   return (
-    <main id="player-main" className="play-workspace setup-workspace" data-view="story" tabIndex={-1}>
-      <aside className="workspace-rail" aria-label="故事介绍">
-        <div className="workspace-rail-content">
-          <button className="back-link" onClick={() => navigate("/play")}><ArrowLeft size={18} />故事大厅</button>
-          <div className="workspace-story"><BookCover story={story} /><h2>{story.title}</h2></div>
-          <p className="setup-introduction">{story.introduction}</p>
-          <p className="fine-print">初始化与创建角色免费，生成剧情前会显示费用。</p>
-        </div>
-      </aside>
+    <main id="player-main" className="play-workspace setup-workspace" data-view="story" data-guest={guest} aria-busy={busy} tabIndex={-1}>
       <section className="workspace-center" aria-label="故事初始化">
-        <header className="workspace-reader-header"><h1>{story.title}</h1><span className="setup-phase"><BookOpen size={15} />初始化设定</span></header>
+        <header className="workspace-reader-header setup-header">
+          <button className="icon-button" aria-label="返回故事大厅" disabled={busy} onClick={() => navigate("/play")}><ArrowLeft size={18} /></button>
+          <h1>{story.title}</h1>
+          <span className="setup-phase">角色设定</span>
+        </header>
+        {!guest && (
+          <nav className="setup-step-nav" aria-label="角色设定步骤">
+            {navigation.map((step, index) => (
+              <button key={step.id} aria-current={setup.step === step.id ? "step" : undefined} disabled={busy || !step.available} onClick={() => changeStep(step.id)}>
+                <span className="setup-step-marker" aria-hidden="true">{step.complete ? <Check size={13} /> : index + 1}</span>
+                {step.label}
+              </button>
+            ))}
+          </nav>
+        )}
         <div className="workspace-reading" ref={scroller} role="region" aria-label="初始化对话" tabIndex={0}>
           <div className="workspace-paper setup-conversation">
-            <div className="setup-message"><span className="setup-speaker"><BookOpen size={18} />故事向导</span><p>{story.introduction}</p><p>先一起确定你的角色。所有设定在创建前都可以修改。</p></div>
-            {identityName && <div className="setup-answer"><User size={16} /><p>我想扮演{identityName}。</p><button disabled={busy} className="icon-button" aria-label="修改身份" onClick={() => patch({ step: "identity" })}><PencilSimple size={15} /></button></div>}
-            {setup.name && <div className="setup-answer"><User size={16} /><p>我的名字是{setup.name}。</p><button disabled={busy} className="icon-button" aria-label="修改名字" onClick={() => patch({ step: "name" })}><PencilSimple size={15} /></button></div>}
-            {soul && setup.martial && <div className="setup-answer"><User size={16} /><p>{setup.martial.mode === "random" ? "我想随机觉醒武魂。" : `我选择${setup.martial.name}。`}</p><button disabled={busy} className="icon-button" aria-label="修改武魂" onClick={() => patch({ step: "soul" })}><PencilSimple size={15} /></button></div>}
-            {setup.background && <div className="setup-answer"><User size={16} /><p>{setup.background}</p></div>}
-            <div className="setup-message" aria-live="polite"><span className="setup-speaker"><BookOpen size={18} />故事向导</span><p>{guest ? "可以先了解故事与可选身份。登录后，在这里完成角色设定。" : prompts[setup.step]}</p></div>
-            {(guest || setup.step === "identity") && <div className="setup-choices" aria-label="推荐身份">{story.identities.map((item) => <button disabled={busy || guest} key={item.id} onClick={() => patch({ identity: String(item.id), custom: "", step: "name" })}><strong>{item.name}</strong><span>{item.description || item.role}</span></button>)}</div>}
-            {!guest && setup.step === "soul" && soul && <div className="setup-choices" aria-label="武魂选项">
-              {soul.choices.map((item) => <button key={item.name} disabled={busy} onClick={() => patch({ martial: { mode: "recommended", name: item.name }, step: "background" })}><strong>{item.name}</strong><span>{item.description}</span></button>)}
-              {soul.allow_random && <button disabled={busy} onClick={() => patch({ martial: { mode: "random", name: "" }, step: "background" })}><strong>随机觉醒</strong><span>结果由服务端确定，重试不会重抽。</span></button>}
-            </div>}
-            {!guest && setup.step === "background" && <Button quiet disabled={busy} onClick={() => patch({ background: "", step: "review" })}>跳过，使用当前设定</Button>}
-            {!guest && setup.step === "review" && <div className="setup-review"><h2>本次角色设定</h2><dl>{summary.map(([label, value, step]) => <div key={label}><dt>{label}</dt><dd>{value || "待设定"}</dd><button className="text-button" disabled={busy} onClick={() => patch({ step })}>修改</button></div>)}</dl><button className="text-button setup-copy" onClick={copy}><span className="copy-icons" data-copied={copied} aria-hidden="true"><Copy size={16} /><Check size={16} className={copied ? "feedback-check" : ""} /></span>{copied ? "已复制" : "复制设定"}</button></div>}
-            {error && <Notice error>{error}</Notice>}
+            <div className="setup-story-context">
+              <BookCover story={story} />
+              <div>
+                <span className="setup-context-label"><BookOpen size={15} />{story.identities.length} 个推荐身份</span>
+                <details><summary>故事简介<CaretDown size={14} /></summary><p>{story.introduction}</p></details>
+              </div>
+            </div>
+            {!guest && !reviewed && fields.some((field) => field.complete && field.id !== setup.step) && (
+              <ol className="setup-transcript" aria-label="已确认设定">
+                {fields.filter((field) => field.complete && field.id !== setup.step).map((field) => (
+                  <li key={field.id}><User size={15} /><span>{field.label}</span><p>{field.value}</p></li>
+                ))}
+              </ol>
+            )}
+            <section className="setup-question" ref={question} tabIndex={-1} aria-labelledby="setup-question-title">
+              <div className="setup-question-heading">
+                <span className="setup-guide-mark" aria-hidden="true"><BookOpen size={19} /></span>
+                <div>
+                  <h2 id="setup-question-title">{guest ? "选择一个身份，开始你的故事" : prompts[setup.step][0]}</h2>
+                  <p>{guest ? "登录后可以选择推荐身份，也可以自己描述角色。" : prompts[setup.step][1]}</p>
+                </div>
+              </div>
+              {(guest || setup.step === "identity") && (
+                <div className="setup-choices" role="group" aria-label="推荐身份">
+                  {story.identities.map((item, index) => guest ? (
+                    <div className="setup-guest-identity" key={item.id}><strong>{item.name}</strong>{(item.description || item.role) && <p>{item.description || item.role}</p>}</div>
+                  ) : (
+                    <button key={item.id} disabled={busy} aria-pressed={setup.identity === String(item.id) && !setup.custom} onClick={() => changeStep(nextStep("name"), { identity: String(item.id), custom: "" }, true)}>
+                      <span className="setup-choice-index" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
+                      <span className="setup-choice-copy"><strong>{item.name}</strong>{(item.description || item.role) && <span>{item.description || item.role}</span>}</span>
+                      <ArrowRight size={17} aria-hidden="true" />
+                    </button>
+                  ))}
+                </div>
+              )}
+              {!guest && setup.step === "soul" && soul && (
+                <div className="setup-choices setup-soul-choices" role="group" aria-label="武魂选项">
+                  {soul.choices.map((item) => (
+                    <button key={item.name} disabled={busy} aria-pressed={setup.martial?.mode === "recommended" && setup.martial.name === item.name} onClick={() => changeStep(nextStep("background"), { martial: { mode: "recommended", name: item.name } }, true)}>
+                      <span className="setup-choice-copy"><strong>{item.name}</strong><span>{item.description}</span></span><ArrowRight size={16} aria-hidden="true" />
+                    </button>
+                  ))}
+                  {soul.allow_random && <button className="setup-random" disabled={busy} onClick={() => changeStep(nextStep("background"), { martial: { mode: "random", name: "" } }, true)}><Shuffle size={18} /><span className="setup-choice-copy"><strong>随机觉醒</strong><span>觉醒时揭晓，重试不会重抽。</span></span><ArrowRight size={16} aria-hidden="true" /></button>}
+                </div>
+              )}
+              {!guest && setup.step === "background" && <Button quiet disabled={busy} onClick={() => changeStep("review", { background: "", backgroundDone: true }, true)}>{setup.background ? "清空背景，返回确认" : "跳过，使用当前设定"}</Button>}
+              {!guest && reviewed && (
+                <div className="setup-review">
+                  <dl>{fields.map((field) => (
+                    <div key={field.id}><dt>{field.label}</dt><dd>{field.value || "待设定"}</dd><button className="text-button" aria-label={`修改${field.label}`} disabled={busy} onClick={() => changeStep(field.id)}><PencilSimple size={15} /><span>修改</span></button></div>
+                  ))}</dl>
+                  <button className="text-button setup-copy" disabled={busy} onClick={copy}><span className="copy-icons" data-copied={copied} aria-hidden="true"><Copy size={16} /><Check size={16} className={copied ? "feedback-check" : ""} /></span>{copied ? "已复制" : "复制设定"}</button>
+                </div>
+              )}
+            </section>
           </div>
         </div>
         <div className="workspace-composer-dock setup-dock">
-          {guest ? <><Button onClick={login}>登录后创建角色</Button><p className="fine-print">创建角色免费，生成剧情前显示报价。</p></> : setup.step === "review" ? <><Button disabled={busy} onClick={create}>{busy ? "正在创建角色……" : "确认设定，进入故事"}<ArrowUp size={18} /></Button><span className="fine-print" role="status">创建角色免费，尚未开始生成或扣费。</span></> : <form className="workspace-composer setup-composer" onSubmit={send}>
-            <label className="sr-only" htmlFor="setup-message">{setup.step === "name" ? "你的名字" : "初始化设定"}</label>
-            <textarea ref={input} id="setup-message" value={setup.draft} disabled={busy || (setup.step === "soul" && !soul?.allow_custom)} onChange={(e) => setSetup((old) => ({ ...old, draft: e.target.value }))} maxLength={setup.step === "background" ? 1200 : setup.step === "identity" ? 80 : 40} placeholder={setup.step === "identity" ? "描述你想扮演的身份，或点击上方推荐项" : setup.step === "name" ? "输入角色名字" : setup.step === "soul" ? "输入武魂名称，或点击上方选项" : "补充你的经历、性格或目标"} rows={2} {...composerKeys} />
-            <Button type="submit" disabled={busy || !setup.draft.trim()} aria-label="发送设定"><ArrowUp size={19} /></Button>
-            <span className="quote-note">初始化免费 · Ctrl / ⌘ + Enter 发送 · 草稿自动保存</span>
-          </form>}
+          {error && <Notice error>{error}</Notice>}
+          {guest ? <Button onClick={login}>登录后创建角色<ArrowRight size={17} /></Button> : reviewed ? (
+            <Button disabled={busy || !ready} onClick={create}>{busy ? <CircleNotch size={18} className="setup-spinner" /> : <ArrowRight size={18} />}{busy ? "正在创建角色……" : "确认设定，进入故事"}</Button>
+          ) : (
+            <form className="workspace-composer setup-composer" onSubmit={send}>
+              <div className="setup-composer-label"><label htmlFor="setup-message">{setup.step === "name" ? "你的名字" : "初始化设定"}</label><span aria-hidden="true">{setup.draft.length}/{maxLength}</span></div>
+              <textarea
+                ref={input} id="setup-message" value={setup.draft} disabled={busy || !canType}
+                onChange={(event) => setSetup((old) => ({ ...old, draft: event.target.value }))}
+                maxLength={maxLength} rows={2}
+                placeholder={!canType ? "请点击上方选项完成选择" : setup.step === "identity" ? "写下你想扮演的身份……" : setup.step === "name" ? "输入你在故事中的名字……" : setup.step === "soul" ? "输入你想觉醒的武魂名称……" : "写下经历、性格或你想完成的事……"}
+                {...composerKeys}
+              />
+              <Button type="submit" disabled={busy || !canType || !setup.draft.trim()} aria-label="发送设定"><ArrowUp size={19} /></Button>
+            </form>
+          )}
+          <div className="setup-dock-note"><span>创建角色免费 · 生成前显示报价</span>{!guest && !reviewed && <span>{canType ? "Ctrl / ⌘ + Enter 发送" : "点击选项继续"}</span>}</div>
         </div>
       </section>
-      <aside className="workspace-right setup-summary" aria-label="当前初始化设定"><h2>当前设定</h2><dl>{summary.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || "待设定"}</dd></div>)}</dl><p className="fine-print">自由设定描述角色的愿望与背景。能力、物品与事件仍由故事规则决定。</p></aside>
+      {!guest && (
+        <aside className="workspace-right setup-summary" aria-label="当前初始化设定">
+          <div className="setup-summary-heading"><User size={18} /><h2>{reviewed ? "创建前核对" : "当前设定"}</h2></div>
+          <p className="setup-summary-note">{reviewed ? "确认后将以这些设定进入故事。" : "选择项目可以回看或修改，输入中的草稿会保留。"}</p>
+          <nav aria-label="设定摘要">{fields.map((field) => (
+            <button key={field.id} disabled={busy || !field.available} aria-label={`设定：${field.label}`} aria-current={setup.step === field.id ? "step" : undefined} onClick={() => changeStep(field.id)}>
+              <span className="setup-summary-check" data-complete={field.complete} aria-hidden="true">{field.complete ? <Check size={14} /> : null}</span>
+              <span><strong>{field.label}</strong><span>{reviewed && field.complete ? "已填写" : field.value || "待设定"}</span></span><PencilSimple size={14} aria-hidden="true" />
+            </button>
+          ))}</nav>
+          <p className="fine-print">自由设定描述角色的愿望与背景。能力、物品与事件仍由故事规则决定。</p>
+        </aside>
+      )}
     </main>
   );
 }

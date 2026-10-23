@@ -73,6 +73,20 @@ it("sends a random choice without granting or selecting power on the client", as
     ),
   );
 });
+it("rejects custom input when a story only allows the provided souls", () => {
+  start({ ...story, martial_soul_creation: { ...story.martial_soul_creation, allow_custom: false, allow_random: false } });
+  const input = screen.getByLabelText("初始化设定");
+  expect(input).toBeDisabled();
+  expect(screen.getByRole("button", { name: "发送设定" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: /随机觉醒/ })).toBeNull();
+  fireEvent.change(input, { target: { value: "不允许的武魂" } });
+  fireEvent.submit(input.closest("form"));
+  expect(screen.getByRole("heading", { name: "选择你的武魂" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "背景", exact: true })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: /铁剑/ }));
+  expect(screen.getByRole("heading", { name: "还有想带入故事的设定吗？" })).toBeTruthy();
+  expect(window.api.player.create).not.toHaveBeenCalled();
+});
 it("keeps other stories free of martial soul configuration", async () => {
   start({ ...story, martial_soul_creation: null });
   expect(screen.queryByLabelText("武魂选项")).toBeNull();
