@@ -80,3 +80,14 @@ it("keeps other stories free of martial soul configuration", async () => {
     "martial_soul",
   );
 });
+
+it("preserves character details after a failed creation and allows retry", async () => {
+  window.api.player.create.mockRejectedValueOnce(new Error("连接暂时中断"));
+  start({ ...story, martial_soul_creation: null });
+  fireEvent.change(screen.getByLabelText("角色背景"), { target: { value: "喜欢修理对讲机" } });
+  fireEvent.click(screen.getByRole("button", { name: "带着这个身份出发" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("连接暂时中断");
+  expect(screen.getByLabelText("你的名字").value).toBe("沈砚");
+  expect(screen.getByLabelText("角色背景").value).toBe("喜欢修理对讲机");
+  expect(screen.getByRole("button", { name: "带着这个身份出发" }).disabled).toBe(false);
+});

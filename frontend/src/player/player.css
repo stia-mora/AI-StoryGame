@@ -148,10 +148,6 @@ button:active:not(:disabled) {
   margin: 0 auto;
   padding: 42px 0 64px;
 }
-.home-intro {
-  padding: 32px 0 48px;
-  max-width: 620px;
-}
 .eyebrow {
   display: block;
   font-size: 11px;
@@ -173,13 +169,6 @@ h1 {
   letter-spacing: -0.03em;
   margin-bottom: 22px;
 }
-.home h1 {
-  font-family: "Source Han Serif SC", "Songti SC", "STSong", serif;
-  font-size: clamp(40px, 4.5vw, 60px);
-  line-height: 1.45;
-  font-weight: 400;
-  letter-spacing: 0.02em;
-}
 h2 {
   font-size: 22px;
   font-weight: 500;
@@ -187,12 +176,6 @@ h2 {
 }
 h3 {
   font-weight: 500;
-}
-.home-intro p {
-  color: var(--muted);
-  font-size: 15px;
-  line-height: 1.9;
-  margin: 0;
 }
 .player-button {
   background: var(--primary);
@@ -231,28 +214,6 @@ h3 {
   line-height: 1.8;
   margin-top: 16px;
 }
-.continue-story {
-  padding: 26px 28px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  border: 1px solid var(--line);
-  margin-bottom: 44px;
-  background: var(--surface);
-}
-.continue-story h2 {
-  font-size: 21px;
-  margin-bottom: 8px;
-}
-.continue-story p {
-  font-size: 13px;
-  color: var(--muted);
-  margin-bottom: 0;
-}
-.continue-story .eyebrow {
-  margin-bottom: 10px;
-}
 .section-heading {
   display: flex;
   justify-content: space-between;
@@ -282,13 +243,6 @@ h3 {
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
-}
-.story-copy h2 {
-  font-family: "Songti SC", "STSong", serif;
-  font-size: 28px;
-  line-height: 1.65;
-  font-weight: 500;
-  margin-bottom: 15px;
 }
 .story-copy p {
   font-size: 14px;
@@ -345,26 +299,6 @@ h3 {
   border: 0;
   color: var(--muted);
 }
-.older-saves {
-  margin-top: 40px;
-}
-.older-saves h2 {
-  font-size: 18px;
-}
-.older-saves button {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  width: 100%;
-  padding: 20px 0;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  background: transparent;
-  color: var(--ink);
-  text-align: left;
-  font-size: 14px;
-}
 .back-link {
   display: inline-flex;
   align-items: center;
@@ -375,19 +309,6 @@ h3 {
   color: var(--muted);
   padding: 8px 0;
   margin-bottom: 30px;
-}
-.start-layout {
-  display: grid;
-  grid-template-columns: 36% 1fr;
-  gap: 70px;
-  align-items: start;
-}
-.start-layout h1 {
-  font-size: 30px;
-}
-.start-layout p {
-  font-size: 14px;
-  line-height: 1.9;
 }
 fieldset {
   margin: 22px 0 30px;
@@ -978,25 +899,6 @@ td small {
     width: calc(100% - 44px);
     padding-top: 26px;
   }
-  .home-intro {
-    padding: 28px 0 34px;
-  }
-  .home h1 {
-    font-size: 42px;
-  }
-  .home-intro p {
-    font-size: 13px;
-  }
-  .continue-story {
-    padding: 20px;
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 16px;
-    margin-bottom: 34px;
-  }
-  .continue-story h2 {
-    font-size: 20px;
-  }
   .section-heading span {
     font-size: 10px;
   }
@@ -1008,19 +910,6 @@ td small {
   }
   .story-copy {
     padding: 28px 25px;
-  }
-  .story-copy h2 {
-    font-size: 25px;
-  }
-  .start-layout {
-    grid-template-columns: 1fr;
-    gap: 30px;
-  }
-  .start-layout > .book-cover {
-    min-height: 240px;
-  }
-  .start-layout h1 {
-    font-size: 26px;
   }
   .reader-shell {
     width: calc(100% - 44px);
@@ -1116,11 +1005,6 @@ td small {
   }
   .manage-form {
     padding: 20px;
-  }
-  .older-saves button {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 8px;
   }
 }
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ArrowRight, BookOpen } from "@phosphor-icons/react";
+import { ArrowRight, BookOpen, Users } from "@phosphor-icons/react";
 
 export const points = (micro = 0) => (Number(micro) / 1e6).toFixed(2);
 export const actionLabel = (value = "") =>
@@ -60,7 +60,7 @@ export function Notice({ children, error = false }) {
 }
 export function Loading() {
   return (
-    <main className="player-shell" aria-busy="true">
+    <main id="player-main" className="player-shell" aria-busy="true" aria-label="正在加载故事">
       <div className="player-skeleton" />
       <div className="player-skeleton short" />
       <p className="muted">正在打开故事……</p>
@@ -157,6 +157,7 @@ export function Receipt({ receipt }) {
 export function BookCover({ story, large = false }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [story.cover]);
+  const [title, ...subtitle] = story.title.split(/[·｜|：:]/);
   return (
     <div className={`book-cover ${large ? "large" : ""}`} aria-hidden="true">
       {story.cover && !failed ? (
@@ -164,7 +165,8 @@ export function BookCover({ story, large = false }) {
       ) : (
         <>
           <BookOpen size={24} weight="light" className="cover-mark" />
-          <span className="cover-title">{story.title.split(/[·｜|]/)[0]}</span>
+          <span className="cover-title">{title.trim()}</span>
+          {subtitle.length > 0 && <span className="cover-subtitle">{subtitle.join(" · ").trim()}</span>}
         </>
       )}
     </div>
@@ -172,12 +174,15 @@ export function BookCover({ story, large = false }) {
 }
 export function StoryCard({ story, onStart }) {
   return (
-    <article className="story-card">
+    <article className="story-card entry-story" aria-labelledby={`story-title-${story.id}`}>
       <BookCover story={story} />
       <div className="story-copy">
-        <h2>{story.title}</h2>
-        {story.introduction && <details className="story-description"><summary>故事介绍</summary><p>{story.introduction}</p></details>}
-        <Button onClick={onStart}>
+        <div className="story-card-heading">
+          <span className="story-meta"><Users size={15} aria-hidden="true" />{story.identities.length} 种可选身份</span>
+          <h3 id={`story-title-${story.id}`}>{story.title}</h3>
+        </div>
+        {story.introduction && <p className="story-introduction">{story.introduction}</p>}
+        <Button quiet onClick={onStart}>
           开始故事 <ArrowRight size={18} />
         </Button>
       </div>
