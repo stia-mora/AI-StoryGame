@@ -24,7 +24,51 @@ const view = {
   journey: [{ message_id: "31-gm", turn: 1, gains: [{ kind: "物品", text: "地图" }] }],
 };
 beforeEach(() => { localStorage.clear(); vi.useFakeTimers(); });
-afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+const changeButton = () => screen.getByRole("button", { name: "查看最近回合变化" });
+
+it("uses status tabs only for navigation, without tooltips on hover, focus or keyboard selection", () => {
+  render(<InformationPanel uid={1} view={view} onRead={vi.fn()} />);
+  for (const tab of screen.getAllByRole("tab")) {
+    fireEvent.mouseEnter(tab);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    act(() => tab.focus());
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    fireEvent.click(tab);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    expect(tab.getAttribute("aria-describedby")).toBeNull();
+  }
+  fireEvent.keyDown(screen.getByRole("tab", { name: "世界线" }), { key: "Home" });
+  expect(screen.getByRole("tab", { name: "局势" }).getAttribute("aria-selected")).toBe("true");
+  expect(screen.queryByRole("tooltip")).toBeNull();
+});
+
+it("keeps every tab associated with the mounted state panel", () => {
+  render(<InformationPanel uid={1} view={view} onRead={vi.fn()} />);
+  for (const tab of screen.getAllByRole("tab")) {
+    expect(document.getElementById(tab.getAttribute("aria-controls"))).toBe(screen.getByRole("tabpanel"));
+  }
+});
+
+it("does not acknowledge a panel while the browser document is in the background", () => {
+  const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+  render(<InformationPanel uid={1} view={view} onRead={vi.fn()} />);
+  const inventory = screen.getByRole("tab", { name: "背包" });
+  fireEvent.click(inventory);
+  act(() => vi.advanceTimersByTime(20));
+  act(() => vi.advanceTimersByTime(350));
+  hidden.mockReturnValue(true);
+  fireEvent(document, new Event("visibilitychange"));
+  act(() => vi.advanceTimersByTime(800));
+  expect(inventory.querySelector(".workspace-tab-change")).toBeTruthy();
+  hidden.mockReturnValue(false);
+  fireEvent(document, new Event("visibilitychange"));
+  act(() => vi.advanceTimersByTime(699));
+  expect(inventory.querySelector(".workspace-tab-change")).toBeTruthy();
+  act(() => vi.advanceTimersByTime(1));
+  expect(inventory.querySelector(".workspace-tab-change")).toBeNull();
+  hidden.mockRestore();
+});
 
 it("groups actual gains, losses and before/after changes by panel and round without duplicate latest entries", () => {
   const updates = stateUpdates(view);
@@ -38,21 +82,23 @@ it("groups actual gains, losses and before/after changes by panel and round with
 it("opens a concrete tooltip with hover, keyboard or touch and dismisses it with Escape or an outside press", () => {
   render(<InformationPanel uid={1} view={view} onRead={vi.fn()} />);
   const inventory = screen.getByRole("tab", { name: "背包" });
-  fireEvent.mouseEnter(inventory);
+  fireEvent.click(inventory);
+  fireEvent.mouseEnter(changeButton());
   const tooltip = screen.getByRole("tooltip");
-  expect(inventory.getAttribute("aria-describedby")).toBe(tooltip.id);
+  expect(changeButton().getAttribute("aria-describedby")).toBe(tooltip.id);
   expect(within(tooltip).getByText("第 2 回合")).toBeTruthy();
   expect(within(tooltip).getByText("第 1 回合")).toBeTruthy();
   expect(within(tooltip).getByText("铜币：2")).toBeTruthy();
-  fireEvent.keyDown(inventory, { key: "Escape" });
+  fireEvent.keyDown(changeButton(), { key: "Escape" });
   expect(screen.queryByRole("tooltip")).toBeNull();
-  fireEvent.click(inventory);
-  fireEvent.focus(screen.getByRole("button", { name: /回合有未读变化/ }));
-  fireEvent.click(screen.getByRole("button", { name: /回合有未读变化/ }));
+  fireEvent.focus(changeButton());
+  fireEvent.click(changeButton());
   expect(screen.getByRole("tooltip")).toBeTruthy();
   fireEvent.pointerDown(document.body);
   expect(screen.queryByRole("tooltip")).toBeNull();
-  fireEvent.focus(screen.getByRole("tab", { name: "角色" }));
+  fireEvent.click(screen.getByRole("tab", { name: "角色" }));
+  expect(screen.queryByRole("tooltip")).toBeNull();
+  fireEvent.focus(changeButton());
   expect(within(screen.getByRole("tooltip")).getByText("10").tagName).toBe("DEL");
   expect(within(screen.getByRole("tooltip")).getByText("9")).toBeTruthy();
 });
@@ -63,7 +109,7 @@ it("keeps long updates unread until their end, then persists read state per acco
   Object.defineProperties(panel, { scrollHeight: { configurable: true, value: 1000 }, clientHeight: { configurable: true, value: 200 } });
   const inventory = screen.getByRole("tab", { name: "背包" });
   fireEvent.click(inventory);
-  fireEvent.mouseEnter(inventory);
+  fireEvent.mouseEnter(changeButton());
   const tooltip = screen.getByRole("tooltip");
   Object.defineProperties(tooltip, { scrollHeight: { configurable: true, value: 1000 }, clientHeight: { configurable: true, value: 200 } });
   act(() => vi.advanceTimersByTime(800));
@@ -73,7 +119,7 @@ it("keeps long updates unread until their end, then persists read state per acco
   expect(inventory.querySelector(".workspace-tab-change")).toBeTruthy();
   panel.scrollTop = 800;
   fireEvent.scroll(panel);
-  fireEvent.keyDown(inventory, { key: "Escape" });
+  fireEvent.keyDown(changeButton(), { key: "Escape" });
   act(() => vi.advanceTimersByTime(800));
   expect(inventory.querySelector(".workspace-tab-change")).toBeNull();
   first.unmount();
@@ -104,7 +150,8 @@ it("clears the aggregate dot only after all six panels are read, and a new round
 it("does not acknowledge hidden panels or later rounds through an earlier reading session", () => {
   vi.stubGlobal("matchMedia", () => ({ matches: false }));
   const { rerender } = render(<InformationPanel uid={1} active={false} view={view} onRead={vi.fn()} />);
-  fireEvent.mouseEnter(screen.getByRole("tab", { name: "背包" }));
+  fireEvent.click(screen.getByRole("tab", { name: "背包" }));
+  act(() => vi.advanceTimersByTime(20));
   act(() => vi.advanceTimersByTime(800));
   expect(localStorage.getItem("player-state-read-1-9")).toBeNull();
   rerender(<InformationPanel uid={1} active view={view} onRead={vi.fn()} />);
@@ -139,10 +186,10 @@ it("does not mark panels read while quickly cycling tabs or while a tooltip cove
   }
   expect(onUnreadChange).toHaveBeenLastCalledWith(6);
   const inventory = screen.getByRole("tab", { name: "背包" });
-  fireEvent.mouseEnter(inventory);
+  fireEvent.mouseEnter(changeButton());
   act(() => vi.advanceTimersByTime(800));
   expect(onUnreadChange).toHaveBeenLastCalledWith(6);
-  fireEvent.keyDown(inventory, { key: "Escape" });
+  fireEvent.keyDown(changeButton(), { key: "Escape" });
   act(() => vi.advanceTimersByTime(800));
   expect(onUnreadChange).toHaveBeenLastCalledWith(5);
 });
@@ -152,18 +199,39 @@ it("does not clear a panel dot just by reading its short tooltip", () => {
   const panel = screen.getByRole("tabpanel");
   Object.defineProperties(panel, { scrollHeight: { configurable: true, value: 1000 }, clientHeight: { configurable: true, value: 200 } });
   const inventory = screen.getByRole("tab", { name: "背包" });
-  fireEvent.mouseEnter(inventory);
+  fireEvent.click(inventory);
+  fireEvent.mouseEnter(changeButton());
   act(() => vi.advanceTimersByTime(800));
   expect(inventory.querySelector(".workspace-tab-change")).toBeTruthy();
 });
 
 it("restores keyboard focus to the tooltip trigger when Escape dismisses its scrollable content", () => {
   render(<InformationPanel uid={1} view={view} onRead={vi.fn()} />);
-  const inventory = screen.getByRole("tab", { name: "背包" });
-  fireEvent.mouseEnter(inventory);
+  fireEvent.click(screen.getByRole("tab", { name: "背包" }));
+  const trigger = changeButton();
+  fireEvent.mouseEnter(trigger);
   const tooltip = screen.getByRole("tooltip");
   act(() => tooltip.focus());
   fireEvent.keyDown(tooltip, { key: "Escape" });
   expect(screen.queryByRole("tooltip")).toBeNull();
-  expect(document.activeElement).toBe(inventory);
+  expect(document.activeElement).toBe(trigger);
+});
+
+it("keeps the tooltip readable across its hover gap and dismisses it when returning to state navigation", () => {
+  render(<InformationPanel uid={1} view={view} onRead={vi.fn()} />);
+  const trigger = changeButton();
+  fireEvent.mouseEnter(trigger);
+  const area = trigger.parentElement;
+  fireEvent.mouseLeave(area);
+  fireEvent.mouseEnter(screen.getByRole("tooltip"));
+  act(() => vi.advanceTimersByTime(200));
+  expect(screen.getByRole("tooltip")).toBeTruthy();
+  fireEvent.mouseLeave(area);
+  fireEvent.mouseEnter(screen.getByRole("tab", { name: "背包" }));
+  act(() => vi.advanceTimersByTime(200));
+  expect(screen.queryByRole("tooltip")).toBeNull();
+  act(() => trigger.focus());
+  expect(screen.getByRole("tooltip")).toBeTruthy();
+  act(() => screen.getByRole("tab", { name: "角色" }).focus());
+  expect(screen.queryByRole("tooltip")).toBeNull();
 });
