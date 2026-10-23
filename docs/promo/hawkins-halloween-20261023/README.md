@@ -8,4 +8,4 @@
 - `assets/story-cover.webp`：逐字节复用项目现有封面，来源 `frontend/public/assets/story-covers/hawkins-halloween-v1.webp`。
 - `assets/player-choices-actual.png`：2026-10-23 从 `/play/saves/1125` 第 4 回合实际截取的行动区域；截图未修改选项和费用。
 
-这些是方向草稿，尚未锁定视觉方向，也没有渲染成片。预览中的 A、C 含用于讨论构图的无脸道具草图，不代表最终人物或场景素材已经生成。最终进入链接尚未确认。
+本目录保留首次方向草稿。用户随后选择了 **C｜地下室里的下一步**；实际视频工程、定稿分镜与制作记录见 [C 版视频工程](../../../videos/hawkins-halloween/README.md)。预览中的 A、C 是最初用于讨论构图的草图。公开域名尚未确认，片尾使用「打开平台 /play」作为进入指引。

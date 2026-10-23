@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=1080,height=1920">
+<title>故事之间 · 万圣夜，别松手</title>
+<script src="assets/gsap.min.js"></script>
+<style>@font-face{font-family:YaHei;src:local('Microsoft YaHei');font-weight:100 900}*{box-sizing:border-box;margin:0}html,body{width:1080px;height:1920px;overflow:hidden;background:#111311}#root{position:relative;width:100%;height:100%}.clip{position:absolute;inset:0}</style>
+<script src="assets/art.js"></script></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="40" data-width="1080" data-height="1920">
+<div id="dice" class="clip" data-composition-id="dice" data-composition-src="compositions/dice.html" data-start="0" data-duration="3" data-track-index="1" data-track-kind="graphics" data-width="1080" data-height="1920"></div>
+<div id="radio" class="clip" data-composition-id="radio" data-composition-src="compositions/radio.html" data-start="3" data-duration="3" data-track-index="1" data-track-kind="graphics" data-width="1080" data-height="1920"></div>
+<div id="route" class="clip" data-composition-id="route" data-composition-src="compositions/route.html" data-start="6" data-duration="4" data-track-index="1" data-track-kind="graphics" data-width="1080" data-height="1920"></div>
+<div id="street" class="clip" data-composition-id="street" data-composition-src="compositions/street.html" data-start="10" data-duration="4" data-track-index="1" data-track-kind="graphics" data-width="1080" data-height="1920"></div>
+<div id="anomaly" class="clip" data-composition-id="anomaly" data-composition-src="compositions/anomaly.html" data-start="14" data-duration="4" data-track-index="1" data-track-kind="graphics" data-width="1080" data-height="1920"></div>
+<div id="torch" class="clip" data-composition-id="torch" data-composition-src="compositions/torch.html" data-start="18" data-duration="4" data-track-index="1" data-track-kind="graphics" data-width="1080" data-height="1920"></div>
+<div id="choice" class="clip" data-composition-id="choice" data-composition-src="compositions/choice.html" data-start="22" data-duration="4" data-track-index="1" data-track-kind="graphics" data-width="1080" data-height="1920"></div>
+<div id="player" class="clip" data-composition-id="player" data-composition-src="compositions/player.html" data-start="26" data-duration="4" data-track-index="1" data-track-kind="graphics" data-width="1080" data-height="1920"></div>
+<div id="input" class="clip" data-composition-id="input" data-composition-src="compositions/input.html" data-start="30" data-duration="4" data-track-index="1" data-track-kind="graphics" data-width="1080" data-height="1920"></div>
+<div id="return" class="clip" data-composition-id="return" data-composition-src="compositions/return.html" data-start="34" data-duration="3" data-track-index="1" data-track-kind="graphics" data-width="1080" data-height="1920"></div>
+<div id="enter" class="clip" data-composition-id="enter" data-composition-src="compositions/enter.html" data-start="37" data-duration="3" data-track-index="1" data-track-kind="graphics" data-width="1080" data-height="1920"></div>
+<audio id="soundtrack" class="clip" src="assets/soundtrack.wav" data-start="0" data-duration="40" data-track-index="2" data-volume="1"></audio>
+</div><script>
+window.__timelines=window.__timelines||{};
+window.HawkinsPaint.ready.then(()=>{const clock={t:0};const tl=gsap.timeline({paused:true});tl.to(clock,{t:40,duration:40,ease:'none'});window.__timelines.main=tl;});
+</script></body></html>

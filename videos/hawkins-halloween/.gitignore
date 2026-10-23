@@ -1,0 +1,8 @@
+.hyperframes/
+.thumbnails/
+.waveform-cache/
+.media/
+renders/
+qa/
+qa-retest/
+assets/soundtrack.wav

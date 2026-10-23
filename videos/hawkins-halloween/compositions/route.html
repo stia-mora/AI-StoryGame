@@ -1,0 +1,15 @@
+<template>
+<style>#root{position:absolute;inset:0}canvas{display:block;width:100%;height:100%}</style>
+<div id="root" data-composition-id="route" data-width="1080" data-height="1920"><canvas id="route-paint" width="1080" height="1920" aria-label="route scene"></canvas></div>
+<script>
+window.HawkinsPaint.ready.then(() => {
+ const canvas = document.getElementById('route-paint');
+ const c = canvas.getContext('2d',{willReadFrequently:true});
+ const clock = {t:0};
+ const tl = gsap.timeline({paused:true});
+ tl.fromTo(clock,{t:0},{t:4,duration:4,ease:'none',onUpdate:()=>window.HawkinsPaint.draw(c,'route',clock.t)},0);
+ window.HawkinsPaint.draw(c,'route',0);
+ window.__timelines['route'] = tl;
+});
+</script>
+</template>
