@@ -61,6 +61,9 @@ export default tseslint.config(
     },
     rules: {
       ...js.configs.recommended.rules,
+      // Classic JSX needs React and component imports to count as references.
+      "react/jsx-uses-react": "error",
+      "react/jsx-uses-vars": "error",
       // 存量欠账 18 处(16 处在 mobile/pages/MobileSaves.jsx),真修是独立重构;
       // 先降 warn 让基线绿 —— linter 能进 CI 卡住**新增**问题才是它的价值所在。
       // TODO: 清完 MobileSaves 的条件式 hook 后升回 error。
