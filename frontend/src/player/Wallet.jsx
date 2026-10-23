@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { ArrowLeft, ArrowRight } from "@phosphor-icons/react";
-import { Button, Loading, Notice, points } from "./shared.jsx";
+import { ArrowLeft, ArrowRight, CaretLeft, CaretRight, MagnifyingGlass } from "@phosphor-icons/react";
+import { Button, Empty, Loading, Notice, points } from "./shared.jsx";
 
 const names = {
   daily: "每日免费积分",
@@ -12,30 +12,43 @@ const names = {
   grant: "管理员发放",
 };
 export function Wallet({ refresh, navigate }) {
-  const [wallet, setWallet] = useState(null),
-    [items, setItems] = useState([]),
-    [code, setCode] = useState(""),
-    [message, setMessage] = useState(""),
-    [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
-  const [hasMore, setHasMore] = useState(false),
-    [loadingMore, setLoadingMore] = useState(false);
+  const [wallet, setWallet] = useState(null);
+  const [code, setCode] = useState(""), [message, setMessage] = useState(""), [error, setError] = useState("");
+  const [busy, setBusy] = useState(false), [loading, setLoading] = useState(true);
+  const [ledgerError, setLedgerError] = useState("");
+  const emptyFilters = { q: "", kind: "", date_from: "", date_to: "" };
+  const [draft, setDraft] = useState(emptyFilters), [filters, setFilters] = useState(emptyFilters);
+  const [page, setPage] = useState(1), [revision, setRevision] = useState(0);
+  const [result, setResult] = useState({ items: [], total: 0, pages: 1, page: 1 });
   const load = async () => {
-    try {
-      const [w, l] = await Promise.all([
-        window.api.player.wallet(),
-        window.api.player.ledger(),
-      ]);
-      setWallet(w);
-      setItems(l.items);
-      setHasMore(l.items.length === 50);
-    } catch (e) {
-      setError(e.message);
-    }
+    const value = await window.api.player.wallet();
+    setWallet(value);
+    setError("");
+    setRevision((value) => value + 1);
   };
+  useEffect(() => { load().catch((e) => setError(e.message)); }, []);
   useEffect(() => {
-    load();
-  }, []);
+    let current = true;
+    setLoading(true);
+    setLedgerError("");
+    window.api.player.ledger({ ...filters, page, page_size: 10 })
+      .then((value) => { if (current) { setResult(value); if (value.page !== page) setPage(value.page); } })
+      .catch((e) => { if (current) setLedgerError(e.message); })
+      .finally(() => { if (current) setLoading(false); });
+    return () => { current = false; };
+  }, [filters, page, revision]);
+  const pager = (
+    <nav className="ledger-pagination" aria-label="积分明细分页">
+      <span aria-live="polite">共 {result.total} 条 · 第 {result.page} / {result.pages} 页</span>
+      <button className="icon-button" aria-label="上一页明细" disabled={loading || page <= 1} onClick={() => setPage(page - 1)}><CaretLeft size={18} /></button>
+      <div className="ledger-page-numbers">
+        {Array.from({ length: Math.min(5, result.pages) }, (_, i) => Math.max(1, Math.min(page - 2, result.pages - 4)) + i).map((number) => (
+          <button key={number} aria-label={`第 ${number} 页`} aria-current={page === number ? "page" : undefined} disabled={loading} onClick={() => setPage(number)}>{number}</button>
+        ))}
+      </div>
+      <button className="icon-button" aria-label="下一页明细" disabled={loading || page >= result.pages} onClick={() => setPage(page + 1)}><CaretRight size={18} /></button>
+    </nav>
+  );
   const redeem = async (e) => {
     e.preventDefault();
     setBusy(true);
@@ -55,9 +68,9 @@ export function Wallet({ refresh, navigate }) {
   };
   if (!wallet)
     return error ? (
-      <main className="player-shell">
+      <main id="player-main" className="player-shell">
         <Notice error>{error}</Notice>
-        <Button onClick={load}>重新加载</Button>
+        <Button onClick={() => load().catch((e) => setError(e.message))}>重新加载</Button>
       </main>
     ) : (
       <Loading />
@@ -65,9 +78,8 @@ export function Wallet({ refresh, navigate }) {
   return (
     <main id="player-main" className="player-shell wallet-page">
       <button className="back-link" onClick={() => navigate("/play")}>
-        <ArrowLeft size={18} /> 故事书架
+        <ArrowLeft size={18} /> 故事大厅
       </button>
-      <span className="eyebrow">让故事继续</span>
       <h1>我的积分</h1>
       <div className="wallet-balances">
         {[
@@ -109,62 +121,43 @@ export function Wallet({ refresh, navigate }) {
         {error && <Notice error>{error}</Notice>}
         {message && <Notice>{message}</Notice>}
       </section>
-      <section className="ledger-section">
-        <h2>积分明细</h2>
-        {!items.length ? (
-          <p className="muted">还没有积分变动。</p>
-        ) : (
-          <ul>
-            {items.map((i) => (
-              <li key={i.id}>
-                <div>
-                  <strong>{names[i.kind] || i.kind}</strong>
-                  <p>{i.reason}</p>
-                  <time>{new Date(i.created_at).toLocaleString("zh-CN")}</time>
-                </div>
-                <div className="ledger-amount">
-                  <span>
-                    {i.kind === "settle"
-                      ? `实扣 ${points(i.charged_micro)}`
-                      : points(i.free_delta + i.permanent_delta)}{" "}
-                    积分
-                  </span>
-                  {i.held_delta !== 0 && (
-                    <small>
-                      预留 {i.held_delta > 0 ? "+" : ""}
-                      {points(i.held_delta)}
-                    </small>
-                  )}
-                  <small>
-                    精确变动 {(i.free_delta + i.permanent_delta) / 1e6}
-                  </small>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-        {hasMore && (
-          <Button
-            quiet
-            disabled={loadingMore}
-            onClick={async () => {
-              setLoadingMore(true);
-              try {
-                const more = await window.api.player.ledger(
-                  items[items.length - 1].id,
-                );
-                setItems((previous) => [...previous, ...more.items]);
-                setHasMore(more.items.length === 50);
-              } catch (e) {
-                setError(e.message);
-              } finally {
-                setLoadingMore(false);
-              }
-            }}
-          >
-            加载更早明细
-          </Button>
-        )}
+      <section className="ledger-section" aria-labelledby="ledger-title">
+        <h2 id="ledger-title">积分明细</h2>
+        <form className="ledger-filters" onSubmit={(event) => {
+          event.preventDefault();
+          if (draft.date_from && draft.date_to && draft.date_from > draft.date_to) { setLedgerError("开始日期不能晚于结束日期"); return; }
+          setPage(1); setFilters({ ...draft, q: draft.q.trim() });
+        }}>
+          <label className="ledger-query"><MagnifyingGlass size={18} aria-hidden="true" /><input aria-label="查询积分明细" placeholder="搜索故事、存档或备注" maxLength={120} value={draft.q} onChange={(e) => setDraft({ ...draft, q: e.target.value })} /></label>
+          <label><span className="sr-only">变动类型</span><select aria-label="变动类型" value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value })}><option value="">全部类型</option>{Object.entries(names).map(([key, name]) => <option key={key} value={key}>{name}</option>)}</select></label>
+          <label className="ledger-date">开始日期<input type="date" aria-label="开始日期" value={draft.date_from} onChange={(e) => setDraft({ ...draft, date_from: e.target.value })} /></label>
+          <label className="ledger-date">结束日期<input type="date" aria-label="结束日期" value={draft.date_to} onChange={(e) => setDraft({ ...draft, date_to: e.target.value })} /></label>
+          <Button type="submit">查询</Button>
+          <Button quiet type="button" onClick={() => { setDraft(emptyFilters); setFilters(emptyFilters); setPage(1); }}>重置</Button>
+        </form>
+        <p className="ledger-timezone">日期按北京时间查询，每页 10 条。</p>
+        {ledgerError ? <div><Notice error>{ledgerError}</Notice><Button quiet onClick={() => setRevision(revision + 1)}>重试明细查询</Button></div> : <>
+          {pager}
+          <div className="ledger-results" aria-busy={loading}>
+            {loading ? <div className="ledger-loading" role="status">正在查询明细……<div className="player-skeleton short" /></div> : !result.items.length ? <Empty title="没有符合条件的明细">试试其他日期或类型。</Empty> : (
+              <ul>{result.items.map((item) => (
+                <li key={item.id}>
+                  <div className="ledger-description">
+                    <strong>{names[item.kind] || item.kind}</strong>
+                    {(item.story_title || item.save_title) && <p>{[item.story_title, item.save_title].filter(Boolean).join(" · ")}</p>}
+                    <p>{item.reason}</p>
+                    <time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}</time>
+                  </div>
+                  <div className="ledger-amount">
+                    <span>{item.kind === "settle" ? `实扣 ${points(item.charged_micro)}` : `${item.free_delta + item.permanent_delta > 0 ? "+" : ""}${points(item.free_delta + item.permanent_delta)}`} 积分</span>
+                    {item.held_delta !== 0 && <small>预留 {item.held_delta > 0 ? "+" : ""}{points(item.held_delta)}</small>}
+                    <small>精确变动 {(item.free_delta + item.permanent_delta) / 1e6}</small>
+                  </div>
+                </li>
+              ))}</ul>
+            )}
+          </div>
+        </>}
       </section>
     </main>
   );

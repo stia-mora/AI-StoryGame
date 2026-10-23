@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ArrowRight, BookOpen, Users } from "@phosphor-icons/react";
 
 export const points = (micro = 0) => (Number(micro) / 1e6).toFixed(2);
@@ -99,6 +99,15 @@ export function Narration({ text }) {
         )}
     </div>
   );
+}
+export function StreamingNarration({ text = "" }) {
+  const previous = useRef({ text: "", characters: [] });
+  if (!text.startsWith(previous.current.text)) previous.current = { text: "", characters: [] };
+  const added = Array.from(text.slice(previous.current.text.length));
+  if (added.length) {
+    previous.current = { text, characters: [...previous.current.characters, ...added.map((character, index) => ({ character, delay: index * 30 }))] };
+  }
+  return <div className="narration stream-narration">{previous.current.characters.map(({ character, delay }, index) => <span key={index} style={{ animationDelay: `${delay}ms` }}>{character}</span>)}</div>;
 }
 export function Receipt({ receipt }) {
   const [usage, setUsage] = useState(null);

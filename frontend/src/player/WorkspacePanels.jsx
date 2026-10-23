@@ -26,13 +26,16 @@ const tabs = [
 ];
 
 function Records({ title, values, empty = "尚无记录" }) {
+  const [open, setOpen] = useState(true);
+  const id = useId();
   const items = Array.isArray(values) ? values : values ? [values] : [];
   return (
-    <details className="workspace-records" open>
-      <summary>
+    <section className="workspace-records">
+      <button className="records-toggle" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
         {title}
         <span>{items.length || "—"}</span>
-      </summary>
+      </button>
+      <div id={id} className="collapse-grid" data-open={open} inert={!open}><div>
       {items.length ? (
         <ul>
           {items.map((item, i) => (
@@ -42,7 +45,8 @@ function Records({ title, values, empty = "尚无记录" }) {
       ) : (
         <p className="muted">{empty}</p>
       )}
-    </details>
+      </div></div>
+    </section>
   );
 }
 

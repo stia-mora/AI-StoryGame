@@ -39,6 +39,7 @@ import {
   Button,
   Loading,
   Narration,
+  StreamingNarration,
   Notice,
   Receipt,
   points,
@@ -566,7 +567,7 @@ export function Reader({
                   <span>你的行动</span>
                   <p>{actionLabel(action.current?.message || "开始故事")}</p>
                 </div>
-                <Narration text={streamText} />
+                <StreamingNarration text={streamText} />
                 {!streamText && (
                   <p className="generating-note" role="status">
                     正在理解行动，故事即将展开……
