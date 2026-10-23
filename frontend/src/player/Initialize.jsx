@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowUp, BookOpen, Check, Copy, PencilSimple, User } from "@phosphor-icons/react";
 import { lsGetJSON, lsRemove, lsSetJSON } from "../lib/storage.js";
 import { BookCover, Button, Notice } from "./shared.jsx";
+import { useComposerKeys } from "./useComposerKeys.js";
 
 export function Initialize({ story, uid, navigate, refresh, guest = false, login }) {
   const key = `player-setup-${uid || "guest"}-${story.id}`;
@@ -43,6 +44,7 @@ export function Initialize({ story, uid, navigate, refresh, guest = false, login
     if (setup.step === "soul") patch({ martial: { mode: "custom", name: text }, step: "background" });
     if (setup.step === "background") patch({ background: text, step: "review" });
   };
+  const composerKeys = useComposerKeys(send);
   const create = async () => {
     if (inFlight.current || guest) return;
     if (!setup.name.trim() || !identityName || (soul && !setup.martial)) { setError("请先完成身份、名字及故事需要的选项。"); return; }
@@ -101,7 +103,7 @@ export function Initialize({ story, uid, navigate, refresh, guest = false, login
         <div className="workspace-composer-dock setup-dock">
           {guest ? <><Button onClick={login}>登录后创建角色</Button><p className="fine-print">创建角色免费，生成剧情前显示报价。</p></> : setup.step === "review" ? <><Button disabled={busy} onClick={create}>{busy ? "正在创建角色……" : "确认设定，进入故事"}<ArrowUp size={18} /></Button><span className="fine-print" role="status">创建角色免费，尚未开始生成或扣费。</span></> : <form className="workspace-composer setup-composer" onSubmit={send}>
             <label className="sr-only" htmlFor="setup-message">{setup.step === "name" ? "你的名字" : "初始化设定"}</label>
-            <textarea ref={input} id="setup-message" value={setup.draft} disabled={busy || (setup.step === "soul" && !soul?.allow_custom)} onChange={(e) => setSetup((old) => ({ ...old, draft: e.target.value }))} maxLength={setup.step === "background" ? 1200 : setup.step === "identity" ? 80 : 40} placeholder={setup.step === "identity" ? "描述你想扮演的身份，或点击上方推荐项" : setup.step === "name" ? "输入角色名字" : setup.step === "soul" ? "输入武魂名称，或点击上方选项" : "补充你的经历、性格或目标"} rows={2} onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) send(e); }} />
+            <textarea ref={input} id="setup-message" value={setup.draft} disabled={busy || (setup.step === "soul" && !soul?.allow_custom)} onChange={(e) => setSetup((old) => ({ ...old, draft: e.target.value }))} maxLength={setup.step === "background" ? 1200 : setup.step === "identity" ? 80 : 40} placeholder={setup.step === "identity" ? "描述你想扮演的身份，或点击上方推荐项" : setup.step === "name" ? "输入角色名字" : setup.step === "soul" ? "输入武魂名称，或点击上方选项" : "补充你的经历、性格或目标"} rows={2} {...composerKeys} />
             <Button type="submit" disabled={busy || !setup.draft.trim()} aria-label="发送设定"><ArrowUp size={19} /></Button>
             <span className="quote-note">初始化免费 · Ctrl / ⌘ + Enter 发送 · 草稿自动保存</span>
           </form>}

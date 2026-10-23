@@ -9,6 +9,7 @@ import {
 } from "../lib/storage.js";
 import { safeUUID as uuid } from "../lib/crypto-safe.js";
 import { Button, Narration, Notice, Receipt, points } from "./shared.jsx";
+import { useComposerKeys } from "./useComposerKeys.js";
 
 export function Assistant({
   uid,
@@ -183,6 +184,7 @@ export function Assistant({
     await channel.done;
     await finish(request.request_id);
   };
+  const composerKeys = useComposerKeys(send);
   return (
     <>
       <button
@@ -270,14 +272,7 @@ export function Assistant({
             maxLength={6000}
             placeholder="询问局势或请助手帮你拟定行动……"
             disabled={busy || gameBusy}
-            onKeyDown={(e) => {
-              if (
-                e.key === "Enter" &&
-                (e.ctrlKey || e.metaKey) &&
-                !e.nativeEvent.isComposing
-              )
-                send(e);
-            }}
+            {...composerKeys}
           />
           <div className="workspace-assistant-footer">
             <small>

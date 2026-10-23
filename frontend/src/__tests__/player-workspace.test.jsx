@@ -1,5 +1,5 @@
 import React from "react";
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   fireEvent,
   render,
@@ -50,6 +50,26 @@ beforeEach(() => {
       request: vi.fn().mockResolvedValue({ status: "running" }),
     },
   };
+});
+afterEach(() => vi.restoreAllMocks());
+
+it("does not execute a quoted action while the IME is selecting or within 500ms of composition ending", async () => {
+  render(<Reader {...props} />);
+  const input = await screen.findByLabelText("你要如何行动？");
+  fireEvent.change(input, { target: { value: "观察村口" } });
+  await waitFor(() => expect(screen.getByRole("button", { name: "行动" }).disabled).toBe(false));
+  const now = vi.spyOn(Date, "now").mockReturnValue(1000);
+  fireEvent.keyDown(input, { key: "Enter", ctrlKey: true, keyCode: 229 });
+  fireEvent.compositionStart(input);
+  fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+  fireEvent.compositionEnd(input);
+  now.mockReturnValue(1499);
+  fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+  expect(window.api.player.execute).not.toHaveBeenCalled();
+  now.mockReturnValue(1500);
+  fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+  expect(window.api.player.execute).toHaveBeenCalledTimes(1);
+  expect(window.api.player.execute.mock.calls[0][0].message).toBe("观察村口");
 });
 
 it("reads one saved round at a time and keeps actions attached to current progress", async () => {

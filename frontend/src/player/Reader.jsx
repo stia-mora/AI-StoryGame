@@ -22,6 +22,7 @@ import {
   PencilSimple,
   ClockCounterClockwise,
   MapPin,
+  SidebarSimple,
 } from "@phosphor-icons/react";
 import {
   lsGet,
@@ -35,6 +36,9 @@ import { TurnProgress } from "./Progress.jsx";
 import { ActionChoices } from "./ActionChoices.jsx";
 import { Assistant } from "./Assistant.jsx";
 import { InformationPanel, SaveRail } from "./WorkspacePanels.jsx";
+import { useComposerKeys } from "./useComposerKeys.js";
+import { useReadingScroll } from "./useReadingScroll.js";
+import { useWorkspaceSplit } from "./useWorkspaceSplit.js";
 import {
   Button,
   Loading,
@@ -72,10 +76,10 @@ export function Reader({
     [streamText, setStreamText] = useState("");
   const [mobileView, setMobileView] = useState("story"),
     [assistantOpen, setAssistantOpen] = useState(false),
-    [away, setAway] = useState(false),
     [saveState, setSaveState] = useState("已保存");
   const [quoteRevision, setQuoteRevision] = useState(0);
   const [historyBusy, setHistoryBusy] = useState(false);
+  const [stateUnread, setStateUnread] = useState(0);
   const [selectedId, setSelectedId] = useState(null),
     [helperBusy, setHelperBusy] = useState(false);
   const changeAssistant = useCallback((open) => {
@@ -86,7 +90,7 @@ export function Reader({
       lsGet(`player-pace-${uid}-${saveId}`, "standard"),
     ),
     [inputMode, setInputMode] = useState("action");
-  const scroller = useRef(null);
+  const split = useWorkspaceSplit(uid);
   const transformChoice = useCallback(
     (s) => (pace === "brisk" ? `【快进至下一处关键抉择】${s}` : s),
     [pace],
@@ -110,14 +114,16 @@ export function Reader({
   );
   const selected = rounds[selectedIndex];
   const latest = !selectedId || selectedIndex === rounds.length - 1;
+  const { scroller, away, jump, reset, scrollEvents } = useReadingScroll(
+    streamText || selected?.text, busy && latest,
+  );
   const selectedAction =
     selected &&
     view?.messages?.find((m) => m.id === selected.id.replace(/-gm$/, "-user"));
   const readRound = (id) => {
     setSelectedId(id || null);
     setMobileView("story");
-    pinned.current = true;
-    setAway(false);
+    reset();
     if (mobileView !== "story") {
       requestAnimationFrame(() => scroller.current?.focus({ preventScroll: true }));
     }
@@ -125,12 +131,7 @@ export function Reader({
   useEffect(() => {
     lsSet(`player-pace-${uid}-${saveId}`, pace);
   }, [pace, uid, saveId]);
-  useEffect(() => {
-    if (scroller.current) scroller.current.scrollTop = 0;
-  }, [selectedId]);
-  const bottom = useRef(null),
-    pinned = useRef(true),
-    execution = useRef(null),
+  const execution = useRef(null),
     action = useRef(null),
     input = useRef(null),
     mounted = useRef(true);
@@ -252,13 +253,6 @@ export function Reader({
   useEffect(() => {
     lsSet(`player-draft-${uid}-${saveId}`, draft);
   }, [draft, uid, saveId]);
-  useEffect(() => {
-    if (
-      pinned.current && streamText && latest &&
-      scroller.current?.getClientRects().length
-    )
-      scroller.current.scrollTop = scroller.current.scrollHeight;
-  }, [streamText, latest]);
   const kind = view?.has_opening ? "turn" : "opening";
   useEffect(() => {
     setQuote(null);
@@ -321,7 +315,6 @@ export function Reader({
     setError("");
     setStreamText("");
     setSelectedId(null);
-    pinned.current = true;
     setSaveState("正在生成");
     const channel = window.api.player.execute(request, {
       on_saving: () => {
@@ -386,6 +379,7 @@ export function Reader({
     e?.preventDefault();
     return executeAction(kind === "opening" ? "" : modelMessage, quote);
   };
+  const composerKeys = useComposerKeys(send);
   const sendChoice = (message, selectedQuote) => {
     if (busy || helperBusy || execution.current || !selectedQuote?.affordable)
       return;
@@ -458,13 +452,13 @@ export function Reader({
       historyBusy={historyBusy}
     />
   );
-  const information = <InformationPanel view={view} onRead={readRound} />;
+  const information = <InformationPanel view={view} uid={uid} active={mobileView === "state"} desktopHidden={split.collapsed} onRead={readRound} onUnreadChange={setStateUnread} />;
   const changeView = (next) => {
     setMobileView(next);
     setAssistantOpen(next === "assistant");
   };
   return (
-    <main id="player-main" className="play-workspace" data-view={mobileView} tabIndex={-1}>
+    <main id="player-main" className="play-workspace has-reader-split" data-view={mobileView} tabIndex={-1}>
       {view.story?.cover && (
         <img
           className="workspace-backdrop"
@@ -477,6 +471,7 @@ export function Reader({
       <aside id="player-records" className="workspace-rail" aria-label="剧本与回合记录">
         {rail}
       </aside>
+      <div className="workspace-panes" ref={split.panes} data-dragging={split.dragging} data-state-collapsed={split.collapsed} style={split.ratio === null ? undefined : { "--reader-share": `${split.ratio}fr`, "--state-share": `${100 - split.ratio}fr` }}>
       <section id="player-story" className="workspace-center" aria-label="当前剧情">
         <header className="workspace-reader-header">
           <h1>{view.save.story_title}</h1>
@@ -498,6 +493,7 @@ export function Reader({
             </span>
           )}
           <div className="workspace-reading-tools">
+            <button className="icon-button workspace-state-toggle" aria-label={split.collapsed ? "展开状态栏" : "收起状态栏"} aria-expanded={!split.collapsed} aria-controls="player-state" onClick={split.toggle}><SidebarSimple size={18} />{stateUnread > 0 && <span className="workspace-tab-change" aria-label="状态有未读变化" />}</button>
             <button
               className="icon-button"
               aria-label="缩小字号"
@@ -523,12 +519,7 @@ export function Reader({
           aria-label="剧情正文"
           tabIndex={0}
           ref={scroller}
-          onScroll={(e) => {
-            const node = e.currentTarget;
-            pinned.current =
-              node.scrollHeight - node.scrollTop - node.clientHeight < 140;
-            setAway(!pinned.current);
-          }}
+          {...scrollEvents}
         >
           <div className="workspace-paper">
             {!view.has_opening && !busy && (
@@ -591,22 +582,16 @@ export function Reader({
                 正在阅读已保存的回合。行动会接续最新进度。
               </p>
             )}
-            <div ref={bottom} />
           </div>
         </div>
         <div className="workspace-composer-dock">
-          {away && busy && latest && (
+          {away && latest && (
             <button
               className="workspace-jump"
-              onClick={() => {
-                pinned.current = true;
-                setAway(false);
-                if (scroller.current)
-                  scroller.current.scrollTop = scroller.current.scrollHeight;
-              }}
+              onClick={jump}
             >
               <ArrowDown size={15} />
-              查看新内容
+              跳至最新
             </button>
           )}
           <div className="workspace-dock-toolbar">
@@ -635,14 +620,7 @@ export function Reader({
                   maxLength={6000}
                   rows={2}
                   disabled={busy || helperBusy}
-                  onKeyDown={(e) => {
-                    if (
-                      e.key === "Enter" &&
-                      (e.ctrlKey || e.metaKey) &&
-                      !e.nativeEvent.isComposing
-                    )
-                      send(e);
-                  }}
+                  {...composerKeys}
                 />
                 <div className="workspace-input-modes">
                   <button
@@ -734,9 +712,12 @@ export function Reader({
           </form>
         </div>
       </section>
+      <div className="workspace-splitter" {...split.handleProps}><span aria-hidden="true" /></div>
       <aside id="player-state" className="workspace-right" aria-label="当前局势与世界线">
         {information}
+        {split.dragging && <div className="workspace-resize-shield" aria-hidden="true" />}
       </aside>
+      </div>
       <Assistant
         uid={uid}
         saveId={saveId}
@@ -768,6 +749,7 @@ export function Reader({
           >
             <Icon size={20} weight={mobileView === id ? "fill" : "regular"} />
             {label}
+            {id === "state" && stateUnread > 0 && <span className="workspace-tab-change" aria-label="状态有未读变化" />}
             {id === "assistant" && helperBusy && (
               <span className="workspace-nav-busy" aria-label="正在咨询" />
             )}

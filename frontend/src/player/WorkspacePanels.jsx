@@ -1,4 +1,4 @@
-import React, { useId, useState } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   BookOpen,
@@ -12,9 +12,12 @@ import {
   CaretRight,
   Check,
   ListChecks,
+  Sparkle,
 } from "@phosphor-icons/react";
 import { BookCover, description, actionLabel } from "./shared.jsx";
 import { TurnProgress } from "./Progress.jsx";
+import { lsGetJSON, lsSetJSON } from "../lib/storage.js";
+import { stateUpdates } from "./stateUpdates.js";
 
 const tabs = [
   ["overview", "局势", Target],
@@ -50,12 +53,69 @@ function Records({ title, values, empty = "尚无记录" }) {
   );
 }
 
-export function InformationPanel({ view, onRead }) {
+export function InformationPanel({ view, uid, active = true, desktopHidden = false, onRead, onUnreadChange }) {
   const [tab, setTab] = useState("overview");
   const panelId = useId();
+  const readKey = `player-state-read-${uid || "guest"}-${view.save.id}`;
+  const [read, setRead] = useState(() => lsGetJSON(readKey, {}));
+  const [preview, setPreview] = useState(null);
+  const content = useRef(null), tooltip = useRef(null), heading = useRef(null), closeTimer = useRef(null), frame = useRef(null);
+  const updates = useMemo(() => stateUpdates(view), [view]);
+  const unread = (id) => updates[id].filter((group) => group.order > (read[id] || 0));
+  const unreadCount = Object.keys(updates).filter((id) => unread(id).length).length;
+  const markRead = useCallback((id, groups) => {
+    const desktop = window.matchMedia?.("(min-width: 1200px)").matches ?? true;
+    if (!(desktop ? !desktopHidden : active) || !groups.length) return;
+    const order = Math.max(...groups.map((group) => group.order));
+    setRead((old) => {
+      if ((old[id] || 0) >= order) return old;
+      const next = { ...old, [id]: order };
+      lsSetJSON(readKey, next);
+      return next;
+    });
+  }, [active, desktopHidden, readKey]);
+  const atEnd = (node) => node && node.scrollHeight - node.scrollTop - node.clientHeight <= 8;
+  const showPreview = (id) => {
+    clearTimeout(closeTimer.current);
+    const groups = unread(id).length ? unread(id) : updates[id].slice(0, 1);
+    setPreview(groups.length ? { id, groups } : null);
+  };
+  const closePreview = () => {
+    clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(() => {
+      if (!heading.current?.contains(document.activeElement)) setPreview(null);
+    }, 160);
+  };
+  const selectTab = (id) => {
+    setTab(id);
+    showPreview(id);
+    const groups = updates[id];
+    cancelAnimationFrame(frame.current);
+    frame.current = requestAnimationFrame(() => {
+      if (content.current) content.current.scrollTop = 0;
+      if (atEnd(content.current)) markRead(id, groups);
+    });
+  };
+  useEffect(() => { onUnreadChange?.(unreadCount); }, [onUnreadChange, unreadCount]);
+  useEffect(() => {
+    if (!preview) return;
+    const outside = (event) => { if (!heading.current?.contains(event.target)) setPreview(null); };
+    document.addEventListener("pointerdown", outside);
+    // A brief hover must not acknowledge an update the player has not read.
+    const timer = setTimeout(() => {
+      if (atEnd(tooltip.current)) markRead(preview.id, preview.groups);
+    }, 700);
+    return () => { clearTimeout(timer); document.removeEventListener("pointerdown", outside); };
+  }, [preview, markRead]);
+  useEffect(() => () => {
+    clearTimeout(closeTimer.current);
+    cancelAnimationFrame(frame.current);
+  }, []);
+  useEffect(() => () => cancelAnimationFrame(frame.current), [active, desktopHidden]);
   const { status, latest_progress: progress, journey = [] } = view;
   return (
     <div className="workspace-information">
+      <div className="workspace-state-heading" ref={heading} onMouseLeave={closePreview} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setPreview(null); }} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setPreview(null); } }}>
       <div className="workspace-tabs" role="tablist" aria-label="存档信息">
         {tabs.map(([id, title, Icon]) => (
           <button
@@ -64,8 +124,13 @@ export function InformationPanel({ view, onRead }) {
             id={`${panelId}-tab-${id}`}
             aria-controls={`${panelId}-panel-${id}`}
             aria-selected={id === tab}
+            aria-label={title}
+            aria-description={unread(id).length ? `${unread(id).length} 个回合有未读变化` : undefined}
+            aria-describedby={preview?.id === id ? `${panelId}-updates` : undefined}
             tabIndex={tab === id ? 0 : -1}
-            onClick={() => setTab(id)}
+            onClick={() => selectTab(id)}
+            onMouseEnter={() => showPreview(id)}
+            onFocus={() => showPreview(id)}
             onKeyDown={(e) => {
               if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key))
                 return;
@@ -80,7 +145,7 @@ export function InformationPanel({ view, onRead }) {
                         (e.key === "ArrowRight" ? 1 : -1) +
                         tabs.length) %
                       tabs.length;
-              setTab(tabs[next][0]);
+              selectTab(tabs[next][0]);
               const nextTab =
                 e.currentTarget.parentElement?.querySelectorAll('[role="tab"]')[
                   next
@@ -90,8 +155,8 @@ export function InformationPanel({ view, onRead }) {
           >
             <Icon size={17} />
             {title}
-            {progress?.panels?.includes(title) && (
-              <span className="workspace-tab-change" aria-label="本轮已更新" />
+            {unread(id).length > 0 && (
+              <span className="workspace-tab-change" aria-label="有未读变化" />
             )}
           </button>
         ))}
@@ -101,12 +166,21 @@ export function InformationPanel({ view, onRead }) {
         <strong>{status.name}</strong>
         <small>存档 {view.save.id}</small>
       </div>
+      {updates[tab].length > 0 && <div className="workspace-change-bar"><button type="button" onMouseEnter={() => showPreview(tab)} onFocus={() => showPreview(tab)} onClick={() => showPreview(tab)} aria-describedby={preview?.id === tab ? `${panelId}-updates` : undefined}><Sparkle size={16} /><span>{unread(tab).length ? `${unread(tab).length} 个回合有未读变化` : "查看最近回合变化"}</span><CaretRight size={14} /></button></div>}
+      {preview && <div className="workspace-change-tooltip" role="tooltip" id={`${panelId}-updates`} ref={tooltip} tabIndex={0} onMouseEnter={() => clearTimeout(closeTimer.current)} onScroll={(event) => { if (atEnd(event.currentTarget)) markRead(preview.id, preview.groups); }}>
+        <strong>{tabs.find(([id]) => id === preview.id)[1]}变化</strong>
+        {preview.groups.map((group) => <section key={group.id}><h3>{group.turn === 0 ? "序章" : `第 ${group.turn ?? view.save.turn} 回合`}</h3><ul>{group.entries.map((entry, index) => <li key={index}><span>{entry.label}</span>{entry.before && <del>{entry.before}</del>}<p>{entry.after}</p></li>)}</ul></section>)}
+      </div>}
+      </div>
       <section
         className="workspace-information-scroll"
         role="tabpanel"
         id={`${panelId}-panel-${tab}`}
         aria-labelledby={`${panelId}-tab-${tab}`}
         tabIndex={0}
+        ref={content}
+        onScroll={(event) => { if (atEnd(event.currentTarget)) markRead(tab, updates[tab]); }}
+        onFocus={() => { if (atEnd(content.current)) markRead(tab, updates[tab]); }}
       >
         {tab === "overview" && (
           <>
