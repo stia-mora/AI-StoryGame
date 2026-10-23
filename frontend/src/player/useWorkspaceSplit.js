@@ -25,8 +25,8 @@ export function useWorkspaceSplit(uid) {
     };
     const move = (event) => {
       if (!drag.current || event.pointerId !== drag.current.pointerId) return;
-      const { left, width } = drag.current;
-      const value = Math.max(20, Math.min(95, (event.clientX - left) / width * 100));
+      const { left, width, offset } = drag.current;
+      const value = Math.max(20, Math.min(95, (event.clientX - left - offset) / width * 100));
       current.current = value;
       setRatio(value);
     };
@@ -37,12 +37,14 @@ export function useWorkspaceSplit(uid) {
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", cancel);
     window.addEventListener("blur", cancel);
+    window.addEventListener("resize", cancel);
     window.addEventListener("keydown", escape, true);
     return () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", cancel);
       window.removeEventListener("blur", cancel);
+      window.removeEventListener("resize", cancel);
       window.removeEventListener("keydown", escape, true);
     };
   }, [dragging, key]);
@@ -61,7 +63,9 @@ export function useWorkspaceSplit(uid) {
         event.preventDefault();
         event.currentTarget.focus();
         event.currentTarget.setPointerCapture?.(event.pointerId);
-        drag.current = { original: ratio, left: rect.left, width: Math.max(1, rect.width - 14), pointerId: event.pointerId };
+        const centerWidth = panes.current.querySelector(".workspace-center").getBoundingClientRect().width;
+        const offset = Math.max(0, Math.min(14, event.clientX - rect.left - centerWidth));
+        drag.current = { original: ratio, left: rect.left, width: Math.max(1, rect.width - 14), offset, pointerId: event.pointerId };
         setDragging(true);
       },
       onDoubleClick: () => commit(50),

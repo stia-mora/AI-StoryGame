@@ -1,9 +1,12 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
-export function useReadingScroll(content, followingEnabled) {
+export function useReadingScroll(content, followingEnabled, view = "story") {
   const scroller = useRef(null), following = useRef(true), manual = useRef(false);
+  const [node, setNode] = useState(null);
+  const bindScroller = useCallback((element) => { scroller.current = element; setNode(element); }, []);
   const programmedTop = useRef(null), wasEnabled = useRef(false);
   const stoppedAt = useRef(null);
+  const wasVisible = useRef(true);
   const [away, setAway] = useState(false);
   const distance = (node) => Math.max(0, node.scrollHeight - node.clientHeight - node.scrollTop);
   const jump = useCallback(() => {
@@ -39,9 +42,18 @@ export function useReadingScroll(content, followingEnabled) {
     setAway(false);
   }, []);
   useLayoutEffect(() => {
-    const node = scroller.current;
     if (node) {
-      if (node.checkVisibility && !node.checkVisibility()) return;
+      const visible = node.checkVisibility?.() ?? (view === "story" || (window.matchMedia?.("(min-width: 1200px)").matches ?? true));
+      if (!visible || !wasVisible.current) {
+        // Hidden mobile views retain their position, even if output continues.
+        following.current = false;
+        manual.current = true;
+        programmedTop.current = null;
+        wasEnabled.current = followingEnabled;
+        wasVisible.current = visible;
+        if (visible) setAway(distance(node) > 120);
+        return;
+      }
       if ((followingEnabled || wasEnabled.current) && following.current) jump();
       else {
         const gap = distance(node);
@@ -50,16 +62,36 @@ export function useReadingScroll(content, followingEnabled) {
       }
     }
     wasEnabled.current = followingEnabled;
-  }, [content, followingEnabled, jump]);
+  }, [content, followingEnabled, jump, view, node]);
+  useLayoutEffect(() => {
+    if (!node) return;
+    const measure = () => {
+      if (node.checkVisibility && !node.checkVisibility()) return;
+      const gap = distance(node);
+      setAway(gap > 120);
+      following.current = !manual.current && gap <= 40;
+    };
+    // Font size, column width and viewport changes can move the bottom
+    // without a scroll event or a new token. Measuring never moves the reader.
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(node);
+    if (node.firstElementChild) observer?.observe(node.firstElementChild);
+    window.addEventListener("resize", measure);
+    return () => { observer?.disconnect(); window.removeEventListener("resize", measure); };
+  }, [node, view]);
   return {
-    scroller, away, jump, reset,
+    scroller, bindScroller, away, jump, reset,
     scrollEvents: {
       onScroll, onWheel: stop, onTouchMove: stop,
       onPointerDown: (event) => {
         const node = event.currentTarget;
         if (event.target === node && event.clientX >= node.getBoundingClientRect().left + node.clientWidth) stop();
       },
-      onKeyDown: (event) => { if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) stop(); },
+      onKeyDown: (event) => {
+        if (event.defaultPrevented || event.target.closest?.("input, textarea, select, [contenteditable=true]")) return;
+        if (event.key === " " && event.target.closest?.("button, summary, [role=button]")) return;
+        if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) stop();
+      },
     },
   };
 }

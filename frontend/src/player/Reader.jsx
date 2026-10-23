@@ -114,8 +114,8 @@ export function Reader({
   );
   const selected = rounds[selectedIndex];
   const latest = !selectedId || selectedIndex === rounds.length - 1;
-  const { scroller, away, jump, reset, scrollEvents } = useReadingScroll(
-    streamText || selected?.text, busy && latest,
+  const { scroller, bindScroller, away, jump, reset, scrollEvents } = useReadingScroll(
+    streamText || selected?.text, busy && latest, mobileView,
   );
   const selectedAction =
     selected &&
@@ -452,7 +452,7 @@ export function Reader({
       historyBusy={historyBusy}
     />
   );
-  const information = <InformationPanel view={view} uid={uid} active={mobileView === "state"} desktopHidden={split.collapsed} onRead={readRound} onUnreadChange={setStateUnread} />;
+  const information = <InformationPanel view={view} uid={uid} active={mobileView === "state"} desktopHidden={split.collapsed || split.dragging} onRead={readRound} onUnreadChange={setStateUnread} />;
   const changeView = (next) => {
     setMobileView(next);
     setAssistantOpen(next === "assistant");
@@ -518,7 +518,7 @@ export function Reader({
           role="region"
           aria-label="剧情正文"
           tabIndex={0}
-          ref={scroller}
+          ref={bindScroller}
           {...scrollEvents}
         >
           <div className="workspace-paper">
@@ -713,7 +713,7 @@ export function Reader({
         </div>
       </section>
       <div className="workspace-splitter" {...split.handleProps}><span aria-hidden="true" /></div>
-      <aside id="player-state" className="workspace-right" aria-label="当前局势与世界线">
+      <aside id="player-state" className="workspace-right" aria-label="当前局势与世界线" inert={split.dragging}>
         {information}
         {split.dragging && <div className="workspace-resize-shield" aria-hidden="true" />}
       </aside>

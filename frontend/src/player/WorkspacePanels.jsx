@@ -27,6 +27,7 @@ const tabs = [
   ["tasks", "任务", ListChecks],
   ["worldline", "世界线", GitBranch],
 ];
+const atEnd = (node) => node && node.scrollHeight - node.scrollTop - node.clientHeight <= 8;
 
 function Records({ title, values, empty = "尚无记录" }) {
   const [open, setOpen] = useState(true);
@@ -59,13 +60,18 @@ export function InformationPanel({ view, uid, active = true, desktopHidden = fal
   const readKey = `player-state-read-${uid || "guest"}-${view.save.id}`;
   const [read, setRead] = useState(() => lsGetJSON(readKey, {}));
   const [preview, setPreview] = useState(null);
+  const [readIntent, setReadIntent] = useState(null);
   const content = useRef(null), tooltip = useRef(null), heading = useRef(null), closeTimer = useRef(null), frame = useRef(null);
+  const previewTrigger = useRef(null);
   const updates = useMemo(() => stateUpdates(view), [view]);
   const unread = (id) => updates[id].filter((group) => group.order > (read[id] || 0));
   const unreadCount = Object.keys(updates).filter((id) => unread(id).length).length;
   const markRead = useCallback((id, groups) => {
     const desktop = window.matchMedia?.("(min-width: 1200px)").matches ?? true;
-    if (!(desktop ? !desktopHidden : active) || !groups.length) return;
+    const node = content.current;
+    if (!(desktop ? !desktopHidden : active) || id !== tab || !groups.length || !atEnd(node)) return;
+    if (node.checkVisibility && !node.checkVisibility()) return;
+    if (node.querySelector('.collapse-grid[data-open="false"] li')) return;
     const order = Math.max(...groups.map((group) => group.order));
     setRead((old) => {
       if ((old[id] || 0) >= order) return old;
@@ -73,10 +79,10 @@ export function InformationPanel({ view, uid, active = true, desktopHidden = fal
       lsSetJSON(readKey, next);
       return next;
     });
-  }, [active, desktopHidden, readKey]);
-  const atEnd = (node) => node && node.scrollHeight - node.scrollTop - node.clientHeight <= 8;
-  const showPreview = (id) => {
+  }, [active, desktopHidden, readKey, tab]);
+  const showPreview = (id, trigger) => {
     clearTimeout(closeTimer.current);
+    previewTrigger.current = trigger;
     const groups = unread(id).length ? unread(id) : updates[id].slice(0, 1);
     setPreview(groups.length ? { id, groups } : null);
   };
@@ -87,26 +93,34 @@ export function InformationPanel({ view, uid, active = true, desktopHidden = fal
     }, 160);
   };
   const selectTab = (id) => {
+    clearTimeout(closeTimer.current);
     setTab(id);
-    showPreview(id);
+    setPreview(null);
+    setReadIntent(null);
     const groups = updates[id];
     cancelAnimationFrame(frame.current);
     frame.current = requestAnimationFrame(() => {
       if (content.current) content.current.scrollTop = 0;
-      if (atEnd(content.current)) markRead(id, groups);
+      setReadIntent({ id, groups });
     });
   };
+  const browsePanel = () => {
+    setReadIntent(atEnd(content.current) ? { id: tab, groups: updates[tab] } : null);
+  };
   useEffect(() => { onUnreadChange?.(unreadCount); }, [onUnreadChange, unreadCount]);
+  useEffect(() => {
+    if (!readIntent || preview) return;
+    // Only the actual panel can acknowledge its contents. A changes tooltip
+    // may cover the panel or omit records that have not been browsed yet.
+    const timer = setTimeout(() => markRead(readIntent.id, readIntent.groups), 700);
+    return () => clearTimeout(timer);
+  }, [readIntent, preview, markRead]);
   useEffect(() => {
     if (!preview) return;
     const outside = (event) => { if (!heading.current?.contains(event.target)) setPreview(null); };
     document.addEventListener("pointerdown", outside);
-    // A brief hover must not acknowledge an update the player has not read.
-    const timer = setTimeout(() => {
-      if (atEnd(tooltip.current)) markRead(preview.id, preview.groups);
-    }, 700);
-    return () => { clearTimeout(timer); document.removeEventListener("pointerdown", outside); };
-  }, [preview, markRead]);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [preview]);
   useEffect(() => () => {
     clearTimeout(closeTimer.current);
     cancelAnimationFrame(frame.current);
@@ -115,7 +129,12 @@ export function InformationPanel({ view, uid, active = true, desktopHidden = fal
   const { status, latest_progress: progress, journey = [] } = view;
   return (
     <div className="workspace-information">
-      <div className="workspace-state-heading" ref={heading} onMouseLeave={closePreview} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setPreview(null); }} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setPreview(null); } }}>
+      <div className="workspace-state-heading" ref={heading} onMouseLeave={closePreview} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setPreview(null); }} onKeyDown={(event) => {
+        if (event.key !== "Escape") return;
+        event.stopPropagation();
+        if (tooltip.current?.contains(document.activeElement)) previewTrigger.current?.focus({ preventScroll: true });
+        setPreview(null);
+      }}>
       <div className="workspace-tabs" role="tablist" aria-label="存档信息">
         {tabs.map(([id, title, Icon]) => (
           <button
@@ -129,8 +148,8 @@ export function InformationPanel({ view, uid, active = true, desktopHidden = fal
             aria-describedby={preview?.id === id ? `${panelId}-updates` : undefined}
             tabIndex={tab === id ? 0 : -1}
             onClick={() => selectTab(id)}
-            onMouseEnter={() => showPreview(id)}
-            onFocus={() => showPreview(id)}
+            onMouseEnter={(event) => showPreview(id, event.currentTarget)}
+            onFocus={(event) => showPreview(id, event.currentTarget)}
             onKeyDown={(e) => {
               if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key))
                 return;
@@ -166,11 +185,47 @@ export function InformationPanel({ view, uid, active = true, desktopHidden = fal
         <strong>{status.name}</strong>
         <small>存档 {view.save.id}</small>
       </div>
-      {updates[tab].length > 0 && <div className="workspace-change-bar"><button type="button" onMouseEnter={() => showPreview(tab)} onFocus={() => showPreview(tab)} onClick={() => showPreview(tab)} aria-describedby={preview?.id === tab ? `${panelId}-updates` : undefined}><Sparkle size={16} /><span>{unread(tab).length ? `${unread(tab).length} 个回合有未读变化` : "查看最近回合变化"}</span><CaretRight size={14} /></button></div>}
-      {preview && <div className="workspace-change-tooltip" role="tooltip" id={`${panelId}-updates`} ref={tooltip} tabIndex={0} onMouseEnter={() => clearTimeout(closeTimer.current)} onScroll={(event) => { if (atEnd(event.currentTarget)) markRead(preview.id, preview.groups); }}>
-        <strong>{tabs.find(([id]) => id === preview.id)[1]}变化</strong>
-        {preview.groups.map((group) => <section key={group.id}><h3>{group.turn === 0 ? "序章" : `第 ${group.turn ?? view.save.turn} 回合`}</h3><ul>{group.entries.map((entry, index) => <li key={index}><span>{entry.label}</span>{entry.before && <del>{entry.before}</del>}<p>{entry.after}</p></li>)}</ul></section>)}
-      </div>}
+      {updates[tab].length > 0 && (
+        <div className="workspace-change-bar">
+          <button
+            type="button"
+            onMouseEnter={(event) => showPreview(tab, event.currentTarget)}
+            onFocus={(event) => showPreview(tab, event.currentTarget)}
+            onClick={(event) => showPreview(tab, event.currentTarget)}
+            aria-describedby={preview?.id === tab ? `${panelId}-updates` : undefined}
+          >
+            <Sparkle size={16} />
+            <span>{unread(tab).length ? `${unread(tab).length} 个回合有未读变化` : "查看最近回合变化"}</span>
+            <CaretRight size={14} />
+          </button>
+        </div>
+      )}
+      {preview && (
+        <div
+          className="workspace-change-tooltip"
+          role="tooltip"
+          id={`${panelId}-updates`}
+          ref={tooltip}
+          tabIndex={0}
+          onMouseEnter={() => clearTimeout(closeTimer.current)}
+        >
+          <strong>{tabs.find(([id]) => id === preview.id)[1]}变化</strong>
+          {preview.groups.map((group) => (
+            <section key={group.id}>
+              <h3>{group.turn === 0 ? "序章" : `第 ${group.turn ?? view.save.turn} 回合`}</h3>
+              <ul>
+                {group.entries.map((entry, index) => (
+                  <li key={index}>
+                    <span>{entry.label}</span>
+                    {entry.before && <del>{entry.before}</del>}
+                    <p>{entry.after}</p>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+      )}
       </div>
       <section
         className="workspace-information-scroll"
@@ -179,8 +234,9 @@ export function InformationPanel({ view, uid, active = true, desktopHidden = fal
         aria-labelledby={`${panelId}-tab-${tab}`}
         tabIndex={0}
         ref={content}
-        onScroll={(event) => { if (atEnd(event.currentTarget)) markRead(tab, updates[tab]); }}
-        onFocus={() => { if (atEnd(content.current)) markRead(tab, updates[tab]); }}
+        onScroll={browsePanel}
+        onFocus={browsePanel}
+        onClick={browsePanel}
       >
         {tab === "overview" && (
           <>

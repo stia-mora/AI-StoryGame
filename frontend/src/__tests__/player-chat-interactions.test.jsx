@@ -36,9 +36,9 @@ it("blocks composition, legacy 229 and trailing Enter for 500ms without consumin
   expect(send).toHaveBeenCalledTimes(1);
 });
 
-function Reading({ text, enabled = true }) {
-  const { scroller, away, jump, scrollEvents } = useReadingScroll(text, enabled);
-  return <><div aria-label="正文" ref={scroller} {...scrollEvents}>{text}<button>选项</button></div>{away && <button onClick={jump}>跳至最新</button>}</>;
+function Reading({ text, enabled = true, visible = true }) {
+  const { bindScroller, away, jump, scrollEvents } = useReadingScroll(text, enabled, visible ? "story" : "state");
+  return <><div aria-label="正文" ref={bindScroller} {...scrollEvents}>{text}<button>选项</button></div>{away && <button onClick={jump}>跳至最新</button>}</>;
 }
 
 function geometry(node, height = 1000, top = 760) {
@@ -115,6 +115,66 @@ it("does not pull an initially distant reader or a hidden mobile reading area to
   expect(node.scrollTop).toBe(100);
 });
 
+it("refreshes the latest affordance on returning to a hidden conversation without moving its scroll position", () => {
+  const { rerender } = render(<Reading text="一" />);
+  const node = screen.getByLabelText("正文"), dimensions = geometry(node, 1000, 800);
+  fireEvent.scroll(node);
+  node.checkVisibility = () => false;
+  rerender(<Reading text="一" visible={false} />);
+  dimensions.height = 1500;
+  rerender(<Reading text="一二三" visible={false} />);
+  node.checkVisibility = () => true;
+  rerender(<Reading text="一二三" visible />);
+  expect(node.scrollTop).toBe(800);
+  expect(screen.getByRole("button", { name: "跳至最新" })).toBeTruthy();
+});
+
+it("does not interpret keyboard activation of an action as scrolling the conversation", () => {
+  const { rerender } = render(<Reading text="一" />);
+  const node = screen.getByLabelText("正文"), dimensions = geometry(node, 1000, 800);
+  fireEvent.scroll(node);
+  fireEvent.keyDown(screen.getByRole("button", { name: "选项" }), { key: " " });
+  dimensions.height = 1100;
+  rerender(<Reading text="一二" />);
+  expect(node.scrollTop).toBe(900);
+});
+
+it("rechecks distance after a layout resize without moving the reader or rearming following", () => {
+  const observers = [];
+  vi.stubGlobal("ResizeObserver", class {
+    constructor(callback) { this.notify = callback; this.observe = vi.fn(); this.disconnect = vi.fn(); observers.push(this); }
+  });
+  const { rerender, unmount } = render(<Reading text="一" />);
+  const node = screen.getByLabelText("正文"), dimensions = geometry(node, 1000, 800);
+  fireEvent.scroll(node);
+  dimensions.height = 1500;
+  act(() => observers.at(-1).notify());
+  expect(screen.getByRole("button", { name: "跳至最新" })).toBeTruthy();
+  expect(node.scrollTop).toBe(800);
+  dimensions.height = 1600;
+  rerender(<Reading text="一二" />);
+  expect(node.scrollTop).toBe(800);
+  unmount();
+  expect(observers.at(-1).disconnect).toHaveBeenCalledOnce();
+});
+
+it("subscribes to layout changes when an initially empty reader mounts after loading", () => {
+  const observed = [];
+  vi.stubGlobal("ResizeObserver", class {
+    constructor(callback) { this.notify = callback; }
+    observe(node) { observed.push(node); }
+    disconnect() {}
+  });
+  function LoadingReader({ ready }) {
+    const { bindScroller } = useReadingScroll("", false);
+    return ready ? <div ref={bindScroller} aria-label="空正文" /> : <p>加载中</p>;
+  }
+  const { rerender } = render(<LoadingReader ready={false} />);
+  expect(observed).toHaveLength(0);
+  rerender(<LoadingReader ready />);
+  expect(observed).toEqual([screen.getByLabelText("空正文")]);
+});
+
 function Split() {
   const split = useWorkspaceSplit(1);
   return <div ref={split.panes} data-testid="panes" data-ratio={split.ratio ?? "default"} data-collapsed={split.collapsed}>
@@ -175,5 +235,22 @@ it("commits and restores proportions, supports keyboard resizing and cancels los
   fireEvent.pointerMove(window, { pointerId: 1, clientX: 800 });
   fireEvent.pointerCancel(window, { pointerId: 1 });
   expect(next.getAttribute("aria-valuenow")).toBe("50");
+  expect(screen.queryByTestId("shield")).toBeNull();
+});
+
+it("keeps the divider stationary on the first pointer event and cancels a resize when the viewport changes", () => {
+  pointerSupport();
+  render(<Split />);
+  const panes = screen.getByTestId("panes"), handle = screen.getByRole("separator");
+  panes.getBoundingClientRect = () => ({ left: 100, width: 1014 });
+  panes.querySelector(".workspace-center").getBoundingClientRect = () => ({ width: 500 });
+  fireEvent.doubleClick(handle);
+  fireEvent.pointerDown(handle, { button: 0, pointerId: 1, clientX: 607 });
+  fireEvent.pointerMove(window, { pointerId: 1, clientX: 607 });
+  expect(panes.dataset.ratio).toBe("50");
+  fireEvent.pointerMove(window, { pointerId: 1, clientX: 707 });
+  expect(panes.dataset.ratio).toBe("60");
+  fireEvent(window, new Event("resize"));
+  expect(panes.dataset.ratio).toBe("50");
   expect(screen.queryByTestId("shield")).toBeNull();
 });
