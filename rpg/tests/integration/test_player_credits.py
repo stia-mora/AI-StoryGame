@@ -78,6 +78,43 @@ def reservation(p, message="行动"):
     return req, quote, save
 
 
+def test_credit_history_pages_filters_literal_query_and_owner(player):
+    from datetime import date
+    from platform_app.player.ledger import history
+
+    with connect() as db:
+        for index in range(23):
+            db.execute("insert into player_ledger(user_id,kind,reason,created_at) values(%s,%s,%s,%s)",
+                       (player["uid"], "grant" if index % 2 else "redeem", f"测试%_发放 {index}", "2026-10-22T16:30:00Z"))
+    first = history(player["uid"], page_size=10)
+    second = history(player["uid"], page=2, page_size=10)
+    assert first["total"] == 23 and first["pages"] == 3
+    assert len(first["items"]) == len(second["items"]) == 10
+    assert not {i["id"] for i in first["items"]} & {i["id"] for i in second["items"]}
+    filtered = history(player["uid"], kind="grant", query="%_", date_from=date(2026, 10, 23), date_to=date(2026, 10, 23))
+    assert filtered["total"] == 11
+    assert history(player["uid"], date_to=date(2026, 10, 22))["total"] == 0
+    assert history(player["uid"], query="不存在")["total"] == 0
+    assert history(-1)["total"] == 0
+    assert history(player["uid"], page=999)["page"] == 3
+    with pytest.raises(HTTPException, match="开始日期"):
+        history(player["uid"], date_from=date(2026, 10, 24), date_to=date(2026, 10, 23))
+
+
+def test_custom_initialization_is_free_and_keeps_story_defaults(player):
+    from platform_app.api.player import Create, create
+
+    view = create(Create(story_id=player["story"], name="小镇居民", custom_identity="修理对讲机的学生", background="和朋友一起调查街灯异常"), user=player["user"])
+    save = catalog.player_save(player["uid"], view["save"]["id"])
+    assert view["status"]["name"] == "小镇居民"
+    assert not view["has_opening"]
+    assert "修理对讲机的学生" in str(save["state_snapshot"])
+    with connect() as db:
+        assert not db.execute("select id from player_requests where user_id=%s", (player["uid"],)).fetchall()
+    with pytest.raises(HTTPException, match="角色名字"):
+        create(Create(story_id=player["story"], name="  ", custom_identity="学生"), user=player["user"])
+
+
 def test_free_creation_seeds_selected_soul_in_root_and_kb_without_awarding_it(player):
     from platform_app.api.player import Create, create
     from kb.save_kb import materialize

@@ -6,6 +6,8 @@ import asyncio
 import json
 import logging
 import uuid
+from datetime import date
+from typing import Literal
 from contextlib import suppress
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -42,6 +44,7 @@ class Create(BaseModel):
     name: str = Field(min_length=1, max_length=40)
     identity_id: str = Field(default="", max_length=80)
     background: str = Field(default="", max_length=1200)
+    custom_identity: str = Field(default="", max_length=80)
     martial_soul: MartialSoulChoice | None = None
 
 
@@ -171,8 +174,12 @@ def _create(body: Create, user):
     identity = next(
         (i for i in selected["identities"] if str(i.get("id")) == body.identity_id), None
     )
+    if body.custom_identity.strip():
+        identity = {"name": body.custom_identity.strip(), "player_origin": selected["defaults"].get("player_origin", "native")}
     if not identity:
         raise HTTPException(400, "请选择推荐身份")
+    if not body.name.strip():
+        raise HTTPException(400, "请填写角色名字")
     defaults = selected["defaults"]
     from platform_app.player.character_creation import prepare
 
@@ -475,14 +482,20 @@ def balance(user=Depends(require_player)):
 
 
 @router.get("/ledger")
-def ledger(before: int = 0, user=Depends(require_player)):
-    with connect() as db:
-        rows = db.execute(
-            """select l.*,r.charged_micro from player_ledger l left join player_requests r on r.id=l.request_id
-                           where l.user_id=%s and (%s=0 or l.id<%s) order by l.id desc limit 50""",
-            (user["id"], before, before),
-        ).fetchall()
-    return {"items": [expose(r) for r in rows]}
+def ledger(
+    page: int = Query(default=1, ge=1, le=100000),
+    page_size: int = Query(default=10, ge=1, le=50),
+    kind: Literal["", "daily", "expire", "reserve", "settle", "release", "redeem", "grant"] = "",
+    q: str = Query(default="", max_length=120),
+    date_from: date | None = None,
+    date_to: date | None = None,
+    before: int = Query(default=0, ge=0),
+    user=Depends(require_player),
+):
+    from platform_app.player.ledger import history
+
+    return history(user["id"], page=page, page_size=page_size, kind=kind, query=q,
+                   date_from=date_from, date_to=date_to, before=before)
 
 
 @router.get("/requests/{request_id}/usage")

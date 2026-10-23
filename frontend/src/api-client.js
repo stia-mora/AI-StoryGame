@@ -374,7 +374,7 @@
       request: (id) => GET(`${API_PREFIX}/player/requests/${id}`),
       stop: (id) => POST(`${API_PREFIX}/player/requests/${id}/stop`, {}),
       wallet: () => GET(`${API_PREFIX}/player/wallet`),
-      ledger: (before = 0) => GET(`${API_PREFIX}/player/ledger?before=${before}`),
+      ledger: (filters = {}) => GET(`${API_PREFIX}/player/ledger?${new URLSearchParams(typeof filters === "number" ? { before: filters } : Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== "" && value != null)))}`),
       usage: (id) => GET(`${API_PREFIX}/player/requests/${id}/usage`),
       redeem: (code) => POST(`${API_PREFIX}/player/redeem`, { code }),
       manage: () => GET(`${API_PREFIX}/admin/player`),
