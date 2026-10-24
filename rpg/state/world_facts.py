@@ -52,6 +52,8 @@ class WorldFact(BaseModel):
 
     @model_validator(mode="after")
     def semantics(self):
+        if self.field == "name" and (self.certainty != "confirmed" or len(self.value) > 100):
+            raise ValueError("Names must be confirmed and at most 100 characters")
         if self.kind == "event" and self.field != "event":
             raise ValueError("World events must use field=event")
         if self.certainty == "reported" and self.field != "report":

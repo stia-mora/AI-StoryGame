@@ -107,6 +107,10 @@ class GuideWorld(Record):
                 or moments[fact.ends_at].order <= moments[fact.starts_at].order
             ):
                 raise ValueError("Invalid fact validity interval")
+            if fact.field == "name" and (fact.kind != "state" or fact.basis != "novel"
+                                          or fact.certainty != "confirmed"
+                                          or not fact.value.strip() or len(fact.value) > 100):
+                raise ValueError("Dated names must be confirmed short novel states")
         return self
 
 
@@ -145,12 +149,16 @@ class WorldQueries:
                                      if type(divergence) is int and m.chapter_max is not None
                                      and m.chapter_max >= divergence), default=None)
         self.current = self._current_moment()
+        self.name_facts = {}
+        for fact in self.model.facts:
+            if fact.field == "name":
+                self.name_facts.setdefault(fact.subject, []).append(fact)
         self.version = knowledge_version(self.model)
         self.recorded = {}
         from state.world_facts import WorldFact
         aliases = {}
         for subject in self.subjects.values():
-            for name in (subject.key, subject.name, *subject.aliases):
+            for name in (subject.key, *self.known_names(subject)):
                 if name not in aliases:
                     aliases[name] = subject
                 elif aliases[name] != subject:
@@ -173,6 +181,38 @@ class WorldQueries:
                 subject = Subject(key=key, name=fact.subject, kind=fact.subject_kind)
                 self.subjects[key] = aliases[fact.subject] = subject
             self.recorded.setdefault(subject.key, []).append({**record, **fact.model_dump()})
+            if fact.field == "name" and fact.certainty == "confirmed":
+                aliases[fact.value] = subject if aliases.get(fact.value, subject) == subject else None
+
+    def _recorded_names(self, subject, target):
+        rows = []
+        for record in getattr(self, "recorded", {}).get(subject.key, []):
+            if record["field"] != "name" or record["certainty"] != "confirmed":
+                continue
+            if target is not self.current:
+                moment = self._moment(record.get("moment") or record.get("time"))
+                if target is None or moment is None or moment.order > target.order:
+                    continue
+            rows.append(record)
+        return sorted(rows, key=lambda row: row["turn"])
+
+    def known_names(self, subject):
+        """Former names stay searchable once known; future names cannot identify a person."""
+        facts = self.name_facts.get(subject.key, [])
+        visible = [f for f in facts if self._visible(f)]
+        names = [subject.name, *subject.aliases] if not facts or visible else []
+        names += [f.value for f in visible]
+        names += [row["value"] for row in self._recorded_names(subject, self.current)]
+        return list(dict.fromkeys(names))
+
+    def display_name(self, subject, target):
+        records = self._recorded_names(subject, target)
+        if records:
+            return records[-1]["value"]
+        names = {f.value for f in self.name_facts.get(subject.key, []) if target is not None
+                 and self.moments[f.starts_at].order <= target.order
+                 and (f.ends_at is None or target.order < self.moments[f.ends_at].order)}
+        return next(iter(names)) if len(names) == 1 else subject.name
 
     def _moment(self, label):
         matches = [m for m in self.model.moments if label in (m.key, m.label, *m.aliases)]
@@ -224,7 +264,7 @@ class WorldQueries:
         if self.divergence_order is None and type(divergence_turn) is int:
             branched = (target is self.current and divergence_turn <= (self.state.get("turn") or 0))
         return dict(
-            id=fact.id, subject=subject.name, subject_key=subject.key, field=fact.field,
+            id=fact.id, subject=self.display_name(subject, target), subject_key=subject.key, field=fact.field,
             value=fact.value, basis=fact.basis, certainty=fact.certainty,
             applicability=("historical_reference" if fact.basis == "history" else
                            "baseline_after_divergence" if branched else "baseline"),
@@ -244,7 +284,7 @@ class WorldQueries:
                     if recorded is None or target is None or recorded.order > target.order:
                         continue
                 rows.append(dict(
-                    id=record["id"], subject=resolved.name, subject_key=resolved.key,
+                    id=record["id"], subject=self.display_name(resolved, target), subject_key=resolved.key,
                     field=record["field"], value=record["value"], kind=record["kind"],
                     basis="save", certainty=record["certainty"], applicability="current_save",
                     future=False, turn=record["turn"], cause=record.get("cause", ""),
@@ -273,15 +313,13 @@ class WorldQueries:
             if not isinstance(field, str) or not isinstance(value, str) or not value.strip():
                 continue
             rows.append(dict(id=f"save:{item.get('id', item['turn'])}:{field[:80]}",
-                             subject=subject.name, subject_key=subject.key, field=field[:80],
+                             subject=self.display_name(subject, target), subject_key=subject.key, field=field[:80],
                              value=value[:1200], basis="save", certainty="confirmed",
                              applicability="current_save", future=False, turn=item["turn"],
                              cause=str(guide.get("cause") or item.get("text") or "")[:600],
                              evidence=[{"source": "本存档", "locator": f"第{item['turn']}回合"}]))
         for entity in self.state.get("active_entities") or []:
-            if not isinstance(entity, dict) or entity.get("name") not in (
-                subject.name, *subject.aliases,
-            ):
+            if not isinstance(entity, dict) or entity.get("name") not in self.known_names(subject):
                 continue
             for key, field in (("role", "identity"), ("status", "status"), ("location", "location")):
                 value = entity.get(key)
@@ -289,7 +327,7 @@ class WorldQueries:
                 if key == "location" and entity.get("last_seen_turn") != turn:
                     continue
                 if isinstance(value, str) and value.strip():
-                    rows.append(dict(id=f"save:entity:{subject.key}:{field}", subject=subject.name,
+                    rows.append(dict(id=f"save:entity:{subject.key}:{field}", subject=self.display_name(subject, target),
                                      subject_key=subject.key, field=field, value=value[:1200],
                                      basis="save", certainty="reported", applicability="current_save",
                                      future=False, evidence=[{"source": "本存档人物记录",
@@ -323,7 +361,7 @@ class WorldQueries:
             value = guide.get("value")
             if subject is None or not isinstance(value, str) or not value.strip():
                 continue
-            rows.append(dict(id=f"save:memory:{item.get('id', item['turn'])}", subject=subject.name,
+            rows.append(dict(id=f"save:memory:{item.get('id', item['turn'])}", subject=self.display_name(subject, self.current),
                              subject_key=subject.key, field="event", value=value[:1200], basis="save",
                              certainty="confirmed", applicability="current_save", future=False,
                              turn=item["turn"], time=f"存档第{item['turn']}回合",
@@ -349,11 +387,13 @@ class WorldQueries:
             facts = [f for f in self.model.facts if f.id == args.fact_id and self._visible(f)]
         else:
             matches = {s.key for s in self.subjects.values()
-                       if args.query in (s.key, s.name, *s.aliases)}
+                       if args.query in (s.key, *self.known_names(s))}
             if args.tool == "get_character":
                 matches = {k for k in matches if self.subjects[k].kind == "character"}
                 if len(matches) != 1:
-                    return {**result, "unavailable": "未找到唯一人物，请使用姓名消除重名"}
+                    return {**result, "unavailable": "未找到唯一人物，请使用姓名或对象key消除重名",
+                            "candidates": [dict(key=k, name=self.display_name(self.subjects[k], target))
+                                           for k in sorted(matches)]}
             facts = [f for f in self.model.facts if self._visible(f)]
             if args.tool in ("get_character", "get_situation"):
                 facts = [f for f in facts if f.kind == "state"

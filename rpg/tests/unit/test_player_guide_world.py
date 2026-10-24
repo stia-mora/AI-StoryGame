@@ -351,3 +351,76 @@ def test_invalid_initial_world_does_not_partially_bind_save():
         bind_initial({"version": 1, "edition": "invalid", "moments": []}, snapshot)
     assert invalid.value.status_code == 503
     assert snapshot == {"world": {}, "worldline": {}}
+
+
+@pytest.fixture
+def renamed_world(world):
+    world["subjects"][0]["name"] = "旧名"
+    source = {**world["facts"][0], "field": "name"}
+    world["facts"] += [
+        {**source, "id": "name-old", "value": "旧名", "ends_at": "battle"},
+        {**source, "id": "name-new", "value": "新名", "starts_at": "battle", "ends_at": None},
+    ]
+    return world
+
+
+def test_names_change_at_the_recorded_moment_and_future_names_cannot_identify_early(renamed_world):
+    early = engine(renamed_world, 1)
+    assert {r["subject"] for r in early.query({"tool": "get_character", "query": "旧名"})["facts"]} == {"旧名"}
+    assert early.query({"tool": "get_character", "query": "新名"})["candidates"] == []
+    late = engine(renamed_world, 11)
+    for name in ("旧名", "新名", "wu"):
+        rows = late.query({"tool": "get_character", "query": name})["facts"]
+        assert rows and {r["subject_key"] for r in rows} == {"wu"}
+        assert {r["subject"] for r in rows} == {"新名"}
+    past = late.query({"tool": "get_character", "query": "新名", "at": "early"})
+    assert {r["subject"] for r in past["facts"]} == {"旧名"}
+    assert "新名" not in values(past)
+
+
+def test_same_named_background_person_keeps_qualified_identity_and_late_records(renamed_world):
+    renamed_world["subjects"].append(dict(key="other", name="新名（另一家之子）", kind="character"))
+    renamed_world["facts"].append({**renamed_world["facts"][0], "id": "other-id", "subject": "other",
+                                   "value": "另一家之子", "starts_at": "battle", "ends_at": None})
+    q = engine(renamed_world, 11)
+    assert q.query({"tool": "get_character", "query": "新名"})["facts"][0]["subject_key"] == "wu"
+    assert q.query({"tool": "get_character", "query": "新名（另一家之子）"})["facts"][0]["subject_key"] == "other"
+
+
+def test_ambiguous_known_names_return_safe_candidates_for_key_disambiguation(renamed_world):
+    renamed_world["subjects"][1]["aliases"] = ["新名"]
+    q = engine(renamed_world, 11)
+    result = q.query({"tool": "get_character", "query": "新名"})
+    assert result["facts"] == []
+    assert {r["key"] for r in result["candidates"]} == {"wu", "hou"}
+    assert q.query({"tool": "get_character", "query": "wu"})["facts"]
+
+
+def test_branch_rename_keeps_earlier_facts_and_later_new_name_records_on_one_person(renamed_world):
+    records = [dict(id="wf_name", subject="旧名", subject_kind="character", kind="state", field="name",
+                    value="存档新名", certainty="confirmed", quote="旧名改名为存档新名。", turn=4,
+                    moment="battle", time="尧山决战"),
+               dict(id="wf_state", subject="存档新名", subject_kind="character", kind="state", field="status",
+                    value="留营休养", certainty="confirmed", quote="存档新名留营休养。", turn=5,
+                    moment="after", time="尧山战后")]
+    snapshot = {"turn": 5, "world": {"guide_moment": "after"}, "world_facts": records}
+    before = copy.deepcopy(snapshot)
+    q = engine(renamed_world, state=snapshot)
+    result = q.query({"tool": "get_character", "query": "存档新名"})
+    assert {r["subject_key"] for r in result["facts"]} == {"wu"}
+    assert {r["subject"] for r in result["facts"]} == {"存档新名"}
+    assert "留营休养" in values(result)
+    past = q.query({"tool": "get_character", "query": "存档新名", "at": "early"})
+    assert {r["subject"] for r in past["facts"]} == {"旧名"}
+    assert "存档新名" not in values(past)
+    assert snapshot == before
+    baseline = engine(renamed_world, state={"world": {"guide_moment": "after"}})
+    assert "unavailable" in baseline.query({"tool": "get_character", "query": "存档新名"})
+
+
+@pytest.mark.parametrize("change", [{"basis": "history"}, {"kind": "event"},
+                                    {"certainty": "reported"}, {"value": "甲"*101}])
+def test_invalid_dated_names_are_not_accepted_as_identity(renamed_world, change):
+    renamed_world["facts"][-1].update(change)
+    with pytest.raises(ValidationError):
+        GuideWorld.model_validate(renamed_world)

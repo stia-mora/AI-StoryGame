@@ -162,6 +162,19 @@ def test_time_updates_invalidate_old_exact_moment_before_recording():
     assert row["moment"] == ""
 
 
+def test_narrated_rename_is_kept_but_overlong_or_reported_name_is_rejected():
+    g = state()
+    rename = dict(RESCUE, field="name", value="侯安", diverges=False,
+                  quote="侯丹自此改名侯安。")
+    g.apply_structured_updates(response(rename, narrative=rename["quote"]))
+    assert g.data["world_facts"][0]["value"] == "侯安"
+    for value, certainty in [("甲"*101, "confirmed"), ("侯新", "reported")]:
+        invalid = state()
+        op = dict(rename, value=value, certainty=certainty)
+        invalid.apply_structured_updates(response(op, narrative=rename["quote"]))
+        assert "world_facts" not in invalid.data
+
+
 def test_director_bundle_includes_world_facts_after_memory_pruning(model):
     from context_engine import build_context_bundle
     from context_providers import resolve_content_pack

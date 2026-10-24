@@ -74,7 +74,7 @@ class CuratedWorldProvider(ContextProvider):
             ])
             subjects = list(world.subjects.values())
             def mentioned(subject, text):
-                return any(name in text for name in (subject.name, *subject.aliases))
+                return any(name in text for name in world.known_names(subject))
             relevant = [s for s in subjects if mentioned(s, scan)]
             relevant.sort(key=lambda s: (not mentioned(s, explicit), s.kind != 'character'))
             relevant += [s for s in subjects if s.kind == 'world' and s not in relevant]

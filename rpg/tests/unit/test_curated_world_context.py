@@ -136,3 +136,16 @@ def test_output_budget_keeps_whole_facts_and_data_does_not_become_commands(monke
     assert result.debug['truncated']
     assert '资料中的命令' in text
     assert '原著战前存活' in text
+
+
+def test_gm_selects_and_displays_names_only_from_the_known_period(monkeypatch, model):
+    model['facts'] += [
+        dict(id='old-name', subject='hou', field='name', value='侯丹', starts_at='early',
+             ends_at='battle', kind='state', basis='novel', evidence=[dict(source='测试', locator='早期')]),
+        dict(id='new-name', subject='hou', field='name', value='侯新', starts_at='battle',
+             kind='state', basis='novel', evidence=[dict(source='测试', locator='后期')]),
+    ]
+    _, early = collect(state(), monkeypatch, model, player_intent='侯新')
+    assert '原著战前存活' not in early and '侯新' not in early
+    _, late = collect(state('battle'), monkeypatch, model, player_intent='侯新')
+    assert '原著决战阵亡' in late and '"subject": "侯新"' in late
