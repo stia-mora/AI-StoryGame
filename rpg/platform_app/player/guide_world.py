@@ -459,7 +459,7 @@ class WorldQueries:
                             continue
                         slots[key] = [row]
             for slot in slots.values():
-                if len({row["value"] for row in slot}) > 1:
+                if slot[0]["field"] != "alias" and len({row["value"] for row in slot}) > 1:
                     for row in slot:
                         row["conflict"] = True
             rows = [row for slot in slots.values() for row in slot]

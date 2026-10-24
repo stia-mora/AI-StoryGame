@@ -458,6 +458,17 @@ def test_a_revealed_alias_can_query_past_state_without_inventing_a_past_alias(wo
     assert {r['subject'] for r in result['facts']} == {'吴玠'}
 
 
+def test_simultaneous_known_aliases_are_not_conflicting_primary_names(world):
+    for fid, name in [('first-alias', '旧昵称'), ('second-alias', '另一别称')]:
+        world['facts'].append({**world['facts'][0], 'id': fid, 'field': 'alias',
+                               'value': name, 'starts_at': 'battle', 'ends_at': None})
+    q = engine(world, 11)
+    for name in ('旧昵称', '另一别称'):
+        result = q.query({'tool': 'get_character', 'query': name})
+        assert {'旧昵称', '另一别称'} <= set(values(result))
+        assert all(not r.get('conflict') and r['subject'] == '吴玠' for r in result['facts'])
+
+
 def test_alias_does_not_expose_an_unrevealed_primary_name(world):
     world['subjects'][0]['name'] = '未揭姓名'
     source = world['facts'][0]
