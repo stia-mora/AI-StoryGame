@@ -426,6 +426,28 @@ class WorldQueries:
         return result
 
 
+def bind_initial(model, snapshot, *, default_opening=False):
+    """Bind a newly created save before its root commit and KB seed are written."""
+    try:
+        world = WorldQueries(model, snapshot, script_id=0, save_id=0)
+    except ValueError as exc:
+        raise HTTPException(503, "故事的世界资料尚未配置完整") from exc
+    moment = world.current
+    if moment is None and default_opening:
+        chapter_moments = [m for m in world.model.moments if m.chapter_min is not None]
+        moment = min(chapter_moments, key=lambda m: (m.chapter_min, m.order), default=None)
+    target = snapshot.setdefault("world", {})
+    target["guide_edition"] = world.model.edition
+    if moment is not None:
+        target["guide_moment"] = moment.key
+        if not target.get("time"):
+            target["time"] = moment.label
+            target.setdefault("timeline", {})["current_label"] = moment.label
+        progress = snapshot.setdefault("worldline", {})
+        if moment.chapter_min is not None and not progress.get("progress_chapter"):
+            progress["progress_chapter"] = moment.chapter_min
+
+
 def load(uid, sid, *, allow_future=False):
     """Scope every query to an owned player save and its bound script, loaded once."""
     from platform_app.db import connect

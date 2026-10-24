@@ -191,6 +191,58 @@ def test_recorded_rescue_commits_and_branch_checkout_restores_its_own_world(play
     assert guide_world.load(uid, sid).query({"tool": "get_character", "query": "侯丹"})["facts"][0]["value"] == "存活，右臂受伤"
 
 
+@pytest.mark.parametrize("chapter,expected", [(None, "start"), (12, "battle"), (999, None)])
+def test_free_character_creation_binds_guide_world_before_root_and_kb_seed(player, chapter, expected):
+    from kb.save_kb import materialize
+    from platform_app.api.player import Create, create
+    from platform_app.player import guide_world
+
+    uid, sid = player["uid"], player["sid"]
+    script_id = catalog.player_save(uid, sid)["script_id"]
+    model = {"version": 1, "edition": "creation-test", "moments": [
+        {"key": "historical", "order": 0, "label": "早期史实参考"},
+        {"key": "start", "order": 1, "label": "开篇", "chapter_min": 1, "chapter_max": 2},
+        {"key": "battle", "order": 10, "label": "会战", "chapter_min": 12, "chapter_max": 12},
+    ], "subjects": [], "facts": []}
+    defaults = {"birthpoint": {"chapter_min": chapter, "chapter_max": chapter}} if chapter else {}
+    with connect() as db:
+        db.execute("insert into script_overrides(script_id,data) values(%s,%s)",
+                   (script_id, Jsonb({"guide_world": model})))
+        db.execute("update player_stories set identities=%s,defaults=%s where id=%s",
+                   (Jsonb([{"id": "native", "name": "随行小吏"}]), Jsonb(defaults), player["story"]))
+    view = create(Create(story_id=player["story"], name="新角色", identity_id="native"), user=player["user"])
+    saved = catalog.player_save(uid, view["save"]["id"])
+    assert saved["state_snapshot"]["world"]["guide_edition"] == "creation-test"
+    assert saved["state_snapshot"]["world"].get("guide_moment") == expected
+    with connect() as db:
+        root = db.execute("select state_snapshot from branch_commits where id=%s", (saved["active_commit_id"],)).fetchone()
+        kb = materialize(db, saved["id"], saved["active_commit_id"])
+    assert root["state_snapshot"]["world"]["guide_edition"] == kb["world"]["guide_edition"] == "creation-test"
+    assert guide_world.load(uid, saved["id"]).clock()["moment_key"] == expected
+    assert wallet.wallet(uid)["held_micro"] == 0
+    assert wallet.wallet(uid)["free_micro"] == 100_000_000
+
+
+def test_invalid_guide_data_prevents_half_created_save_without_charging(player):
+    from platform_app.api.player import Create, create
+
+    uid = player["uid"]
+    script_id = catalog.player_save(uid, player["sid"])["script_id"]
+    with connect() as db:
+        db.execute("insert into script_overrides(script_id,data) values(%s,%s)",
+                   (script_id, Jsonb({"guide_world": {"version": 1, "edition": "broken", "moments": []}})))
+        db.execute("update player_stories set identities=%s where id=%s",
+                   (Jsonb([{"id": "native", "name": "随行小吏"}]), player["story"]))
+        before = db.execute("select count(*) as n from game_saves where user_id=%s", (uid,)).fetchone()["n"]
+    with pytest.raises(HTTPException) as invalid:
+        create(Create(story_id=player["story"], name="新角色", identity_id="native"), user=player["user"])
+    assert invalid.value.status_code == 503
+    with connect() as db:
+        after = db.execute("select count(*) as n from game_saves where user_id=%s", (uid,)).fetchone()["n"]
+    assert before == after
+    assert wallet.wallet(uid)["held_micro"] == 0
+
+
 @pytest.fixture
 def player(tmp_path):
     from platform_app import branches

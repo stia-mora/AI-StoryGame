@@ -282,3 +282,43 @@ def test_future_authorization_is_in_quote_fingerprint_and_strict_api_schema():
         Quote(save_id=9, kind="guide", message="问题", reveal_future="true")
     with pytest.raises(ValidationError):
         Quote(save_id=9, kind="turn", message="问题", reveal_future=True)
+
+
+def test_initial_binding_uses_first_chapter_not_earlier_historical_reference(world):
+    from platform_app.player.guide_world import bind_initial
+
+    world["moments"].insert(0, {"key": "history", "label": "宋以前", "order": 0})
+    for m in world["moments"][1:]:
+        m["order"] += 1
+    snapshot = {"world": {}, "worldline": {}}
+    bind_initial(world, snapshot, default_opening=True)
+    assert snapshot["world"]["guide_edition"] == "test-v1"
+    assert snapshot["world"]["guide_moment"] == "early"
+    assert snapshot["world"]["time"] == "建炎初年"
+    assert snapshot["worldline"]["progress_chapter"] == 1
+
+
+def test_initial_binding_uses_chosen_progress_and_does_not_fill_unknown_later_scene(world):
+    from platform_app.player.guide_world import bind_initial
+
+    snapshot = {"world": {"time": "大致战前"}, "worldline": {"progress_chapter": 11}}
+    bind_initial(world, snapshot)
+    assert snapshot["world"]["time"] == "大致战前"
+    assert snapshot["world"]["guide_moment"] == "battle"
+    unknown = {"world": {"time": "未编制到的某日"}, "worldline": {"progress_chapter": 100}}
+    bind_initial(world, unknown)
+    assert unknown["world"]["guide_edition"] == "test-v1"
+    assert "guide_moment" not in unknown["world"]
+    assert not engine(world, state=unknown).query({"tool": "get_timeline"})["facts"]
+
+
+def test_invalid_initial_world_does_not_partially_bind_save():
+    from fastapi import HTTPException
+
+    from platform_app.player.guide_world import bind_initial
+
+    snapshot = {"world": {}, "worldline": {}}
+    with pytest.raises(HTTPException) as invalid:
+        bind_initial({"version": 1, "edition": "invalid", "moments": []}, snapshot)
+    assert invalid.value.status_code == 503
+    assert snapshot == {"world": {}, "worldline": {}}

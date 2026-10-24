@@ -95,6 +95,11 @@ def create_save(
         if (script.get("review_status") or "unreviewed") == "unreviewed":
             raise ValueError("剧本尚未通过 KB 复核,请先在剧本复核页 (script-review) 检查实体/时间线/世界观无误后点击「标记已复核」")
         snapshot = _build_initial_snapshot(user_id, script_id, new_card, character, birthpoint=birthpoint, identity=identity, story_intent=story_intent, player_origin=player_origin, identity_known=identity_known)
+        world_row = db.execute("select data->'guide_world' as model from script_overrides where script_id=%s",
+                               (script_id,)).fetchone()
+        if world_row and world_row["model"] is not None:
+            from ..player.guide_world import bind_initial
+            bind_initial(world_row["model"], snapshot, default_opening=not bool(birthpoint))
         if player_story_id is not None:
             settings = db.execute('select defaults from player_stories where id=%s', (player_story_id,)).fetchone()['defaults']
             snapshot.setdefault('permissions', {})['mode'] = 'full_access'
