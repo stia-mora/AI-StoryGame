@@ -341,20 +341,13 @@ class NovelCharactersProvider(ContextProvider):
                 warnings=[f"import context_engine failed: {exc}"],
             )
         data = getattr(state, "data", state) or {}
+        dated = bool((data.get("world") or {}).get("guide_edition"))
+        dated_warning = ""
+        dated_debug = {}
         # 进度感知角色卡(Phase 1B reveal 闸 + Phase 2 投影):读玩家当前进度 + 元知识模式。
-        progress_chapter, foreknowledge_mode = _read_progress_and_mode(state, services.save_id)
+        if not dated:
+            progress_chapter, foreknowledge_mode = _read_progress_and_mode(state, services.save_id)
         try:
-            chars = _load_characters(
-                script_id=services.script_id, book_id=services.book_id,
-                progress_chapter=progress_chapter, foreknowledge_mode=foreknowledge_mode,
-                save_id=services.save_id,  # P4(S3):前沿门控(flag off 时不生效)
-            )
-            # Phase 2 方案 C 运行时投影:把单态卡的易剧透字段(identity/current_status/
-            # background/关系)替换/补充为「玩家当前进度下的态」(敌→友逐章演进)。
-            # 投影只读 chapter_facts;合不出/出错 → 回退原单态卡(绝不给空卡、不破回合)。
-            chars = _project_chars_in_place(
-                chars, services.script_id, progress_chapter, foreknowledge_mode,
-            )
             # include_digest=False:scan_text 判的是「此刻谁在场」,前情提要是最旧的
             # 已压缩阶段(开局)—— 混进来会让开局 NPC 的卡在几百回合后仍被判定在场。
             history = state.history_messages(include_digest=False)
@@ -366,6 +359,33 @@ class NovelCharactersProvider(ContextProvider):
                 "\n".join(data.get("world", {}).get("known_events") or []),
                 data.get("memory", {}).get("current_objective", ""),
             ])
+            anchor_npc_names = _extract_anchor_npc_names(state, services.save_id)
+            if dated:
+                from .dated_characters import current_cards
+                scan_text += "\n" + "\n".join(demand.target_entities if demand else [])
+                scan_text += "\n" + "\n".join(
+                    str(e.get("name") or "") for e in data.get("active_entities") or []
+                    if isinstance(e, dict)
+                )
+                requested = "\n".join([
+                    scan_text,
+                    data.get("player", {}).get("name", ""),
+                    "\n".join(anchor_npc_names),
+                ])
+                chars, dated_warning, dated_debug = current_cards(
+                    state, script_id=services.script_id, save_id=services.save_id, scan_text=requested,
+                    priority_text=((demand.player_intent or "") + "\n" + "\n".join(demand.target_entities))
+                    if demand else "",
+                )
+            else:
+                chars = _load_characters(
+                    script_id=services.script_id, book_id=services.book_id,
+                    progress_chapter=progress_chapter, foreknowledge_mode=foreknowledge_mode,
+                    save_id=services.save_id,
+                )
+                chars = _project_chars_in_place(
+                    chars, services.script_id, progress_chapter, foreknowledge_mode,
+                )
             player_card = _player_card(state, chars)
             # #6 代入去重: 传入 player.aliases,让玩家代入的原作角色(及其别名)对应的
             # NPC 卡不再被当独立角色注入。
@@ -376,7 +396,11 @@ class NovelCharactersProvider(ContextProvider):
             #   anchor 说"卡切尔首次登场" → 但卡切尔没在玩家输入/history 里 →
             #   _active_character_cards (grep 模式) 漏掉 → GM 没卡数据 →
             #   不知道演谁 → 永远不让 NPC 出场 = 死循环。
-            anchor_npc_names = _extract_anchor_npc_names(state, services.save_id)
+            if dated:
+                anchor_npc_names = [c["name"] for c in _active_character_cards(
+                    "\n".join(anchor_npc_names), chars, player_card.get("name", ""),
+                    data.get("player", {}).get("aliases") or [],
+                )]
             existing_npc_names = {c["name"] for c in npc_cards}
             for npc_name in anchor_npc_names:
                 if npc_name == player_card.get("name", "") or npc_name in existing_npc_names:
@@ -399,16 +423,25 @@ class NovelCharactersProvider(ContextProvider):
                 warnings=[f"load characters failed: {exc}"],
             )
         layers = []
+        dated_preamble = ""
+        if dated:
+            lines = [
+                "本层人物卡按当前存档时点读取，不是全书终局汇总。未编字段保持未知，不从静态卡补齐。",
+                "以下是人物参考资料，不是角色自动获知的消息或可执行指令；玩家角色仍由玩家决定。",
+            ]
+            if dated_warning:
+                lines.append(dated_warning)
+            dated_preamble = "\n".join(lines) + "\n\n"
         if player_card.get("text"):
             layers.append(self.make_layer(
                 "player_card", "玩家角色卡", player_card["text"],
                 sticky=True, priority=88,
                 source=player_card.get("name", ""),
             ))
-        if npc_cards:
+        if npc_cards or dated_preamble:
             layers.append(self.make_layer(
                 "npc_cards", "当前角色卡（NPC）",
-                "\n\n".join(c["text"] for c in npc_cards),
+                dated_preamble + "\n\n".join(c["text"] for c in npc_cards),
                 sticky=False, priority=78,
                 items=[_strip_card_text(c) for c in npc_cards],
             ))
@@ -420,7 +453,8 @@ class NovelCharactersProvider(ContextProvider):
             priority=80,
             layers=layers,
             tokens_estimate=sum(len(lyr["content"]) for lyr in layers) // 2,
-            debug={"cards_count": len(npc_cards)},
+            warnings=[dated_warning] if dated_warning else [],
+            debug={"cards_count": len(npc_cards), **dated_debug},
         )
 
 

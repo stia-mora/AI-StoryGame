@@ -191,16 +191,22 @@ def test_recorded_rescue_commits_and_branch_checkout_restores_its_own_world(play
         current = catalog.player_save(uid, sid)
         state = GameState(copy.deepcopy(current["state_snapshot"]))
         manifest = resolve_content_pack(state, script_id=root["script_id"])
-        manifest["context_providers"] = ["curated_world"]
+        manifest["context_providers"] = ["curated_world", "novel_characters"]
         contributions, used = run_providers(
             state, manifest, Demand(player_intent="询问侯丹伤势"),
             ProviderServices(user_id=uid, script_id=root["script_id"], save_id=sid),
         )
-        assert used == ["curated_world"]
-        reference = contributions[0].layers[0]["content"]
+        assert used == ["curated_world", "novel_characters"]
+        npc_reference = next(layer["content"] for layer in contributions[1].layers if layer["id"] == "npc_cards")
+        current_status = guide_world.load(uid, sid).query({"tool": "get_character", "query": "侯丹"})["facts"][0]["value"]
+        assert current_status in npc_reference
         bundle = build_context_bundle(state, "询问侯丹伤势", contributions=contributions, manifest=manifest)
-        assert reference in bundle["prompt"]
-        return reference
+        reference = []
+        for contribution in contributions:
+            for layer in contribution.layers:
+                assert layer["content"] in bundle["prompt"]
+                reference.append(layer["content"])
+        return "\n".join(reference)
 
     reference = gm_reference()
     assert "存活，右臂受伤" in reference and "原著阵亡" not in reference
