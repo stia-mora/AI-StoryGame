@@ -31,7 +31,9 @@ export function Assistant({
     draftKey = `player-guide-draft-${uid}-${saveId}`;
   const [draft, setDraft] = useState(() => lsGet(draftKey, "")),
     [quote, setQuote] = useState(null),
+    [revealFuture, setRevealFuture] = useState(false),
     [error, setError] = useState("");
+  const quoteReady = quote?.message === draft && quote?.reveal_future === revealFuture;
   const pending = useRef(null),
     mounted = useRef(true),
     panel = useRef(null),
@@ -127,16 +129,16 @@ export function Assistant({
     const timer = setTimeout(
       () =>
         window.api.player
-          .quote({ save_id: saveId, kind: "guide", message: draft })
-          .then((q) => live && setQuote(q))
+          .quote({ save_id: saveId, kind: "guide", message: draft, reveal_future: revealFuture })
+          .then((q) => live && setQuote({ ...q, message: draft, reveal_future: revealFuture }))
           .catch((e) => live && setError(e.message)),
       450,
     );
     const expiry = setInterval(
       () =>
         window.api.player
-          .quote({ save_id: saveId, kind: "guide", message: draft })
-          .then((q) => live && setQuote(q))
+          .quote({ save_id: saveId, kind: "guide", message: draft, reveal_future: revealFuture })
+          .then((q) => live && setQuote({ ...q, message: draft, reveal_future: revealFuture }))
           .catch((e) => live && setError(e.message)),
       60000,
     );
@@ -145,7 +147,7 @@ export function Assistant({
       clearTimeout(timer);
       clearInterval(expiry);
     };
-  }, [draft, busy, gameBusy, open, saveId]);
+  }, [draft, revealFuture, busy, gameBusy, open, saveId]);
   useEffect(() => {
     if (!open) return;
     returnFocus.current = document.activeElement;
@@ -161,11 +163,12 @@ export function Assistant({
   }, [open, closePanel]);
   const send = async (e) => {
     e?.preventDefault();
-    if (gameBusy || busy || pending.current || !quote?.affordable) return;
+    if (gameBusy || busy || pending.current || !quoteReady || !quote?.affordable) return;
     const request = {
       save_id: saveId,
       kind: "guide",
       message: draft,
+      reveal_future: revealFuture,
       quote_id: quote.id,
       action_id: uuid(),
       request_id: uuid(),
@@ -173,6 +176,7 @@ export function Assistant({
     pending.current = request;
     lsSetJSON(key, request);
     setBusy(true);
+    setRevealFuture(false);
     onBusy(true);
     setError("");
     const channel = window.api.player.execute(request, {
@@ -224,6 +228,7 @@ export function Assistant({
           {!items.length && (
             <div className="workspace-assistant-empty">
               {[
+                "当前各方局势如何？",
                 "目前有什么值得注意的风险？",
                 "根据当前目标，建议我怎样推进？",
               ].map((s) => (
@@ -236,6 +241,7 @@ export function Assistant({
           {items.map((item) => (
             <article key={item.request_id}>
               <p className="workspace-assistant-question">{item.question}</p>
+              {item.future_revealed && <small className="muted">本次咨询已允许揭示未来</small>}
               <Narration text={item.text} />
               {item.options?.map((option) => (
                 <button
@@ -274,13 +280,25 @@ export function Assistant({
             disabled={busy || gameBusy}
             {...composerKeys}
           />
+          <label className="workspace-assistant-future">
+            <input
+              type="checkbox"
+              checked={revealFuture}
+              onChange={(e) => setRevealFuture(e.target.checked)}
+              disabled={busy || gameBusy}
+              aria-labelledby="player-guide-future-label"
+              aria-describedby="player-guide-future-note"
+            />
+            <span id="player-guide-future-label">本次揭示未来</span>
+            <small id="player-guide-future-note">可能涉及后续剧情，发送后重置</small>
+          </label>
           <div className="workspace-assistant-footer">
             <small>
               {gameBusy
                 ? "回合完成后可咨询"
                 : busy
                   ? "已预留，完成后按实际用量结算"
-                  : quote
+                  : quoteReady
                     ? `预计 ${points(quote.estimate_micro)} · 封顶 ${points(quote.cap_micro)} 积分${quote.affordable ? "" : " · 余额不足"}`
                     : draft.trim()
                       ? "正在获取报价……"
@@ -300,7 +318,7 @@ export function Assistant({
                 停止
               </Button>
             ) : (
-              <Button type="submit" disabled={gameBusy || !quote?.affordable}>
+              <Button type="submit" disabled={gameBusy || !quoteReady || !quote?.affordable}>
                 发送
                 <ArrowUp size={16} />
               </Button>

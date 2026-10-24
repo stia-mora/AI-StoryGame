@@ -141,6 +141,8 @@ export function Receipt({ receipt }) {
         <p key={i}>
           {u.phase === "curator"
             ? "理解行动与准备上下文"
+            : u.phase === "guide_plan"
+              ? "查询局势与人物资料"
             : u.phase === "guide" || u.phase === "player_guide"
               ? "游玩助手咨询"
               : u.phase === "reply"

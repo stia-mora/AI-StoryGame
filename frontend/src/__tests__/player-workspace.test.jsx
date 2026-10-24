@@ -343,6 +343,7 @@ it("quotes a read-only consultation, preserves the response and fills suggestion
   fireEvent.click(screen.getByRole("button", { name: "发送" }));
   const request = window.api.player.execute.mock.calls[0][0];
   expect(request.kind).toBe("guide");
+  expect(request.reveal_future).toBe(false);
   expect(onBusy).toHaveBeenCalledWith(true);
   const receipt = {
     request_id: request.request_id,
@@ -364,4 +365,41 @@ it("quotes a read-only consultation, preserves the response and fills suggestion
   expect(onUse).toHaveBeenCalledWith("向村长问路");
   expect(window.api.player.execute).toHaveBeenCalledTimes(1);
   expect(localStorage.getItem("player-guide-request-1-9")).toBeNull();
+});
+
+it("requotes future disclosure and resets permission after sending even when released", async () => {
+  let resolve;
+  window.api.player.execute.mockImplementation(() => ({
+    done: new Promise((r) => { resolve = r; }),
+  }));
+  render(
+    <Assistant uid={1} saveId={9} name="旅人" gameBusy={false}
+      onBusy={vi.fn()} onUse={vi.fn()} refreshWallet={vi.fn().mockResolvedValue(undefined)} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "打开游玩助手" }));
+  const permission = screen.getByRole("checkbox", { name: "本次揭示未来" });
+  expect(permission.checked).toBe(false);
+  fireEvent.change(screen.getByLabelText("向游玩助手提问"), { target: { value: "尧山之后如何？" } });
+  await screen.findByText(/预计 1.00/);
+  expect(window.api.player.quote).toHaveBeenLastCalledWith({
+    save_id: 9, kind: "guide", message: "尧山之后如何？", reveal_future: false,
+  });
+  fireEvent.click(permission);
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
+  expect(window.api.player.execute).not.toHaveBeenCalled();
+  await screen.findByText(/预计 1.00/);
+  expect(window.api.player.quote).toHaveBeenLastCalledWith({
+    save_id: 9, kind: "guide", message: "尧山之后如何？", reveal_future: true,
+  });
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
+  expect(window.api.player.execute.mock.calls[0][0].reveal_future).toBe(true);
+  expect(permission.checked).toBe(false);
+  expect(permission.disabled).toBe(true);
+  expect(JSON.parse(localStorage.getItem("player-guide-request-1-9")).reveal_future).toBe(true);
+  window.api.player.request.mockResolvedValue({ status: "released" });
+  await act(async () => resolve());
+  expect(await screen.findByText(/咨询未完成/)).toBeTruthy();
+  await screen.findByText(/预计 1.00/);
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
+  expect(window.api.player.execute.mock.calls[1][0].reveal_future).toBe(false);
 });

@@ -1028,6 +1028,19 @@
   font-size: 1rem;
   line-height: 1.7;
 }
+.workspace-assistant-future {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  min-height: 44px;
+  font-size: .8125rem;
+  cursor: pointer;
+}
+.workspace-assistant-future small {
+  color: var(--muted);
+  font-size: .75rem;
+}
 .workspace-assistant-footer {
   display: flex;
   align-items: center;
