@@ -109,7 +109,7 @@ def export_script_pack(
             """
             SELECT id, name, aliases, identity, appearance, personality, speech_style,
                    current_status, secrets, sample_dialogue, token_budget, priority,
-                   enabled, metadata
+                   enabled, metadata, first_revealed_chapter
             FROM character_cards
             WHERE script_id = %s
             ORDER BY priority DESC, id
@@ -123,7 +123,7 @@ def export_script_pack(
             """
             SELECT id, title, content, keys, regex_keys, priority, token_budget,
                    insertion_position, sticky_turns, cooldown_turns, probability,
-                   character_filter, scene_filter, enabled, metadata
+                   character_filter, scene_filter, enabled, metadata, first_revealed_chapter
             FROM worldbook_entries
             WHERE script_id = %s
             ORDER BY priority DESC, id
@@ -617,9 +617,10 @@ def _import_character_cards(db, chunks, docs, cards, wb, new_script_id, user_id,
                     INSERT INTO character_cards
                       (book_id, script_id, name, aliases, identity, appearance,
                        personality, speech_style, current_status, secrets,
-                       sample_dialogue, token_budget, priority, enabled, metadata)
+                       sample_dialogue, token_budget, priority, enabled, metadata,
+                       first_revealed_chapter)
                     VALUES (%s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s,
-                            %s::jsonb, %s, %s, %s, %s::jsonb)
+                            %s::jsonb, %s, %s, %s, %s::jsonb, %s)
                     ON CONFLICT DO NOTHING
                     """,
                     (
@@ -637,6 +638,7 @@ def _import_character_cards(db, chunks, docs, cards, wb, new_script_id, user_id,
                         int(card.get("priority") or 100),
                         bool(card.get("enabled", True)),
                         json.dumps(card.get("metadata") or {}, ensure_ascii=False, default=str),
+                        int(card.get("first_revealed_chapter") or 0),
                     ),
                 )
             except Exception as exc:
@@ -661,10 +663,10 @@ def _import_worldbook_entries(db, wb, book_row, book_id, new_script_id, warnings
                       (book_id, script_id, title, content, keys, regex_keys,
                        priority, token_budget, insertion_position, sticky_turns,
                        cooldown_turns, probability, character_filter, scene_filter,
-                       enabled, metadata)
+                       enabled, metadata, first_revealed_chapter)
                     VALUES (%s, %s, %s, %s, %s::jsonb, %s::jsonb,
                             %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb,
-                            %s, %s::jsonb)
+                            %s, %s::jsonb, %s)
                     ON CONFLICT DO NOTHING
                     """,
                     (
@@ -688,6 +690,7 @@ def _import_worldbook_entries(db, wb, book_row, book_id, new_script_id, warnings
                         json.dumps(entry.get("scene_filter") or [], ensure_ascii=False, default=str),
                         bool(entry.get("enabled", True)),
                         json.dumps(entry.get("metadata") or {}, ensure_ascii=False, default=str),
+                        int(entry.get("first_revealed_chapter") or 0),
                     ),
                 )
             except Exception as exc:
