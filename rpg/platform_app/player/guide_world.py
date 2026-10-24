@@ -131,6 +131,7 @@ class WorldQueries:
         self.script_id, self.save_id = script_id, save_id
         self.allow_future = allow_future is True
         self.moments = {m.key: m for m in self.model.moments}
+        self.fact_orders = {f.id: self.moments[f.starts_at].order for f in self.model.facts}
         self.subjects = {s.key: s for s in self.model.subjects}
         self.worldline = copy.deepcopy(worldline or {})
         # Branch snapshots outrank session-wide estimates after a checkout.
@@ -405,8 +406,10 @@ class WorldQueries:
                         row["conflict"] = True
             rows = [row for slot in slots.values() for row in slot]
             fields = ["status", "identity", "location", "situation", "personality", "motivation", "speech_style"]
+            # Within equally important fields, keep recent changes inside the result cap.
             rows.sort(key=lambda r: (r["basis"] != "save",
-                                    fields.index(r["field"]) if r["field"] in fields else len(fields)))
+                                    fields.index(r["field"]) if r["field"] in fields else len(fields),
+                                    -self.fact_orders.get(r["id"], 0)))
         elif args.tool == "get_timeline" and target is self.current:
             # Undated save events remain undated; never backfill them into a past query.
             rows.extend(row for row in self._save_events() if not args.query

@@ -157,6 +157,35 @@ def test_conflicting_same_rank_facts_are_explicit_not_silently_chosen(world):
     assert len(rows) == 2 and all(row["conflict"] for row in rows)
 
 
+def test_wide_situation_keeps_critical_state_then_newest_policy_within_result_limit(world):
+    template = {**world["facts"][0], "subject": "song", "ends_at": None}
+    world["facts"] = [
+        {**template, "id": f"old-{i}", "field": f"old_policy_{i}", "value": f"旧制度{i}"}
+        for i in range(12)
+    ] + [
+        {**template, "id": "status", "field": "status", "value": "当前存续"},
+        {**template, "id": "latest", "field": "party_policy", "value": "新颁废党禁", "starts_at": "after"},
+    ]
+    result = engine(world, 13).query({"tool": "get_situation", "query": "宋廷", "limit": 2})
+    assert values(result) == ["当前存续", "新颁废党禁"]
+    assert result["truncated"]
+    assert "新颁废党禁" not in values(engine(world, 11).query({"tool": "get_situation", "query": "宋廷"}))
+
+
+def test_recent_canon_cannot_displace_committed_save_state_or_hide_conflict(world):
+    world["facts"].append({**world["facts"][0], "id": "recent", "field": "tax_policy",
+                           "value": "新颁征税", "starts_at": "battle"})
+    state = {"turn": 5, "worldline": {"progress_chapter": 11}, "memory": {"items": [
+        {"kind": "runtime_fact", "status": "active", "turn": 3,
+         "guide": {"subject": "wu", "field": "tax_policy", "value": "存档已免税"}},
+    ]}}
+    assert values(engine(world, state=state).query({"tool": "get_character", "query": "吴玠", "limit": 1})) == ["存档已免税"]
+    world["facts"].append({**world["facts"][0], "id": "new-conflict", "value": "另一官职", "starts_at": "battle"})
+    rows = engine(world).query({"tool": "get_character", "query": "吴玠"})["facts"]
+    offices = [r for r in rows if r["field"] == "identity"]
+    assert len(offices) == 2 and all(r["conflict"] for r in offices)
+
+
 def test_current_label_overrides_coarse_progress_and_unknown_time_fails_closed(world):
     q = engine(world, state={"world": {"time": "建炎初年"},
                              "worldline": {"progress_chapter": 13}})
