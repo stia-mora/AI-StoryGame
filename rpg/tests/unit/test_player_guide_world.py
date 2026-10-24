@@ -396,6 +396,20 @@ def test_ambiguous_known_names_return_safe_candidates_for_key_disambiguation(ren
     assert q.query({"tool": "get_character", "query": "wu"})["facts"]
 
 
+def test_future_namesake_does_not_create_early_ambiguity_or_swallow_save_records(renamed_world):
+    renamed_world["subjects"].append(dict(key="future-other", name="未来旁支", aliases=["旧名"], kind="character"))
+    renamed_world["facts"].append({**renamed_world["facts"][0], "id": "future-other-id", "subject": "future-other",
+                                   "starts_at": "after", "ends_at": None})
+    snapshot = {"turn": 1, "world": {"guide_moment": "early"}, "world_facts": [
+        dict(id="wf_early", subject="旧名", subject_kind="character", field="status", value="正在休养",
+             kind="state", certainty="confirmed", quote="旧名正在休养。", turn=1, moment="early"),
+    ]}
+    result = engine(renamed_world, state=snapshot).query({"tool": "get_character", "query": "旧名"})
+    assert "unavailable" not in result
+    assert "正在休养" in values(result)
+    assert {r["subject_key"] for r in result["facts"]} == {"wu"}
+
+
 def test_branch_rename_keeps_earlier_facts_and_later_new_name_records_on_one_person(renamed_world):
     records = [dict(id="wf_name", subject="旧名", subject_kind="character", kind="state", field="name",
                     value="存档新名", certainty="confirmed", quote="旧名改名为存档新名。", turn=4,

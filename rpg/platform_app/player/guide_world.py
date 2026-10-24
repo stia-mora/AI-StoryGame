@@ -20,7 +20,7 @@ MAX_RESULT_CHARS = 6000
 TOOL_HELP = {
     "get_current_time": "查存档当前时间、资料覆盖与分歧情况。",
     "get_timeline": "查已发生事件；本轮许可未来时可查原著后续。query可筛人名地名。",
-    "get_character": "查人物当期身份、位置、性格、关系、说话方式和存亡。query为姓名。",
+    "get_character": "查人物当期身份、位置、性格、关系、说话方式和存亡。query为姓名或对象key；重名看candidates。",
     "get_situation": "查地方、势力和天下局势。query可为空或为名称。",
     "get_history": "查真实历史对照，不能覆盖小说或本存档事实。",
     "get_evidence": "按fact_id查某条已允许资料的出处，不读取整本原文。",
@@ -156,13 +156,16 @@ class WorldQueries:
         self.version = knowledge_version(self.model)
         self.recorded = {}
         from state.world_facts import WorldFact
-        aliases = {}
+        visible_subjects = {f.subject for f in self.model.facts if self._visible(f)}
+        candidates = {}
         for subject in self.subjects.values():
             for name in (subject.key, *self.known_names(subject)):
-                if name not in aliases:
-                    aliases[name] = subject
-                elif aliases[name] != subject:
-                    aliases[name] = None
+                candidates.setdefault(name, {})[subject.key] = subject
+        aliases = {}
+        for name, choices in candidates.items():
+            known = [s for s in choices.values() if s.key in visible_subjects]
+            eligible = known or list(choices.values())
+            aliases[name] = eligible[0] if len(eligible) == 1 else None
         for record in self.state.get("world_facts") or []:
             if (not isinstance(record, dict) or type(record.get("turn")) is not int
                     or record["turn"] > (self.state.get("turn") or 0)
@@ -390,6 +393,9 @@ class WorldQueries:
                        if args.query in (s.key, *self.known_names(s))}
             if args.tool == "get_character":
                 matches = {k for k in matches if self.subjects[k].kind == "character"}
+                if len(matches) > 1:
+                    known = {f.subject for f in self.model.facts if self._visible(f)} | self.recorded.keys()
+                    matches = {k for k in matches if k in known}
                 if len(matches) != 1:
                     return {**result, "unavailable": "未找到唯一人物，请使用姓名或对象key消除重名",
                             "candidates": [dict(key=k, name=self.display_name(self.subjects[k], target))

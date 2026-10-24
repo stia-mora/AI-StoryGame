@@ -26,6 +26,7 @@ RECORDING_GUIDE = """【世界事实记录，仅用于已配置全局资料的�
 事件用kind=event、field=event；同一件事的状态和事件可各一条。每回合至多12条，合并细碎记录。
 subject必须出现在quote中，quote须逐字来自本轮GM叙事，不能取自候选计划、原著参考或JSON本身。
 仅有消息或传闻时用certainty=reported、field=report；拟议任官、军改等用field=proposal，不能更新成实际官职。
+人物明确改名时另记field=name，subject用已知旧名、value只写不超过100字符的新名；传闻不能作确证改名。
 愿望、玩家尚未成功的行动、推测和未来基线不登记为既成事实。diverges仅在明确改史时为true。
 不要输出turn、时间、存档、剧本或用户标识，这些由服务器从当前分支记录。
 """
