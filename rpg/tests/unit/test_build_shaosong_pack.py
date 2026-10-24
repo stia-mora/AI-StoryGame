@@ -107,6 +107,37 @@ def test_curated_world_is_validated_and_included_without_marking_story_complete(
         assert json.loads(zf.read("manifest.json"))["authoring_status"] == "draft"
 
 
+def test_timeline_exports_only_selectable_moments_and_does_not_use_later_chapter_results(manuscript):
+    root, output = manuscript
+    path, model = write_world(root)
+    model["moments"][0]["chapter_max"] = 1
+    model["moments"].extend([
+        {"key": "later", "order": 1, "label": "同章稍后", "chapter_min": 1, "chapter_max": 1},
+        {"key": "history", "order": 2, "label": "另一条历史的时间"},
+        {"key": "end", "order": 3, "label": "非开局的排他结束边界"},
+    ])
+    model["facts"].extend([
+        {**model["facts"][0], "id": "later-event", "kind": "event",
+         "value": "稍后发生的结果", "starts_at": "later"},
+        {**model["facts"][0], "id": "history-event", "kind": "event", "basis": "history",
+         "value": "另一历史结果", "starts_at": "start"},
+    ])
+    path.write_text(json.dumps(model), encoding="utf-8")
+    result = build_pack(root, output)
+    assert result["timeline_anchors"] == 2
+    with zipfile.ZipFile(output) as zf:
+        anchors = [json.loads(line) for line in zf.read("timeline_anchors.jsonl").splitlines()]
+    assert [a["story_time_label"] for a in anchors] == ["开篇", "同章稍后"]
+    assert anchors[0]["sample_summary"] == "开篇"
+    assert anchors[1]["sample_summary"] == "稍后发生的结果"
+    assert all(a["story_phase"] == "第一卷" and a["chapter_min"] == a["chapter_max"] == 1 for a in anchors)
+    from platform_app.player.guide_world import bind_initial
+    for anchor, expected in zip(anchors, ("start", "later"), strict=True):
+        snapshot = {"world": {"time": anchor["story_time_label"]}, "worldline": {"progress_chapter": 1}}
+        bind_initial(model, snapshot)
+        assert snapshot["world"]["guide_moment"] == expected
+
+
 @pytest.mark.parametrize("change", ["chapter", "hash", "line", "moment"])
 def test_invalid_curated_evidence_preserves_existing_pack(manuscript, change):
     root, output = manuscript

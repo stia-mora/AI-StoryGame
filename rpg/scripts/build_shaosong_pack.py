@@ -53,6 +53,30 @@ def _world_overrides(root: Path, chapters: list[dict]) -> dict:
     return {"guide_world": model.model_dump()}
 
 
+def _world_timeline(world: dict, chapters: list[dict]) -> list[dict]:
+    """Expose reviewed chapter-bound moments as selectable platform time points."""
+    by_chapter = {ch["chapter_index"]: ch for ch in chapters}
+    events: dict[str, list[str]] = {}
+    for fact in world.get("facts", []):
+        if fact["basis"] == "novel" and fact["kind"] == "event":
+            events.setdefault(fact["starts_at"], []).append(fact["value"])
+    anchors = []
+    for moment in sorted(world.get("moments", []), key=lambda m: m["order"]):
+        first = moment.get("chapter_min")
+        if first is None:
+            continue  # Exclude real-history dates and exclusive authoring boundaries.
+        last = moment.get("chapter_max") or first
+        chapter = by_chapter[first]
+        anchors.append(dict(
+            story_phase=chapter["volume"], story_time_label=moment["label"],
+            chapter_min=first, chapter_max=last, chapter_count=last-first+1,
+            sample_title=chapter["title"],
+            sample_summary="\n".join(events.get(moment["key"], [])) or moment["label"],
+            keywords=[], confidence=1.0,
+        ))
+    return anchors
+
+
 def build_pack(root: Path, output: Path) -> dict:
     index = _load(root / "index.json")
     ledger = _load(root / "research" / "reading-ledger.json")
@@ -102,12 +126,14 @@ def build_pack(root: Path, output: Path) -> dict:
         ))
     overrides = _world_overrides(root, chapters)
     world = overrides.get("guide_world") or {}
+    timeline_anchors = _world_timeline(world, chapters)
     manifest = dict(
         format_version=2, script_title="绍宋", chunks_included=False,
         authoring_status="draft", canon_end_chapter=LAST_CHAPTER,
         source_sha256=index["source_sha256"], normalized_sha256=index["normalized_sha256"],
         guide_world_edition=world.get("edition"),
         guide_subjects=len(world.get("subjects", [])), guide_facts=len(world.get("facts", [])),
+        timeline_anchors=len(timeline_anchors),
         remaining=["人物分期与名录", "事件和地理时间数据", "宋史核验", "助手查询", "游玩验收"],
     )
     tables = {
@@ -117,7 +143,7 @@ def build_pack(root: Path, output: Path) -> dict:
             priority=100, token_budget=800, enabled=True,
             metadata={"source_kind": "scenario_rules", "authoring_status": "draft"},
         )],
-        "documents": [], "kb_canon_entities": [], "timeline_anchors": [],
+        "documents": [], "kb_canon_entities": [], "timeline_anchors": timeline_anchors,
         "phase_digests": [], "worldlines": [], "worldline_nodes": [],
     }
     buffer = io.BytesIO()
@@ -136,7 +162,8 @@ def build_pack(root: Path, output: Path) -> dict:
     output.write_bytes(buffer.getvalue())
     return dict(path=str(output.resolve()), chapters=len(chapter_rows),
                 chapter_facts=len(facts), guide_subjects=manifest["guide_subjects"],
-                guide_facts=manifest["guide_facts"], bytes=len(buffer.getvalue()), status="draft")
+                guide_facts=manifest["guide_facts"], timeline_anchors=len(timeline_anchors),
+                bytes=len(buffer.getvalue()), status="draft")
 
 
 def main():

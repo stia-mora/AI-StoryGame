@@ -25,7 +25,7 @@ GB18030，5,399,380 字节；仅统一换行后 2,700,081 字符、41,881 行。
 | 番外人工精读 | 0 / 2 篇 | 不以扫描目录或尾部样本计入精读 |
 | 宋史核对 | 已编首批20条史籍对照 | 新核《宋史》卷26、366、369及《金史》卷72相关原文，均为选段而非全卷精校；全宋史库待编 |
 | 首版总结与正式设定 | 三卷总结、总纲首稿、十一批分期资料完成 | 当前570对象、2437事实（含20条史籍对照）、730时点；244章均有绑定时点，完整名录分期与尧山段扩充待编 |
-| 私有导入底稿 | 已生成244章v2底稿，装入首批guide_world | 章节、资料出处及模型结构已核验；尚未导入或上架 |
+| 私有导入底稿 | 244章v2编制包，含guide_world与707个实章时间锚点 | 临时账户真实数据库导入无警告，时间线与入场接口可读、707标签逐一绑定正确；临时数据已清理，尚未正式入用户库或上架 |
 | 助手查询与界面 | 已实现只读工具与本轮未来许可 | 后端58项、前端21项测试通过；正式资料、页面视觉与真实游玩验收待完成 |
 | 改史记录链 | 已接统一史官、旧提取器、权限审批、回合提交及GM上下文 | 相关150项测试通过；含真实数据库、收费提交、KB投影和分支切换，模型输出为测试替身 |
 | 新建存档绑定 | 建角自动绑定资料版本与所选时点 | 相关107项测试通过；根提交与KB一致，未知开局不猜时点，坏资料不留下半成品存档 |
@@ -108,12 +108,13 @@ GB18030，5,399,380 字节；仅统一换行后 2,700,081 字符、41,881 行。
 - `authoring/curate_history_batch01.py`、`authoring/history-comparison-01.md`：20条史籍对照与解释；核对富平／尧山、宋金传记视角、存亡与处分差异，保留不确月日和影印本校勘边界。
 - `research/history-texts/*-reviewed.md`：本轮实际核读并引用的四份古籍节录，来源与SHA见history-sources；不把检索摘要当全文阅读。
 - `authoring/verify_world_batch01.py`、`authoring/build-report.json`：已扩展为当前十一批及历史对照的267项验收，涵盖人物与局势的时点字段冲突扫描、史籍引文及本地指纹、章内先后、存亡、待执行任官、未来隔离、同人改名与两位李宝、假报及平台JSONL读取。另直接扫描全部有效字段，避免查询结果条数上限遮住冲突。第七至十一批生成器各自重复运行前后模型字节一致，135张场卡的时点引用均有对应键。时间线工具已实查至五月初七决策，不能用状态条目数量替代可查事件。`--cases-only`仅供迭代具体案例，不生成完整验收报告；此处267项来自完整运行。
+- `authoring/shaosong-yaoshan.platform.draft.pack.zip`、`authoring/verify_platform_pack.py`、`authoring/platform-pack-report.json`：在已核时序模型不变的前提下，加入707个有章节依据的时间锚点，排除23个史实参考日期与排他批次结束点；锚点摘要只取当场小说事件，没有则沿用时点标签，不借整章结局填战前摘要。已逐一核标签绑定、真实数据库导入、三卷时间线和入场接口；临时账户及其剧本已清理。报告明确未做正式私人入库、生产鉴权及真实供应商游玩验收。当前包仍无正式角色卡、canon、阶段摘要、条件世界线与节点，不能当成可玩完成品。先前source底稿与其267项报告保留原指纹，平台编制包另存并单独记录包指纹。
 
 在 `rpg/` 下使用：
 
 ```powershell
 python -X utf8 -m scripts.novel_research prepare '<本地原书路径>' '../manuscript/shaosong' --encoding gb18030
-python -X utf8 -m scripts.build_shaosong_pack '../manuscript/shaosong' '../manuscript/shaosong/authoring/shaosong-yaoshan.draft.pack.zip'
+python -X utf8 -m scripts.build_shaosong_pack '../manuscript/shaosong' '../manuscript/shaosong/authoring/shaosong-yaoshan.platform.draft.pack.zip'
 ```
 
 索引命令不会自动填写“已读”。按章节读完整正文，输出截断时补读缺失行，写完带证据的笔记再更新账本。
@@ -125,9 +126,9 @@ python -X utf8 -m scripts.build_shaosong_pack '../manuscript/shaosong' '../manus
 
 打包工具`rpg/scripts/build_shaosong_pack.py`会检查已读范围、逐章出处及正文指纹，再生成私有v2包。
 若有`authoring/guide-world.json`，会校验模型结构、首版范围、每条小说依据的章号、行区间与章节指纹，再写入overrides。
-无效资料不会覆盖现有包。底稿工具9项、索引工具5项与查询/积分58项，合计72项测试及相关Ruff通过。
-底稿有244章、244条章节资料、1条演绎规则和首批guide_world；角色卡、时间锚点等仍为空，未导入或发布。
-`authoring/build-report.json`记录实际行数与包指纹；这些检查不代表剧本内容已经编制完成。
+无效资料不会覆盖现有包。底稿工具当前10项单元测试通过，新增时点摘要与同章开局绑定检查；与揭示门槛往返和既有分块包导入合计18项检查及相关Ruff通过。旧包缺首次揭示字段仍保持既定默认。
+平台编制包有244章、244条章节资料、1条演绎规则、guide_world及707个时间锚点；角色卡、canon与世界线等仍为空，未正式入用户剧本库或发布。
+`authoring/build-report.json`记录先前完整时序检查，`authoring/platform-pack-report.json`记录新增锚点包与真实数据库验收；两包的时序模型一致。索引、数据验收、接口验收和真实游玩是不同检查，不能相互替代。
 
 ## 后续步骤与完成标准
 
