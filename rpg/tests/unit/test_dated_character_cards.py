@@ -146,3 +146,18 @@ def test_current_request_is_not_crowded_out_by_old_history_names(monkeypatch, mo
     g.data['memory']['current_objective'] = '、'.join(others)
     _, prompt = collect(g, model, monkeypatch, player_intent='侯丹')
     assert '战前存活' in prompt
+
+
+def test_current_namesakes_created_by_rename_keep_distinct_cards(monkeypatch, model):
+    model['subjects'].append(dict(key='other', name='侯安', kind='character'))
+    model['facts'] += [
+        dict(model['facts'][0], id='old-name', field='name', value='侯丹'),
+        dict(model['facts'][0], id='new-name', field='name', value='侯安', starts_at='battle', ends_at=None),
+        dict(model['facts'][0], id='other-state', subject='other', field='status',
+             value='另一同名者当前在世', starts_at='battle', ends_at=None),
+    ]
+    g = state('battle')
+    g.data['active_entities'] = [{'name': '侯安'}]
+    result, prompt = collect(g, model, monkeypatch, player_intent='侯都头与侯安各自如何')
+    assert result.debug['cards_count'] == 2
+    assert '原著决战阵亡' in prompt and '另一同名者当前在世' in prompt

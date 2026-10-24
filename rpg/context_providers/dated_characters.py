@@ -1,6 +1,8 @@
 """Render NPC cards from the same branch-bound dated facts as the play guide."""
 from __future__ import annotations
 
+from collections import Counter
+
 from .curated_world import _load_model
 
 
@@ -28,7 +30,7 @@ def current_cards(state, *, script_id, save_id, scan_text, priority_text=''):
     relevant = [s for s in world.subjects.values() if s.kind == 'character'
                 and any(name in scan_text for name in world.known_names(s))]
     relevant.sort(key=lambda s: not any(name in priority_text for name in world.known_names(s)))
-    cards = {}
+    staged = []
     for subject in relevant[:8]:
         result = world.query(dict(tool='get_character', query=subject.key, limit=12))
         debug['truncated'] |= result.get('truncated', False)
@@ -58,7 +60,8 @@ def current_cards(state, *, script_id, save_id, scan_text, priority_text=''):
             else:
                 other.append(value)
             debug['fact_ids'].append(row['id'])
-        cards[world.display_name(subject, world.current)] = dict(
+        display = world.display_name(subject, world.current)
+        card = dict(
             aliases=world.known_names(subject),
             **{field: '\n'.join(grouped.get(field, [])) for field in
                ('identity', 'appearance', 'personality', 'speech_style', 'background')},
@@ -67,5 +70,17 @@ def current_cards(state, *, script_id, save_id, scan_text, priority_text=''):
             # personality or death. Only current dated facts are rendered.
             secrets='', sample_dialogue=[],
         )
+        staged.append((display, card))
+    # A recorded rename can create two currently visible namesakes. Keep both
+    # cards; dictionary assignment by the bare name would silently merge them.
+    counts = Counter(name for name, _ in staged)
+    cards = {}
+    for index, (name, card) in enumerate(staged, start=1):
+        if counts[name] > 1:
+            qualifier = next((n for n in card['aliases'] if n != name), f'同名人物{index}')
+            name = f'{name}〔{qualifier}〕'
+        while name in cards:
+            name += f'〔同名人物{index}〕'
+        cards[name] = card
     debug['truncated'] |= len(relevant) > 8
     return cards, '', debug
