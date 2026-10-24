@@ -53,6 +53,17 @@ class Evidence(Record):
     locator: str = Field(min_length=1, max_length=240)
     quote: str = Field(default="", max_length=240)
     url: str = Field(default="", max_length=500)
+    chapter_index: int | None = Field(default=None, ge=1)
+    line_start: int | None = Field(default=None, ge=1)
+    line_end: int | None = Field(default=None, ge=1)
+    chapter_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def line_interval(self):
+        if ((self.line_start is None) != (self.line_end is None)
+                or (self.line_start is not None and self.line_start > self.line_end)):
+            raise ValueError("Invalid evidence line interval")
+        return self
 
 
 class Fact(Record):

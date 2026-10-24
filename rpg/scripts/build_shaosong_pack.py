@@ -31,6 +31,28 @@ def _load(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _world_overrides(root: Path, chapters: list[dict]) -> dict:
+    path = root / "authoring" / "guide-world.json"
+    if not path.exists():
+        return {}
+    from platform_app.player.guide_world import GuideWorld
+
+    model = GuideWorld.model_validate(_load(path))
+    by_chapter = {ch["chapter_index"]: ch for ch in chapters}
+    if any(m.chapter_max is not None and m.chapter_max > LAST_CHAPTER for m in model.moments):
+        raise ValueError("Guide moments exceed the reviewed release scope")
+    for fact in model.facts:
+        if fact.basis != "novel":
+            continue
+        for evidence in fact.evidence:
+            ch = by_chapter.get(evidence.chapter_index)
+            if (ch is None or evidence.chapter_sha256 != ch["sha256"]
+                    or evidence.line_start is None or evidence.line_end is None
+                    or not ch["line_start"] <= evidence.line_start <= evidence.line_end <= ch["line_end"]):
+                raise ValueError(f"Guide evidence does not match reviewed chapter: {fact.id}")
+    return {"guide_world": model.model_dump()}
+
+
 def build_pack(root: Path, output: Path) -> dict:
     index = _load(root / "index.json")
     ledger = _load(root / "research" / "reading-ledger.json")
@@ -78,10 +100,14 @@ def build_pack(root: Path, output: Path) -> dict:
                 "temporal_facts_curated": False,
             },
         ))
+    overrides = _world_overrides(root, chapters)
+    world = overrides.get("guide_world") or {}
     manifest = dict(
         format_version=2, script_title="绍宋", chunks_included=False,
         authoring_status="draft", canon_end_chapter=LAST_CHAPTER,
         source_sha256=index["source_sha256"], normalized_sha256=index["normalized_sha256"],
+        guide_world_edition=world.get("edition"),
+        guide_subjects=len(world.get("subjects", [])), guide_facts=len(world.get("facts", [])),
         remaining=["人物分期与名录", "事件和地理时间数据", "宋史核验", "助手查询", "游玩验收"],
     )
     tables = {
@@ -100,7 +126,7 @@ def build_pack(root: Path, output: Path) -> dict:
             "manifest": manifest,
             "script": {"title": manifest["script_title"],
                        "description": "私有编制底稿：前三卷至尧山战后，尚待完整设定与游玩验收。"},
-            "overrides": {},
+            "overrides": overrides,
         }.items():
             zf.writestr(f"{name}.json", json.dumps(data, ensure_ascii=False, indent=2))
         for name, rows in tables.items():
@@ -109,7 +135,8 @@ def build_pack(root: Path, output: Path) -> dict:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_bytes(buffer.getvalue())
     return dict(path=str(output.resolve()), chapters=len(chapter_rows),
-                chapter_facts=len(facts), bytes=len(buffer.getvalue()), status="draft")
+                chapter_facts=len(facts), guide_subjects=manifest["guide_subjects"],
+                guide_facts=manifest["guide_facts"], bytes=len(buffer.getvalue()), status="draft")
 
 
 def main():

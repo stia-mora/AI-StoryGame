@@ -76,3 +76,52 @@ def test_misaligned_evidence_is_rejected(manuscript):
     with pytest.raises(ValueError, match="chapter 1"):
         build_pack(root, output)
     assert not output.exists()
+
+
+def write_world(root):
+    first = json.loads((root / "index.json").read_text(encoding="utf-8"))["sections"]
+    first = next(ch for ch in first if ch["kind"] == "chapter")
+    model = {"version": 1, "edition": "test-draft", "moments": [
+        {"key": "start", "order": 0, "label": "开篇", "chapter_min": 1, "chapter_max": 244},
+    ], "subjects": [{"key": "test", "name": "测试人物", "kind": "character"}], "facts": [
+        {"id": "test-state", "subject": "test", "kind": "state", "field": "status",
+         "value": "已核对的状态", "starts_at": "start", "basis": "novel", "evidence": [
+             {"source": "测试稿", "locator": "第1章", "chapter_index": 1,
+              "line_start": first["line_start"], "line_end": first["line_end"],
+              "chapter_sha256": first["sha256"]},
+         ]},
+    ]}
+    path = root / "authoring" / "guide-world.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps(model), encoding="utf-8")
+    return path, model
+
+
+def test_curated_world_is_validated_and_included_without_marking_story_complete(manuscript):
+    root, output = manuscript
+    write_world(root)
+    result = build_pack(root, output)
+    assert result["guide_subjects"] == result["guide_facts"] == 1
+    with zipfile.ZipFile(output) as zf:
+        assert json.loads(zf.read("overrides.json"))["guide_world"]["facts"][0]["value"] == "已核对的状态"
+        assert json.loads(zf.read("manifest.json"))["authoring_status"] == "draft"
+
+
+@pytest.mark.parametrize("change", ["chapter", "hash", "line", "moment"])
+def test_invalid_curated_evidence_preserves_existing_pack(manuscript, change):
+    root, output = manuscript
+    path, model = write_world(root)
+    evidence = model["facts"][0]["evidence"][0]
+    if change == "chapter":
+        evidence["chapter_index"] = 245
+    elif change == "hash":
+        evidence["chapter_sha256"] = "0" * 64
+    elif change == "line":
+        evidence["line_end"] += 100
+    else:
+        model["moments"][0]["chapter_max"] = 245
+    path.write_text(json.dumps(model), encoding="utf-8")
+    output.write_bytes(b"previous draft")
+    with pytest.raises(ValueError, match="Guide"):
+        build_pack(root, output)
+    assert output.read_bytes() == b"previous draft"

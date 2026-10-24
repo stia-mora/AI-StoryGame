@@ -41,6 +41,8 @@
 subjects的aliases仅放稳定姓名异写；新封爵位、称号是有起止时点的事实，不能作为永久别名。
 facts的kind为state、event或history；basis为novel或history。
 certainty可为confirmed、reported、inferred、disputed，报告和推断不可装成既成事实。
+Evidence可附chapter_index、line_start、line_end与chapter_sha256；行区间必须成对且起点不晚于终点。
+绍宋私有包构建器会把每条小说依据与已读章节逐项核对，拒绝范围外、指纹不符或越章的证据。
 
 ## 存档分歧与事实优先级
 
@@ -63,6 +65,8 @@ certainty可为confirmed、reported、inferred、disputed，报告和推断不�
 
 假说、待审批写入、未来回合记录不生效。新记录优先于旧记录，明确记录优先于轻量人物索引。
 该结构仍由正常GM/记录与提交链写入；助手只有读取能力，不能写入上述内容。
+目前GameState.add_memory_item尚无guide参数，正常GM/史官自动产出该结构的链路待接通；
+已有存档事件和轻量人物索引可以读取，但不能把构造快照验证冒充完整的真实改史验收。
 历史时点查询不把当前的改史记录倒填过去。
 时间线也读取当前分支的world.known_events及guide.kind=event的已提交runtime_fact，
 保留行动原因和回合出处；未记录年月的事件不伪造日期，不倒填到过去时点。
