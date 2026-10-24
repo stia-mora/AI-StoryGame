@@ -438,3 +438,79 @@ def test_invalid_dated_names_are_not_accepted_as_identity(renamed_world, change)
     renamed_world["facts"][-1].update(change)
     with pytest.raises(ValidationError):
         GuideWorld.model_validate(renamed_world)
+
+
+def test_dated_alias_is_searchable_after_reveal_without_replacing_primary_name(world):
+    world['facts'].append({**world['facts'][0], 'id': 'wu-alias', 'field': 'alias',
+                           'value': '吴别号', 'starts_at': 'battle', 'ends_at': 'after'})
+    assert not engine(world, 1).query({'tool': 'get_character', 'query': '吴别号'})['facts']
+    for chapter in (11, 13):
+        rows = engine(world, chapter).query({'tool': 'get_character', 'query': '吴别号'})['facts']
+        assert rows and {r['subject'] for r in rows} == {'吴玠'}
+        assert {r['subject_key'] for r in rows} == {'wu'}
+
+
+def test_a_revealed_alias_can_query_past_state_without_inventing_a_past_alias(world):
+    world['facts'].append({**world['facts'][0], 'id': 'wu-alias', 'field': 'alias',
+                           'value': '吴别号', 'starts_at': 'battle', 'ends_at': None})
+    result = engine(world, 11).query({'tool': 'get_character', 'query': '吴别号', 'at': 'early'})
+    assert '经略使' in values(result) and '吴别号' not in values(result)
+    assert {r['subject'] for r in result['facts']} == {'吴玠'}
+
+
+def test_alias_does_not_expose_an_unrevealed_primary_name(world):
+    world['subjects'][0]['name'] = '未揭姓名'
+    source = world['facts'][0]
+    world['facts'] += [
+        {**source, 'id': 'primary', 'field': 'name', 'value': '未揭姓名', 'starts_at': 'battle', 'ends_at': None},
+        {**source, 'id': 'alias', 'field': 'alias', 'value': '独耳兵', 'ends_at': None},
+    ]
+    before = engine(world, 1)
+    assert not before.query({'tool': 'get_character', 'query': '未揭姓名'})['facts']
+    rows = before.query({'tool': 'get_character', 'query': '独耳兵'})['facts']
+    assert rows and {r['subject'] for r in rows} == {'独耳兵'}
+    later = engine(world, 11).query({'tool': 'get_character', 'query': '独耳兵'})['facts']
+    assert {r['subject'] for r in later} == {'未揭姓名'}
+
+
+def test_recorded_rename_via_known_alias_keeps_one_actor(world):
+    world['facts'].append({**world['facts'][0], 'id': 'wu-alias', 'field': 'alias',
+                           'value': '吴别号', 'starts_at': 'battle', 'ends_at': None})
+    snapshot = {'turn': 3, 'world': {'guide_moment': 'battle'}, 'world_facts': [
+        dict(id='wf_alias_name', subject='吴别号', subject_kind='character', kind='state', field='name',
+             value='存档新名', certainty='confirmed', quote='吴别号改名为存档新名。', turn=3,
+             moment='battle', time='尧山决战'),
+    ]}
+    before = copy.deepcopy(snapshot)
+    q = engine(world, state=snapshot)
+    for name in ('吴玠', '吴别号', '存档新名'):
+        rows = q.query({'tool': 'get_character', 'query': name})['facts']
+        assert rows and {r['subject_key'] for r in rows} == {'wu'}
+        assert {r['subject'] for r in rows} == {'存档新名'}
+    assert snapshot == before
+
+
+def test_future_namesake_alias_does_not_block_current_alias_or_its_branch_record(world):
+    source = world['facts'][0]
+    world['facts'].append({**source, 'id': 'current-alias', 'field': 'alias', 'value': '共同别称', 'ends_at': None})
+    world['subjects'].append(dict(key='other', name='另一人', kind='character'))
+    world['facts'].append({**source, 'id': 'future-alias', 'subject': 'other', 'field': 'alias',
+                           'value': '共同别称', 'starts_at': 'after', 'ends_at': None})
+    snapshot = {'turn': 2, 'world': {'guide_moment': 'battle'}, 'world_facts': [
+        dict(id='wf_alias_state', subject='共同别称', subject_kind='character', kind='state', field='status',
+             value='别称所指本人留营', certainty='confirmed', quote='共同别称所指本人留营。', turn=2),
+    ]}
+    q = engine(world, state=snapshot)
+    result = q.query({'tool': 'get_character', 'query': '共同别称'})
+    assert '别称所指本人留营' in values(result)
+    assert {r['subject_key'] for r in result['facts']} == {'wu'}
+    assert len(engine(world, 13).query({'tool': 'get_character', 'query': '共同别称'})['candidates']) == 2
+
+
+@pytest.mark.parametrize('change', [{'basis': 'history'}, {'kind': 'event'},
+                                   {'certainty': 'reported'}, {'value': '甲' * 101}])
+def test_invalid_dated_aliases_are_not_accepted_as_identity(world, change):
+    alias = {**world['facts'][0], 'id': 'bad-alias', 'field': 'alias', 'value': '吴别号', **change}
+    world['facts'].append(alias)
+    with pytest.raises(ValidationError):
+        GuideWorld.model_validate(world)

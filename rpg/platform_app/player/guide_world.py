@@ -20,7 +20,7 @@ MAX_RESULT_CHARS = 6000
 TOOL_HELP = {
     "get_current_time": "查存档当前时间、资料覆盖与分歧情况。",
     "get_timeline": "查已发生事件；本轮许可未来时可查原著后续。query可筛人名地名。",
-    "get_character": "查人物当期身份、位置、性格、关系、说话方式和存亡。query为姓名或对象key；重名看candidates。",
+    "get_character": "查人物当期身份、位置、性格、关系、说话方式和存亡。query为姓名、已知别称或对象key；重名看candidates。",
     "get_situation": "查地方、势力和天下局势。query可为空或为名称。",
     "get_history": "查真实历史对照，不能覆盖小说或本存档事实。",
     "get_evidence": "按fact_id查某条已允许资料的出处，不读取整本原文。",
@@ -107,10 +107,10 @@ class GuideWorld(Record):
                 or moments[fact.ends_at].order <= moments[fact.starts_at].order
             ):
                 raise ValueError("Invalid fact validity interval")
-            if fact.field == "name" and (fact.kind != "state" or fact.basis != "novel"
+            if fact.field in ("name", "alias") and (fact.kind != "state" or fact.basis != "novel"
                                           or fact.certainty != "confirmed"
                                           or not fact.value.strip() or len(fact.value) > 100):
-                raise ValueError("Dated names must be confirmed short novel states")
+                raise ValueError("Dated names and aliases must be confirmed short novel states")
         return self
 
 
@@ -150,9 +150,12 @@ class WorldQueries:
                                      and m.chapter_max >= divergence), default=None)
         self.current = self._current_moment()
         self.name_facts = {}
+        self.alias_facts = {}
         for fact in self.model.facts:
             if fact.field == "name":
                 self.name_facts.setdefault(fact.subject, []).append(fact)
+            elif fact.field == "alias":
+                self.alias_facts.setdefault(fact.subject, []).append(fact)
         self.version = knowledge_version(self.model)
         self.recorded = {}
         from state.world_facts import WorldFact
@@ -205,6 +208,7 @@ class WorldQueries:
         visible = [f for f in facts if self._visible(f)]
         names = [subject.name, *subject.aliases] if not facts or visible else []
         names += [f.value for f in visible]
+        names += [f.value for f in self.alias_facts.get(subject.key, []) if self._visible(f)]
         names += [row["value"] for row in self._recorded_names(subject, self.current)]
         return list(dict.fromkeys(names))
 
@@ -215,6 +219,14 @@ class WorldQueries:
         names = {f.value for f in self.name_facts.get(subject.key, []) if target is not None
                  and self.moments[f.starts_at].order <= target.order
                  and (f.ends_at is None or target.order < self.moments[f.ends_at].order)}
+        # A sobriquet can be known before the primary name is revealed. Keep
+        # that label until the dated name is known, without treating it as a rename.
+        if not names and target is not None and self.name_facts.get(subject.key) and not any(
+                self.moments[f.starts_at].order <= target.order for f in self.name_facts[subject.key]):
+            aliases = [f for f in self.alias_facts.get(subject.key, [])
+                       if self.moments[f.starts_at].order <= target.order]
+            if aliases:
+                return min(aliases, key=lambda f: self.moments[f.starts_at].order).value
         return next(iter(names)) if len(names) == 1 else subject.name
 
     def _moment(self, label):

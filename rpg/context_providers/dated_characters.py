@@ -53,7 +53,7 @@ def current_cards(state, *, script_id, save_id, scan_text, priority_text=''):
             value = ('【'+'／'.join(labels)+'】' if labels else '') + row['value']
             value = _neutralize_state_write_tags(value)
             field = row['field']
-            if field == 'name':
+            if field in ('name', 'alias'):
                 continue
             if field in ('identity', 'appearance', 'personality', 'speech_style', 'background'):
                 grouped.setdefault(field, []).append(value)

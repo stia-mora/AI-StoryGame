@@ -65,6 +65,19 @@ def test_current_voice_identity_and_personality_reach_actual_bundle_without_stat
     assert result.debug['moment'] == 'early'
 
 
+def test_dated_alias_selects_current_card_without_renaming_it_or_leaking_future_alias(monkeypatch, model):
+    model['facts'].append({**model['facts'][0], 'id': 'hou-alias', 'field': 'alias',
+                           'value': '后期别称', 'starts_at': 'battle', 'ends_at': None})
+    _, early = collect(state(), model, monkeypatch, player_intent='问侯丹')
+    assert '后期别称' not in early
+    result, later = collect(state('battle'), model, monkeypatch, player_intent='问后期别称')
+    assert '原著决战阵亡' in later and '侯丹' in later
+    assert result.debug['cards_count'] == 1
+    from context_providers.dated_characters import current_cards
+    cards, _, _ = current_cards(state('battle'), script_id=7, save_id=9, scan_text='后期别称')
+    assert list(cards) == ['侯丹'] and '后期别称' in cards['侯丹']['aliases']
+
+
 def test_expired_fields_stay_unknown_even_with_omniscient_mode_and_future_demand(monkeypatch, model):
     g = state('battle')
     g.data['worldline'].update(progress_chapter=99, foreknowledge_mode='omniscient')
