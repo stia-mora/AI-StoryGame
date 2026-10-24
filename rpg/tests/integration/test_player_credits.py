@@ -183,12 +183,36 @@ def test_recorded_rescue_commits_and_branch_checkout_restores_its_own_world(play
     assert result["facts"][0]["basis"] == "save"
     assert result["as_of"]["divergence_chapter"] == 12
     assert run.receipt["charged_micro"] == 300_000
+
+    def gm_reference():
+        from context_engine import build_context_bundle
+        from context_providers import Demand, ProviderServices, resolve_content_pack, run_providers
+
+        current = catalog.player_save(uid, sid)
+        state = GameState(copy.deepcopy(current["state_snapshot"]))
+        manifest = resolve_content_pack(state, script_id=root["script_id"])
+        manifest["context_providers"] = ["curated_world"]
+        contributions, used = run_providers(
+            state, manifest, Demand(player_intent="询问侯丹伤势"),
+            ProviderServices(user_id=uid, script_id=root["script_id"], save_id=sid),
+        )
+        assert used == ["curated_world"]
+        reference = contributions[0].layers[0]["content"]
+        bundle = build_context_bundle(state, "询问侯丹伤势", contributions=contributions, manifest=manifest)
+        assert reference in bundle["prompt"]
+        return reference
+
+    reference = gm_reference()
+    assert "存活，右臂受伤" in reference and "原著阵亡" not in reference
     branches.activate_node(uid, root["active_commit_id"])
     result = guide_world.load(uid, sid).query({"tool": "get_character", "query": "侯丹"})
     assert result["facts"][0]["value"] == "原著阵亡"
     assert result["as_of"]["divergence_turn"] is None
+    assert "原著阵亡" in gm_reference()
     branches.activate_node(uid, rescued_id)
     assert guide_world.load(uid, sid).query({"tool": "get_character", "query": "侯丹"})["facts"][0]["value"] == "存活，右臂受伤"
+    reference = gm_reference()
+    assert "存活，右臂受伤" in reference and "原著阵亡" not in reference
 
 
 @pytest.mark.parametrize("chapter,expected", [(None, "start"), (12, "battle"), (999, None)])

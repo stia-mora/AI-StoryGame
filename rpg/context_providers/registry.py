@@ -49,6 +49,7 @@ DEFAULT_NOVEL_MANIFEST: dict = {
         "novel_timeline",
         "novel_retrieval",
         "novel_characters",
+        "curated_world",
         "novel_worldbook",
         "memory",
         "worldline",

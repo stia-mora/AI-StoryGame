@@ -11,6 +11,7 @@ manifest 里声明 context_providers，互不串。
 """
 # 触发各 provider 子模块加载与注册
 from . import consequence_echo as _consequence_echo  # noqa: F401
+from . import curated_world as _curated_world  # noqa: F401
 from . import episodic_recall as _episodic_recall  # noqa: F401
 from . import memory as _memory  # noqa: F401
 from . import module as _module  # noqa: F401
