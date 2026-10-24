@@ -12,7 +12,7 @@ from contextlib import suppress
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool, model_validator
 
 from core.sse import SSE_HEADERS, with_keepalive
 from platform_app.db import connect, expose
@@ -52,6 +52,13 @@ class Quote(BaseModel):
     save_id: int
     kind: str = Field(pattern="^(opening|turn|guide)$")
     message: str = Field(default="", max_length=6000)
+    reveal_future: StrictBool = False
+
+    @model_validator(mode="after")
+    def guide_disclosure(self):
+        if self.reveal_future and self.kind != "guide":
+            raise ValueError("未来资料许可仅用于游玩助手")
+        return self
 
 
 class Execute(Quote):
@@ -64,12 +71,12 @@ class Redeem(BaseModel):
     code: str = Field(min_length=1, max_length=120)
 
 
-def estimate_usage(uid, save, profile, kind, message):
+def estimate_usage(uid, save, profile, kind, message, *, reveal_future=False):
     """Forecast complete foreground calls; debug/retrieval caches are not repeated prompts."""
     if kind == "guide":
-        from platform_app.player.guide import packet
+        from platform_app.player.guide import forecast
 
-        return len(packet(uid, save["id"], message)) // 2 + 1500, min(profile["max_output"], 1200)
+        return forecast(uid, save["id"], message, profile, reveal_future=reveal_future)
     with connect() as db:
         previous = db.execute(
             """select r.kind,sum(c.input_tokens) as input_tokens,
@@ -240,12 +247,14 @@ def quote(body: Quote, user=Depends(require_player)):
     # Disclosure only: settlement exclusively uses provider usage. Forecast both calls,
     # avoiding oversized holds caused by saved debug/context caches in state JSON.
     estimate, estimate_output = estimate_usage(
-        user["id"], save, selected["profile"], body.kind, body.message
+        user["id"], save, selected["profile"], body.kind, body.message,
+        reveal_future=body.reveal_future,
     )
     tool_allowance = 4000 if selected["profile"].get("tools_mode") == "internal" else 0
     estimate += tool_allowance
     return wallet.make_quote(
-        user["id"], save, selected["profile"], body.kind, body.message, estimate, estimate_output
+        user["id"], save, selected["profile"], body.kind, body.message, estimate, estimate_output,
+        reveal_future=body.reveal_future,
     )
 
 
@@ -269,6 +278,7 @@ async def execute(body: Execute, user=Depends(require_player)):
         body.action_id,
         body.kind,
         body.message,
+        reveal_future=body.reveal_future,
     )
     if replay:
         if req["status"] == "settled":

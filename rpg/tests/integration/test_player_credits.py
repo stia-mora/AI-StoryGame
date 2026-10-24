@@ -15,6 +15,108 @@ from platform_app.player import catalog, wallet
 from platform_app.player.meter import Run, active_run, phase
 
 
+def test_guide_future_permission_is_bound_to_quote_and_replay(player):
+    uid, sid = player["uid"], player["sid"]
+    save = catalog.player_save(uid, sid)
+    question = "战局今后如何？"
+    quote = wallet.make_quote(uid, save, player["profile"], "guide", question, 200,
+                              reveal_future=True)
+    rid = str(uuid.uuid4())
+    with pytest.raises(HTTPException) as mismatch:
+        wallet.reserve(uid, save, quote["id"], rid, "future-guide", "guide", question)
+    assert mismatch.value.status_code == 409
+    req, replay = wallet.reserve(uid, save, quote["id"], rid, "future-guide", "guide", question,
+                                 reveal_future=True)
+    assert not replay and req["profile"]["guide_options"]["reveal_future"] is True
+    with pytest.raises(HTTPException) as changed_replay:
+        wallet.reserve(uid, save, quote["id"], rid, "future-guide", "guide", question)
+    assert changed_replay.value.status_code == 409
+    wallet.release(uid, rid, "test complete")
+    ordinary = wallet.make_quote(uid, save, player["profile"], "guide", question, 200)
+    req, _ = wallet.reserve(uid, save, ordinary["id"], str(uuid.uuid4()), "ordinary-guide",
+                            "guide", question)
+    assert req["profile"]["guide_options"]["reveal_future"] is False
+    wallet.release(uid, str(req["id"]), "test complete")
+
+
+def test_guide_rejects_changed_world_version_before_settlement(player):
+    from platform_app.player import guide, guide_world
+
+    uid, sid = player["uid"], player["sid"]
+    save = catalog.player_save(uid, sid)
+    model = {"version": 1, "edition": "v1", "moments": [
+        {"key": "start", "order": 0, "label": "开篇", "chapter_min": 1, "chapter_max": 1},
+    ], "subjects": [], "facts": []}
+    quote = wallet.make_quote(uid, save, player["profile"], "guide", "局势？", 200)
+    req, _ = wallet.reserve(uid, save, quote["id"], str(uuid.uuid4()), "version-guide",
+                            "guide", "局势？")
+    run = Run(req)
+    run.guide_script_id = save["script_id"]
+    run.guide_version = guide_world.knowledge_version(model)
+    changed = {**model, "edition": "v2"}
+    with connect() as db:
+        db.execute("insert into script_overrides(script_id,data) values(%s,%s)",
+                   (save["script_id"], Jsonb({"guide_world": changed})))
+    with pytest.raises(HTTPException) as invalid:
+        guide.commit(run, "局势？", "旧版本的回答", [])
+    assert invalid.value.status_code == 409
+    with connect() as db:
+        request = db.execute("select status from player_requests where id=%s", (run.id,)).fetchone()
+        current = db.execute("select active_commit_id,state_snapshot from game_saves where id=%s",
+                             (sid,)).fetchone()
+    assert request["status"] == "reserved"
+    assert current["active_commit_id"] == save["active_commit_id"]
+    assert current["state_snapshot"] == save["state_snapshot"]
+    wallet.release(uid, run.id, "test complete")
+
+
+def test_guide_world_checks_ownership_and_uses_bound_script(player):
+    from platform_app.player import guide_world
+
+    uid, sid = player["uid"], player["sid"]
+    save = catalog.player_save(uid, sid)
+    model = {"version": 1, "edition": "bound-script", "moments": [
+        {"key": "start", "order": 0, "label": "开篇", "chapter_min": 1, "chapter_max": 1},
+    ], "subjects": [], "facts": []}
+    with connect() as db:
+        db.execute("insert into script_overrides(script_id,data) values(%s,%s)",
+                   (save["script_id"], Jsonb({"guide_world": model})))
+    assert guide_world.load(uid, sid).model.edition == "bound-script"
+    with pytest.raises(HTTPException) as denied:
+        guide_world.load(-1, sid, allow_future=True)
+    assert denied.value.status_code == 404
+
+
+def test_guide_consultations_follow_active_branch_ancestry(player):
+    from platform_app.branches.commits import _insert_commit
+    from platform_app.player import guide
+
+    uid, sid = player["uid"], player["sid"]
+    root = catalog.player_save(uid, sid)
+
+    def consult(text):
+        save = catalog.player_save(uid, sid)
+        quote = wallet.make_quote(uid, save, player["profile"], "guide", text, 200)
+        req, _ = wallet.reserve(uid, save, quote["id"], str(uuid.uuid4()), text, "guide", text)
+        guide.commit(Run(req), text, text, [])
+
+    consult("共同祖先的咨询")
+    with connect() as db:
+        siblings = [_insert_commit(
+            db, save_id=sid, parent_id=root["active_commit_id"], turn_index=1,
+            kind="turn", title=label, message="", summary="", content_preview="",
+            state_path="", state_snapshot=root["state_snapshot"],
+        )["id"] for label in ("左支", "右支")]
+    for branch, text in zip(siblings, ("左支的咨询", "右支的咨询")):
+        with connect() as db:
+            db.execute("update game_saves set active_commit_id=%s where id=%s", (branch, sid))
+        consult(text)
+    assert [r["text"] for r in guide.history(uid, sid)] == ["共同祖先的咨询", "右支的咨询"]
+    with connect() as db:
+        db.execute("update game_saves set active_commit_id=%s where id=%s", (siblings[0], sid))
+    assert [r["text"] for r in guide.history(uid, sid)] == ["共同祖先的咨询", "左支的咨询"]
+
+
 @pytest.fixture
 def player(tmp_path):
     from platform_app import branches

@@ -93,11 +93,15 @@ def cost(input_tokens, output_tokens, rate):
     )
 
 
-def fingerprint(kind, message):
-    return hashlib.sha256((kind + "\0" + message).encode()).hexdigest()
+def fingerprint(kind, message, reveal_future=False):
+    if reveal_future and kind != "guide":
+        raise HTTPException(400, "未来资料许可仅用于游玩助手")
+    suffix = "\0guide:future" if reveal_future else ""
+    return hashlib.sha256((kind + "\0" + message + suffix).encode()).hexdigest()
 
 
-def make_quote(uid, save, profile, kind, message, estimate_tokens, estimate_output=None):
+def make_quote(uid, save, profile, kind, message, estimate_tokens, estimate_output=None,
+               *, reveal_future=False):
     profile = {
         key: profile[key]
         for key in (
@@ -114,6 +118,8 @@ def make_quote(uid, save, profile, kind, message, estimate_tokens, estimate_outp
         )
         if key in profile
     }
+    if kind == "guide":
+        profile["guide_options"] = {"reveal_future": reveal_future is True}
     with connect() as db:
         w = lock_wallet(db, uid)
         r = rates(db)
@@ -132,7 +138,7 @@ def make_quote(uid, save, profile, kind, message, estimate_tokens, estimate_outp
                 uid,
                 save["id"],
                 kind,
-                fingerprint(kind, message),
+                fingerprint(kind, message, reveal_future),
                 save.get("active_commit_id"),
                 Jsonb(profile),
                 Jsonb(r),
@@ -150,7 +156,7 @@ def make_quote(uid, save, profile, kind, message, estimate_tokens, estimate_outp
         )
 
 
-def reserve(uid, save, quote_id, request_id, action_id, kind, message):
+def reserve(uid, save, quote_id, request_id, action_id, kind, message, *, reveal_future=False):
     # Reject malformed identifiers before SQL; replay can never access another account.
     try:
         request_id, quote_id = str(uuid.UUID(request_id)), str(uuid.UUID(quote_id))
@@ -176,7 +182,7 @@ def reserve(uid, save, quote_id, request_id, action_id, kind, message):
             if (
                 old["kind"] != kind
                 or not prior_quote
-                or prior_quote["message_hash"] != fingerprint(kind, message)
+                or prior_quote["message_hash"] != fingerprint(kind, message, reveal_future)
             ):
                 raise HTTPException(409, "请求标识已用于其他行动")
             return old, True
@@ -188,7 +194,7 @@ def reserve(uid, save, quote_id, request_id, action_id, kind, message):
             not q
             or not q["valid"]
             or q["save_id"] != save["id"]
-            or q["message_hash"] != fingerprint(kind, message)
+            or q["message_hash"] != fingerprint(kind, message, reveal_future)
         ):
             raise HTTPException(409, "报价已失效，请重新确认")
         fresh = db.execute(
