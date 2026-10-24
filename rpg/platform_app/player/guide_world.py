@@ -145,6 +145,33 @@ class WorldQueries:
                                      and m.chapter_max >= divergence), default=None)
         self.current = self._current_moment()
         self.version = knowledge_version(self.model)
+        self.recorded = {}
+        from state.world_facts import WorldFact
+        aliases = {}
+        for subject in self.subjects.values():
+            for name in (subject.key, subject.name, *subject.aliases):
+                if name not in aliases:
+                    aliases[name] = subject
+                elif aliases[name] != subject:
+                    aliases[name] = None
+        for record in self.state.get("world_facts") or []:
+            if (not isinstance(record, dict) or type(record.get("turn")) is not int
+                    or record["turn"] > (self.state.get("turn") or 0)
+                    or not isinstance(record.get("id"), str)):
+                continue
+            try:
+                fact = WorldFact.model_validate({k: record[k] for k in WorldFact.model_fields if k in record})
+            except ValueError:
+                continue
+            if fact.subject in aliases:
+                subject = aliases[fact.subject]
+                if subject is None:  # A name shared by several people is not a stable identity.
+                    continue
+            else:
+                key = "save:" + hashlib.sha256(fact.subject.encode()).hexdigest()[:24]
+                subject = Subject(key=key, name=fact.subject, kind=fact.subject_kind)
+                self.subjects[key] = aliases[fact.subject] = subject
+            self.recorded.setdefault(subject.key, []).append({**record, **fact.model_dump()})
 
     def _moment(self, label):
         matches = [m for m in self.model.moments if label in (m.key, m.label, *m.aliases)]
@@ -174,6 +201,7 @@ class WorldQueries:
             moment_key=self.current.key if self.current else None,
             progress_chapter=progress if type(progress) is int else None,
             divergence_chapter=divergence if type(divergence) is int else None,
+            divergence_turn=self.worldline.get("divergence_turn"),
             edition=self.model.edition, knowledge_version=self.version,
             future_allowed=self.allow_future,
             knowledge_scope="全局资料，不自动成为角色本人所知",
@@ -191,6 +219,9 @@ class WorldQueries:
         at = self.moments[fact.starts_at] if fact.kind == "event" else target
         branched = (self.divergence_order is not None and at is not None
                     and at.order >= self.divergence_order)
+        divergence_turn = self.worldline.get("divergence_turn")
+        if self.divergence_order is None and type(divergence_turn) is int:
+            branched = (target is self.current and divergence_turn <= (self.state.get("turn") or 0))
         return dict(
             id=fact.id, subject=subject.name, subject_key=subject.key, field=fact.field,
             value=fact.value, basis=fact.basis, certainty=fact.certainty,
@@ -201,9 +232,32 @@ class WorldQueries:
             evidence=[e.model_dump() for e in fact.evidence],
         )
 
-    def _live_rows(self, subject):
-        """Only committed runtime facts, not pending ops, hypotheses or private prompts."""
+    def _recorded_rows(self, subject=None, target=None):
         rows = []
+        keys = [subject.key] if subject else self.recorded
+        for key in keys:
+            resolved = self.subjects[key]
+            for record in self.recorded.get(key, []):
+                if target is not self.current:
+                    recorded = self._moment(record.get("moment") or record.get("time"))
+                    if recorded is None or target is None or recorded.order > target.order:
+                        continue
+                rows.append(dict(
+                    id=record["id"], subject=resolved.name, subject_key=resolved.key,
+                    field=record["field"], value=record["value"], kind=record["kind"],
+                    basis="save", certainty=record["certainty"], applicability="current_save",
+                    future=False, turn=record["turn"], cause=record.get("cause", ""),
+                    time=record.get("time") or "未记录准确发生时间",
+                    evidence=[{"source": "本存档叙事", "locator": f"第{record['turn']}回合",
+                               "quote": record["quote"]}],
+                ))
+        return rows
+
+    def _live_rows(self, subject, target):
+        """Only committed runtime facts, not pending ops, hypotheses or private prompts."""
+        rows = [row for row in self._recorded_rows(subject, target) if row["kind"] == "state"]
+        if target is not self.current:
+            return sorted(rows, key=lambda r: r["turn"])
         turn = self.state.get("turn") or 0
         for item in (self.state.get("memory") or {}).get("items") or []:
             if (not isinstance(item, dict) or item.get("kind") != "runtime_fact"
@@ -239,7 +293,7 @@ class WorldQueries:
                                      basis="save", certainty="reported", applicability="current_save",
                                      future=False, evidence=[{"source": "本存档人物记录",
                                                              "locator": "当前分支快照"}]))
-        return sorted(rows, key=lambda r: r.get("turn", turn))
+        return sorted(rows, key=lambda r: (r.get("turn", turn), r["id"].startswith("wf_")))
 
     def _save_events(self):
         rows = []
@@ -274,7 +328,8 @@ class WorldQueries:
                              turn=item["turn"], time=f"存档第{item['turn']}回合",
                              cause=str(guide.get("cause") or item.get("text") or "")[:600],
                              evidence=[{"source": "本存档", "locator": f"第{item['turn']}回合"}]))
-        return rows
+        rows.extend(row for row in self._recorded_rows(target=self.current) if row["kind"] == "event")
+        return sorted(rows, key=lambda r: r.get("turn", 0))
 
     def query(self, request):
         args = Query.model_validate(request)  # No model-controlled script, save, or future switch.
@@ -292,7 +347,7 @@ class WorldQueries:
         if args.tool == "get_evidence":
             facts = [f for f in self.model.facts if f.id == args.fact_id and self._visible(f)]
         else:
-            matches = {s.key for s in self.model.subjects
+            matches = {s.key for s in self.subjects.values()
                        if args.query in (s.key, s.name, *s.aliases)}
             if args.tool == "get_character":
                 matches = {k for k in matches if self.subjects[k].kind == "character"}
@@ -316,6 +371,8 @@ class WorldQueries:
                 ) and (not args.at or self.moments[f.starts_at].order <= target.order)]
         facts.sort(key=lambda f: self.moments[f.starts_at].order)
         rows = [self._row(f, target) for f in facts]
+        if args.tool == "get_evidence":
+            rows.extend(row for row in self._recorded_rows(target=target) if row["id"] == args.fact_id)
         if args.tool in ("get_character", "get_situation"):
             # Prefer novel over history per subject/field; report same-rank conflicts.
             slots = {}
@@ -327,13 +384,13 @@ class WorldQueries:
                 if slot and slot[0]["basis"] == "history" and row["basis"] == "novel":
                     slot.clear()
                 slot.append(row)
-            if target is self.current:
-                for subject in self.model.subjects:
+            if target is self.current or (target and self.current and target.order < self.current.order):
+                for subject in self.subjects.values():
                     if (args.query and subject.key not in matches) or (
                         args.tool == "get_situation" and subject.kind == "character"
                     ):
                         continue
-                    for row in self._live_rows(subject):
+                    for row in self._live_rows(subject, target):
                         key = (row["subject_key"], row["field"])
                         # Explicit structured runtime facts outrank a lightweight entity record.
                         if row["certainty"] == "reported" and any(
@@ -347,10 +404,17 @@ class WorldQueries:
                     for row in slot:
                         row["conflict"] = True
             rows = [row for slot in slots.values() for row in slot]
+            fields = ["status", "identity", "location", "situation", "personality", "motivation", "speech_style"]
+            rows.sort(key=lambda r: (r["basis"] != "save",
+                                    fields.index(r["field"]) if r["field"] in fields else len(fields)))
         elif args.tool == "get_timeline" and target is self.current:
             # Undated save events remain undated; never backfill them into a past query.
             rows.extend(row for row in self._save_events() if not args.query
                         or row["subject_key"] in matches or args.query in row["value"])
+        elif args.tool == "get_timeline" and target:
+            rows.extend(row for row in self._recorded_rows(target=target)
+                        if row["kind"] == "event" and (not args.query
+                        or row["subject_key"] in matches or args.query in row["value"]))
         total = len(rows)
         if args.tool in ("get_timeline", "get_history"):
             rows = rows[-args.limit:]

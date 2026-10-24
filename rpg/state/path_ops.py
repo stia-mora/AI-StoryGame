@@ -25,8 +25,8 @@ def _clean_path(path: str) -> str:
     return aliases.get(path, path)
 
 
-_HARD_FORBIDDEN_PATHS = {"schema_version", "history", "created_at", "is_new"}
-_HARD_FORBIDDEN_PREFIXES = ("history.", "permissions.")
+_HARD_FORBIDDEN_PATHS = {"schema_version", "history", "created_at", "is_new", "world_facts"}
+_HARD_FORBIDDEN_PREFIXES = ("history.", "permissions.", "world_facts.")
 
 # 5E-compatible 规则受控字段。这些路径只能由 RulesEngine（source="rules_engine"
 # 或 source 以 "rules_engine" 开头）改写。GM 自由写入 / 用户 /set 都被拒绝并 audit，

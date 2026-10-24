@@ -146,7 +146,7 @@ _SYSTEM_OUTPUT_FORMAT = """\
 
 
 def _build_system_prompt(tasks: frozenset[str], consequence_enabled: bool = False,
-                         agenda_enabled: bool = False) -> str:
+                         agenda_enabled: bool = False, world_facts_enabled: bool = False) -> str:
     """根据启用的任务集合组装 system prompt。"""
     parts = [_SYSTEM_OUTPUT_HEADER.strip()]
     if "ops" in tasks:
@@ -155,6 +155,9 @@ def _build_system_prompt(tasks: frozenset[str], consequence_enabled: bool = Fals
             parts.append(_SYSTEM_OPS_CONSEQUENCE.strip())
         if agenda_enabled:
             parts.append(_SYSTEM_OPS_AGENDA.strip())
+        if world_facts_enabled:
+            from state.world_facts import RECORDING_GUIDE
+            parts.append(RECORDING_GUIDE)
     if "anchors" in tasks:
         parts.append(_SYSTEM_ANCHORS.strip())
     if "acceptance" in tasks:
@@ -168,6 +171,8 @@ def _build_system_prompt(tasks: frozenset[str], consequence_enabled: bool = Fals
             _kinds += "|consequence"
         if agenda_enabled:
             _kinds += "|agenda"
+        if world_facts_enabled:
+            _kinds += "|world_fact"
         _extra = ',"due_turns":4' if consequence_enabled else ""
         schema_fields.append(f'"ops": [{{"op":"{_kinds}","path":"player.xxx","value":"..."{_extra}}}]')
     if "anchors" in tasks:
@@ -341,7 +346,7 @@ def _build_user_prompt(
 
 def _build_tool_schema(tasks: frozenset[str], acceptance_clauses: list[str] | None,
                        consequence_enabled: bool = False,
-                       agenda_enabled: bool = False) -> dict:
+                       agenda_enabled: bool = False, world_facts_enabled: bool = False) -> dict:
     """构造合并后的 emit_record 工具 schema，只包含已启用任务对应的字段。
 
     consequence_enabled 必须与 _build_system_prompt 同源传入 —— 三通道(anthropic/vertex/
@@ -392,6 +397,10 @@ def _build_tool_schema(tasks: frozenset[str], acceptance_clauses: list[str] | No
                 "type": "string",
                 "description": "op=agenda:对玩家的当下态度(≤60字,可省)",
             }
+        if world_facts_enabled:
+            from state.world_facts import OP_PROPERTIES
+            _op_enum.append("world_fact")
+            _op_item_props.update({k: v for k, v in OP_PROPERTIES.items() if k != "value"})
         properties["ops"] = {
             "type": "array",
             "description": "状态变化 op 列表。没有变化时传 []。",
@@ -703,8 +712,9 @@ def record_turn(
     except Exception:
         _agenda_on = False
 
+    world_facts_on = bool((state_data.get("world") or {}).get("guide_edition"))
     system_prompt = _build_system_prompt(active_tasks, consequence_enabled=_consequence_on,
-                                         agenda_enabled=_agenda_on)
+                                         agenda_enabled=_agenda_on, world_facts_enabled=world_facts_on)
     if "ops" in active_tasks:
         from platform_app.player.meter import current as _player_run
         if _player_run(user_id):
@@ -721,7 +731,7 @@ def record_turn(
         user_prompt += "\n\n【现有玩家状态，仅更新正文已确认的变化】\n" + recording_packet(state_data)
     tool_schema = _build_tool_schema(active_tasks, acceptance_clauses,
                                      consequence_enabled=_consequence_on,
-                                     agenda_enabled=_agenda_on)
+                                     agenda_enabled=_agenda_on, world_facts_enabled=world_facts_on)
 
     # 三通道 dispatch（优先 native tool_use / function calling）
     try:

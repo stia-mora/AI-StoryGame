@@ -165,11 +165,15 @@ def extract_state_ops(
     api_id = api_id_override or _resolve_preferred_extractor_api(user_id) or _DEFAULT_FALLBACK_API
     model = model_override or _resolve_preferred_extractor_model(user_id) or _DEFAULT_FALLBACK_MODEL
 
+    system_prompt = _EXTRACTOR_SYSTEM
+    if (state_data.get("world") or {}).get("guide_edition"):
+        from state.world_facts import RECORDING_GUIDE
+        system_prompt += "\n\n" + RECORDING_GUIDE
     try:
         text, backend_ref = _call_extractor_backend(
             api_id=api_id,
             model=model,
-            system_prompt=_EXTRACTOR_SYSTEM,
+            system_prompt=system_prompt,
             user_prompt=_build_user_prompt(narrative_text, state_data),
             user_id=user_id,
             timeout_sec=timeout_sec,
@@ -307,6 +311,12 @@ def _call_anthropic_tool_use(
             "required": ["ops"],
         },
     }]
+    # Native schema and JSON-only providers must support the same enabled op.
+    if "【世界事实记录" in system_prompt:
+        from state.world_facts import OP_PROPERTIES
+        op_properties = tools[0]["input_schema"]["properties"]["ops"]["items"]["properties"]
+        op_properties["op"]["enum"].append("world_fact")
+        op_properties.update({k: v for k, v in OP_PROPERTIES.items() if k != "value"})
     resp = client.messages.create(
         model=model,
         max_tokens=1024,

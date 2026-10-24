@@ -1348,6 +1348,9 @@ class GameState(ApplyOpsMixin, RulesGameplayMixin, PendingMixin):
     def update_time(self, time_desc: str, source: str = "system"):
         time_desc = clean_time_value(time_desc)
         if time_desc:
+            if time_desc != self.data["world"].get("time"):
+                # An authoring scene key must not pin the assistant to an earlier date forever.
+                self.data["world"].pop("guide_moment", None)
             self.data["world"]["time"] = time_desc
             timeline = self._timeline()
             old = timeline.get("current_label")

@@ -12,6 +12,7 @@ from context_engine._constants import (
 )
 from context_engine._utils import _cache_plan, _estimate_tokens, _layer, _preview, _trim
 from context_engine.budget import solve_layer_budgets
+from state.world_facts import context as _world_facts_context
 
 # 未登记层 id 只 warn 一次:每回合都会重复,刷屏没有信息量。
 _WARNED_UNREGISTERED: set[str] = set()
@@ -181,6 +182,8 @@ def build_context_bundle(
         _layer("timeline_pending", "时间跳跃待确认", _safe(lambda: _pending_jump_warning_text(state)),
                sticky=False, priority=86),
         _layer("state", "当前状态", _safe(lambda: state.short_summary()), sticky=True, priority=55),
+        _layer("world_facts", "本分支世界变化", _safe(lambda: _world_facts_context(state.data, user_input or "")),
+               sticky=True, priority=84),
         _layer("fact_groups", "事实分组（按 kind）", _safe(lambda: _fact_groups_layer(state)), sticky=False, priority=50),
         _layer("state_schema", "状态字段 schema",
                _safe(lambda: _state_schema_layer(state, _safe_load_chars(script_id, book_id, manifest))),

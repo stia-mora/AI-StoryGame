@@ -346,6 +346,8 @@ class ApplyOpsMixin:
         # 只 apply 一次。set 幂等但 updates 双报/审计翻倍;未来 add/subtract 类是真损坏。
         from state.json_ops import dedupe_json_ops
         json_ops = dedupe_json_ops(json_ops)
+        # Record facts against the time actually accepted by this batch, independent of op order.
+        json_ops.sort(key=lambda op: str(op.get("op", "")).lower() == "world_fact")
 
         for op in json_ops:
             try:
@@ -360,6 +362,12 @@ class ApplyOpsMixin:
                         # task 60：缺 question 文本时不静默
                         _log_op_parse_error("question op 缺 'question' 或 'text' 字段", op)
                         updates.append(f"JSON op 忽略（询问缺文本）：{op}")
+                    continue
+                if kind == "world_fact":
+                    from state.world_facts import record as record_world_fact
+                    updates.append(record_world_fact(
+                        self, {k: v for k, v in op.items() if k != "op"}, narrative=text_stripped,
+                    ))
                     continue
                 # 后果账本 v1（docs/design/consequence_ledger_v1.md）：登记一条待兑现的
                 # 后果。触发扫描/注入在 context provider 侧做，这里只负责写入登记。

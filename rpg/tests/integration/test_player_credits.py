@@ -117,6 +117,80 @@ def test_guide_consultations_follow_active_branch_ancestry(player):
     assert [r["text"] for r in guide.history(uid, sid)] == ["共同祖先的咨询", "左支的咨询"]
 
 
+def test_recorded_rescue_commits_and_branch_checkout_restores_its_own_world(player, monkeypatch):
+    import json
+    from types import SimpleNamespace
+
+    from agents import recorder
+    from chat_pipeline.postproc import _apply_gm_json_ops, _response_with_recorder_ops
+    from platform_app import branches
+    from platform_app.branches import runtime as branch_runtime
+    from platform_app.player import guide_world
+    from state import GameState
+
+    uid, sid = player["uid"], player["sid"]
+    root = catalog.player_save(uid, sid)
+    baseline = copy.deepcopy(root["state_snapshot"])
+    baseline["world"].update(guide_edition="rescue-test", time="战后")
+    baseline["worldline"]["progress_chapter"] = 12
+    model = {"version": 1, "edition": "rescue-test", "moments": [
+        {"key": "battle", "order": 1, "label": "战后", "chapter_min": 12, "chapter_max": 12},
+    ], "subjects": [{"key": "hou", "name": "侯丹", "kind": "character"}], "facts": [
+        {"id": "death", "subject": "hou", "kind": "state", "field": "status", "value": "原著阵亡",
+         "starts_at": "battle", "basis": "novel", "evidence": [{"source": "测试", "locator": "12章"}]},
+    ]}
+    with connect() as db:
+        db.execute("insert into script_overrides(script_id,data) values(%s,%s)",
+                   (root["script_id"], Jsonb({"guide_world": model})))
+        db.execute("update branch_commits set state_snapshot=%s where id=%s",
+                   (Jsonb(baseline), root["active_commit_id"]))
+        db.execute("update game_saves set state_snapshot=%s where id=%s", (Jsonb(baseline), sid))
+    branches.activate_save(uid, sid)
+    prose = "你将侯丹拖离战阵。军医确认侯丹尚活，右臂受伤，留营休养。"
+    op = {"op": "world_fact", "subject": "侯丹", "field": "status", "value": "存活，右臂受伤",
+          "quote": "军医确认侯丹尚活，右臂受伤，留营休养。", "cause": "玩家拖离战阵", "diverges": True}
+    monkeypatch.setattr(recorder, "_resolve_recorder_api_and_model", lambda *a: ("test", "test"))
+    monkeypatch.setattr(recorder, "_call_recorder", lambda **kw: (json.dumps({"ops": [op]}), {}))
+    monkeypatch.setattr(branch_runtime, "schedule_llm_summary", lambda *a: None)
+    g = GameState(copy.deepcopy(baseline))
+    g.data["turn"] = 1
+    g.data["permissions"]["mode"] = "full_access"
+    extracted = recorder.record_turn(prose, g.data, tasks=["ops"], user_id=uid)
+    updates = _apply_gm_json_ops(
+        state=g, response_with_ops=_response_with_recorder_ops(prose, extracted["ops"]),
+        api_user=player["user"], active_script_id=lambda _: root["script_id"],
+        ctx=SimpleNamespace(early_active_save_id=sid, directive_updates=[]),
+    )
+    assert any("世界事实" in u for u in updates)
+    request, _, _ = reservation(player, "救人")
+    run = Run(request)
+    run.committing = True
+    token = active_run.set(run)
+    try:
+        with phase("reply"):
+            run.record(str(uuid.uuid4()), "openai", "text", {"prompt_tokens": 100, "completion_tokens": 50})
+        committed = branches.record_runtime_turn("救人", prose, user_id=uid, state_data=g.data)
+    finally:
+        active_run.reset(token)
+    assert committed["ok"]
+    rescued_id = catalog.player_save(uid, sid)["active_commit_id"]
+    from kb.save_kb import materialize
+    with connect() as db:
+        projected = materialize(db, sid, rescued_id)
+    assert projected["world_facts"] == g.data["world_facts"]
+    result = guide_world.load(uid, sid).query({"tool": "get_character", "query": "侯丹"})
+    assert result["facts"][0]["value"] == "存活，右臂受伤"
+    assert result["facts"][0]["basis"] == "save"
+    assert result["as_of"]["divergence_chapter"] == 12
+    assert run.receipt["charged_micro"] == 300_000
+    branches.activate_node(uid, root["active_commit_id"])
+    result = guide_world.load(uid, sid).query({"tool": "get_character", "query": "侯丹"})
+    assert result["facts"][0]["value"] == "原著阵亡"
+    assert result["as_of"]["divergence_turn"] is None
+    branches.activate_node(uid, rescued_id)
+    assert guide_world.load(uid, sid).query({"tool": "get_character", "query": "侯丹"})["facts"][0]["value"] == "存活，右臂受伤"
+
+
 @pytest.fixture
 def player(tmp_path):
     from platform_app import branches

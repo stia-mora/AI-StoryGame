@@ -28,6 +28,7 @@ _log = _logging.getLogger(__name__)
 _NARRATIVE_OP_PATHS = frozenset({
     "consequence", "npc_agenda", "hypothesis",
     "confirm_hypothesis", "reject_hypothesis",
+    "world_fact",
 })
 
 
@@ -135,6 +136,9 @@ class PendingMixin:
         op = str(item.get("op") or item.get("path") or "")
         value = item.get("value") or {}
         src = f"{item.get('source', 'gm')}:approved"
+        if op == "world_fact":
+            from state.world_facts import append as append_world_fact
+            return append_world_fact(self.data, value["fact"], recorded=value["recorded"])
         if op == "consequence":
             ok, msg = self.register_consequence(
                 text=value.get("text", ""),

@@ -42,6 +42,7 @@ _BASE_LAYER_CHARS = {
     "state_schema": 1600,   # 纯 schema 模板,不需要长,保持精简
     "write_results": 1000,  # 上轮标签结果反馈,简洁即可
     "fact_groups": 4000,    # canon / runtime / user_constraint 分组渲染
+    "world_facts": 4000,    # 分支内人物/地方变化，不随普通记忆裁剪丢失
     "hypotheses": 1200,
     "candidate_actions": 1600,
     "recent_chat": 16000,         # 多保留对话历史 → 连贯性
@@ -101,6 +102,7 @@ _LAYER_MIN_CHARS = {
     "user_input": 2400,
     # 有意义的下限:低于它这层就没有信息价值,宁可整层丢弃也别留半句。
     "state": 1200,
+    "world_facts": 1000,
     "anchor_pending": 1500,
     "episodic_recall": 1500,
     "novel_retrieval": 2000,
