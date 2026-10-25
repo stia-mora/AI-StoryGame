@@ -11,7 +11,7 @@ import { MSlider, Seg, Toggle, usePrefSave } from './shared.jsx';
 const MP_DEFAULTS = {
   temperature: 0.78, top_p: 0.92, top_k: 40,
   repetition_penalty: 1.15, frequency_penalty: 0.20, presence_penalty: 0.10,
-  max_tokens: 4096, context_size: 16384, seed: -1,
+  max_tokens: 6144, context_size: 16384, seed: -1,
   mirostat_mode: 'off', mirostat_tau: 5.0, mirostat_eta: 0.10, stop: '',
 };
 const MP_PRESETS = {

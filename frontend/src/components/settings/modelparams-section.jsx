@@ -17,7 +17,7 @@ const MODEL_PARAM_DEFAULTS = {
   repetition_penalty: 1.15,
   frequency_penalty: 0.20,
   presence_penalty: 0.10,
-  max_tokens: 4096,
+  max_tokens: 6144,
   context_size: 16384,
   seed: -1,
   mirostat_mode: "off",

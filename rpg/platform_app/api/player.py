@@ -91,7 +91,9 @@ def estimate_usage(uid, save, profile, kind, message, *, reveal_future=False):
     sample = next(
         (r for r in previous if r["kind"] == kind and (kind == "opening" or r["has_curator"])), None
     )
-    output = min(int(profile["max_output"]), 2048 if kind == "opening" else 1200) * (2 if kind == "turn" else 1)
+    output = int(profile["max_output"])
+    if kind == "turn":
+        output += min(int(profile["max_output"]), 1800)  # Curator plus full GM narration/state output.
     if sample and sample["input_tokens"]:
         return int(sample["input_tokens"]) + len(message) + 2000, output
     opening = next((r for r in previous if r["kind"] == "opening" and r["input_tokens"]), None)
@@ -191,8 +193,9 @@ def _create(body: Create, user):
     from platform_app.player.character_creation import prepare
 
     setup = prepare(defaults, body.martial_soul.model_dump() if body.martial_soul else None)
+    name = str(identity.get("character_name") or body.name).strip()
     card = {
-        "name": body.name.strip(),
+        "name": name,
         "role": identity.get("role") or identity.get("name") or "",
         "background": "\n".join(
             filter(None, [identity.get("background", ""), body.background.strip()])
@@ -201,7 +204,7 @@ def _create(body: Create, user):
     result = workspace.create_save(
         user["id"],
         selected["script_id"],
-        f"{body.name.strip()}的故事",
+        f"{name}的故事",
         new_card=card,
         birthpoint=identity.get("birthpoint") or defaults.get("birthpoint"),
         story_intent=defaults.get("story_intent"),

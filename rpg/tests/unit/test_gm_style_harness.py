@@ -22,9 +22,11 @@ def test_default_block_reproduces_current_rules_semantics():
     assert "外部描写" in block or "不展开内心独白" in block          # 心理(不补潜台词)
     assert "有张力的场景节拍" in block                              # 留白铁律
     assert "把这一轮推进了" in block                                # 推进铁律
-    # 默认篇幅下限 ≥ 300(复刻"正文至少 300 字实质推进")
+    # All stories now default to a fuller scene, with room for dialogue and results.
     lo, hi = _num_range(block)
-    assert lo >= 280, (lo, hi)
+    assert 950 <= lo <= 1050 and 1350 <= hi <= 1450, (lo, hi)
+    assert "2—3个相连节拍" in block
+    assert "不可逆代价仍由玩家决定" in block
 
 
 def test_reply_length_is_linearly_adjustable():

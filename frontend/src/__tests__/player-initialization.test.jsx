@@ -30,6 +30,30 @@ it("accepts free identity and background in the chat and creates only after conf
   expect(localStorage.getItem("player-setup-44-538")).toBeNull();
 });
 
+it("uses an original character's name and skips renaming while keeping custom roles available", async () => {
+  const cast = { ...story, identities: [{ id: "emperor", name: "赵官家（赵玖）", character_name: "赵玖", description: "从明道宫执掌行在。" }, ...story.identities] };
+  render(<Initialize {...props} story={cast} />);
+  fireEvent.click(screen.getByRole("button", { name: /赵官家/ }));
+  expect(screen.queryByLabelText("你的名字")).toBeNull();
+  expect(screen.getByText(/你将扮演赵玖/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "名字", exact: true })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "跳过，使用当前设定" }));
+  expect(screen.getByRole("button", { name: "修改名字" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "确认设定，进入故事" }));
+  await waitFor(() => expect(window.api.player.create).toHaveBeenCalledWith(expect.objectContaining({ name: "赵玖", identity_id: "emperor" })));
+});
+
+it("lets a player switch from an original character to their own named character", () => {
+  const cast = { ...story, identities: [{ id: "yue", name: "岳飞", character_name: "岳飞" }, ...story.identities] };
+  render(<Initialize {...props} story={cast} />);
+  fireEvent.click(screen.getByRole("button", { name: "岳飞" }));
+  fireEvent.click(screen.getByRole("button", { name: "身份", exact: true }));
+  fireEvent.click(screen.getByRole("button", { name: "同龄伙伴" }));
+  expect(screen.getByLabelText("你的名字")).toHaveValue("");
+  send("你的名字", "小林");
+  expect(screen.getByRole("heading", { name: "还有想带入故事的设定吗？" })).toBeTruthy();
+});
+
 it("restores both the current step and unsent text without creating a save", () => {
   const first = render(<Initialize {...props} />);
   fireEvent.click(screen.getByRole("button", { name: "同龄伙伴" }));

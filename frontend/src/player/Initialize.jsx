@@ -10,10 +10,12 @@ export function Initialize({ story, uid, navigate, refresh, guest = false, login
   const steps = ["identity", "name", ...(soul ? ["soul"] : []), "background", "review"];
   const [setup, setSetup] = useState(() => {
     const saved = lsGetJSON(key, {});
+    const preset = !saved.custom && story.identities.find((item) => String(item.id) === saved.identity);
     return {
       identity: "", custom: "", name: "", background: "", martial: null, draft: "", drafts: {},
       ...saved,
-      step: steps.includes(saved.step) ? saved.step : "identity",
+      ...(preset?.character_name ? { name: preset.character_name } : {}),
+      step: preset?.character_name && saved.step === "name" ? (soul ? "soul" : "background") : steps.includes(saved.step) ? saved.step : "identity",
       backgroundDone: saved.backgroundDone || saved.step === "review" || Boolean(saved.background),
       reviewed: saved.reviewed || saved.step === "review",
     };
@@ -22,16 +24,18 @@ export function Initialize({ story, uid, navigate, refresh, guest = false, login
   const inFlight = useRef(false), copyTimer = useRef(null), input = useRef(null), question = useRef(null), scroller = useRef(null), lastStep = useRef(setup.step);
   const identity = story.identities.find((item) => String(item.id) === setup.identity);
   const identityName = setup.custom || identity?.name;
+  const fixedName = !setup.custom && identity?.character_name;
+  const name = fixedName || setup.name;
   const soulValid = !soul || (
     (setup.martial?.mode === "random" && soul.allow_random) ||
     (setup.martial?.mode === "custom" && soul.allow_custom && setup.martial.name?.trim()) ||
     (setup.martial?.mode === "recommended" && soul.choices.some((item) => item.name === setup.martial.name))
   );
-  const named = Boolean(identityName && setup.name.trim());
+  const named = Boolean(identityName && name.trim());
   const ready = Boolean(named && soulValid && setup.backgroundDone);
   const fields = [
     { id: "identity", label: "身份", value: identityName, complete: Boolean(identityName), available: true },
-    { id: "name", label: "名字", value: setup.name, complete: Boolean(setup.name.trim()), available: Boolean(identityName) },
+    { id: "name", label: "名字", value: name, complete: Boolean(name.trim()), available: Boolean(identityName && !fixedName) },
     ...(soul ? [{ id: "soul", label: "武魂", value: setup.martial?.mode === "random" ? "随机觉醒" : setup.martial?.name, complete: Boolean(soulValid), available: named }] : []),
     { id: "background", label: "背景", value: setup.background || (setup.backgroundDone ? "未补充" : "可选"), complete: Boolean(setup.backgroundDone), available: Boolean(named && soulValid) },
   ];
@@ -40,7 +44,7 @@ export function Initialize({ story, uid, navigate, refresh, guest = false, login
     identity: ["你想以什么身份进入故事？", "选择一个推荐身份，或在下方写下自己的想法。"],
     name: ["这个世界该怎样称呼你？", "写下你的角色名字。"],
     soul: ["选择你的武魂", soul?.allow_custom ? "选择推荐武魂，也可以在下方输入名称。" : "从下方选项中选择武魂。"],
-    background: ["还有想带入故事的设定吗？", "经历、性格、目标都可以，也可以直接跳过。"],
+    background: ["还有想带入故事的设定吗？", fixedName ? `你将扮演${fixedName}，沿用其当期身份与经历。可补充想实现的目标，也可以直接跳过。` : "经历、性格、目标都可以，也可以直接跳过。"],
     review: ["确认角色设定", "每项设定都可以单独修改，确认后创建角色。"],
   };
   const maxLength = setup.step === "background" ? 1200 : setup.step === "identity" ? 80 : 40;
@@ -85,7 +89,7 @@ export function Initialize({ story, uid, navigate, refresh, guest = false, login
     if (guest || inFlight.current || !canType) return;
     const text = setup.draft.trim();
     if (!text) return;
-    if (setup.step === "identity") changeStep(nextStep("name"), { identity: "", custom: text }, true);
+    if (setup.step === "identity") changeStep(nextStep("name"), { identity: "", custom: text, ...(fixedName ? { name: "" } : {}) }, true);
     if (setup.step === "name") changeStep(nextStep(soul ? "soul" : "background"), { name: text }, true);
     if (setup.step === "soul") changeStep(nextStep("background"), { martial: { mode: "custom", name: text } }, true);
     if (setup.step === "background") changeStep("review", { background: text, backgroundDone: true }, true);
@@ -98,7 +102,7 @@ export function Initialize({ story, uid, navigate, refresh, guest = false, login
     setBusy(true); setError("");
     try {
       const result = await window.api.player.create({
-        story_id: story.id, name: setup.name.trim(), identity_id: setup.identity, background: setup.background,
+        story_id: story.id, name: name.trim(), identity_id: setup.identity, background: setup.background,
         ...(setup.custom ? { custom_identity: setup.custom } : {}),
         ...(soul ? { martial_soul: setup.martial } : {}),
       });
@@ -165,7 +169,7 @@ export function Initialize({ story, uid, navigate, refresh, guest = false, login
                   {story.identities.map((item, index) => guest ? (
                     <div className="setup-guest-identity" key={item.id}><strong>{item.name}</strong>{(item.description || item.role) && <p>{item.description || item.role}</p>}</div>
                   ) : (
-                    <button key={item.id} disabled={busy} aria-pressed={setup.identity === String(item.id) && !setup.custom} onClick={() => changeStep(nextStep("name"), { identity: String(item.id), custom: "" }, true)}>
+                    <button key={item.id} disabled={busy} aria-pressed={setup.identity === String(item.id) && !setup.custom} onClick={() => changeStep(nextStep(item.character_name ? (soul ? "soul" : "background") : "name"), { identity: String(item.id), custom: "", name: item.character_name || (fixedName ? "" : setup.name) }, true)}>
                       <span className="setup-choice-index" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
                       <span className="setup-choice-copy"><strong>{item.name}</strong>{(item.description || item.role) && <span>{item.description || item.role}</span>}</span>
                       <ArrowRight size={17} aria-hidden="true" />
@@ -187,7 +191,7 @@ export function Initialize({ story, uid, navigate, refresh, guest = false, login
               {!guest && reviewed && (
                 <div className="setup-review">
                   <dl>{fields.map((field) => (
-                    <div key={field.id}><dt>{field.label}</dt><dd>{field.value || "待设定"}</dd><button className="text-button" aria-label={`修改${field.label}`} disabled={busy} onClick={() => changeStep(field.id)}><PencilSimple size={15} /><span>修改</span></button></div>
+                    <div key={field.id}><dt>{field.label}</dt><dd>{field.value || "待设定"}</dd><button className="text-button" aria-label={`修改${field.label}`} disabled={busy || !field.available} onClick={() => changeStep(field.id)}><PencilSimple size={15} /><span>{field.id === "name" && fixedName ? "原著姓名" : "修改"}</span></button></div>
                   ))}</dl>
                   <button className="text-button setup-copy" disabled={busy} onClick={copy}><span className="copy-icons" data-copied={copied} aria-hidden="true"><Copy size={16} /><Check size={16} className={copied ? "feedback-check" : ""} /></span>{copied ? "已复制" : "复制设定"}</button>
                 </div>

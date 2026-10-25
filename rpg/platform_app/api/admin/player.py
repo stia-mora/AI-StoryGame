@@ -79,7 +79,7 @@ async def profile(request: Request, admin=Depends(_require_admin)):
             raise HTTPException(400, "服务凭据不可用")
     elif not resolved_is_usable(resolve_api_key(admin["id"], api)):
         raise HTTPException(400, "服务凭据不可用")
-    maximum = int(body.get("max_output", 2048))
+    maximum = int(body.get("max_output", 6144))
     tools_mode = body.get("tools_mode", "internal")
     if tools_mode not in ("internal", "none"):
         raise HTTPException(400, "工具模式无效")
@@ -137,6 +137,9 @@ async def story(request: Request, admin=Depends(_require_admin)):
         raise HTTPException(400, "请至少配置一个有 id 和 name 的推荐身份")
     if len({str(i["id"]) for i in identities}) != len(identities):
         raise HTTPException(400, "身份 id 不能重复")
+    if any('character_name' in i and (not isinstance(i['character_name'], str)
+           or not 1 <= len(i['character_name'].strip()) <= 40) for i in identities):
+        raise HTTPException(400, "原著角色姓名须为1至40字")
     cover = str(body.get("cover") or "")
     if cover and not cover.startswith(("/assets/", "https://")):
         raise HTTPException(400, "封面请使用 HTTPS 或本地 assets 地址")

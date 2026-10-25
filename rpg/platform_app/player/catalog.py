@@ -43,7 +43,7 @@ def public_story(row):
     if public["cover"].startswith("/api/storage/"):
         public["cover"] = f"/api/player/stories/{row['id']}/cover"
     public["identities"] = [
-        {k: i[k] for k in ("id", "name", "role", "background", "description") if k in i}
+        {k: i[k] for k in ("id", "name", "role", "background", "description", "character_name") if k in i}
         for i in row["identities"]
     ]
     public["martial_soul_creation"] = public_config(row.get("defaults"))

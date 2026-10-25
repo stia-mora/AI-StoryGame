@@ -21,7 +21,7 @@ def _user() -> dict:
 def test_chat_max_tokens_defaults_to_byok_story_budget():
     with mock.patch.object(app, "_get_user_preferences_cached", return_value={}):
         assert app._chat_max_tokens(_user()) == app.CHAT_MAX_TOKENS_DEFAULT
-        assert app.CHAT_MAX_TOKENS_DEFAULT == 4096
+        assert app.CHAT_MAX_TOKENS_DEFAULT == 6144
 
 
 def test_chat_max_tokens_reads_scoped_preference():

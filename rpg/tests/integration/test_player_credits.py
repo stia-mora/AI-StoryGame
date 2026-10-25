@@ -588,6 +588,42 @@ def test_custom_initialization_is_free_and_keeps_story_defaults(player):
         create(Create(story_id=player["story"], name="  ", custom_identity="学生"), user=player["user"])
 
 
+@pytest.mark.parametrize('custom', [False, True])
+def test_original_character_keeps_canonical_name_and_own_start(player, custom):
+    from platform_app.api.player import Create, create
+
+    identities = [{'id': 'yue', 'name': '岳飞', 'character_name': '岳飞',
+                   'role': '独立领军的将领', 'background': '初次自领一军。',
+                   'birthpoint': {'story_time_label': '领军之初', 'chapter_min': 10, 'chapter_max': 10}}]
+    with connect() as db:
+        db.execute('update player_stories set identities=%s,defaults=%s where id=%s',
+                   (Jsonb(identities), Jsonb({'birthpoint': {'story_time_label': '明道宫',
+                    'chapter_min': 1, 'chapter_max': 1}}), player['story']))
+    public = catalog.public_story(catalog.story(player['story']))
+    assert public['identities'][0]['character_name'] == '岳飞'
+    assert 'birthpoint' not in public['identities'][0]
+    view = create(Create(story_id=player['story'], name='自定姓名', identity_id='yue',
+                         custom_identity='军中书吏' if custom else ''), user=player['user'])
+    save = catalog.player_save(player['uid'], view['save']['id'])
+    assert view['status']['name'] == ('自定姓名' if custom else '岳飞')
+    assert view['status']['time'] == ('明道宫' if custom else '领军之初')
+    assert not view['has_opening']
+    with connect() as db:
+        root = db.execute('select state_snapshot from branch_commits where save_id=%s order by id limit 1',
+                          (save['id'],)).fetchone()['state_snapshot']
+        assert root['player']['name'] == view['status']['name']
+        assert not db.execute('select id from player_requests where save_id=%s', (save['id'],)).fetchall()
+
+
+def test_longer_narration_quote_covers_gm_and_curator_output(player):
+    from platform_app.api.player import estimate_usage
+
+    profile = {**player['profile'], 'max_output': 6144}
+    save = catalog.player_save(player['uid'], player['sid'])
+    assert estimate_usage(player['uid'], save, profile, 'opening', '')[1] == 6144
+    assert estimate_usage(player['uid'], save, profile, 'turn', '核对名籍并交付结果')[1] == 7944
+
+
 def test_free_creation_seeds_selected_soul_in_root_and_kb_without_awarding_it(player):
     from platform_app.api.player import Create, create
     from kb.save_kb import materialize

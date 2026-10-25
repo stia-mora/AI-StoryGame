@@ -21,11 +21,11 @@ from typing import Any
 # lo/hi 给"数值插值"型旋钮的两端取值(如篇幅字数);levels 给"分级措辞"型旋钮的档位文案。
 
 KNOBS: dict[str, dict[str, Any]] = {
-    # 正文篇幅:数值插值。默认 45 → 约 300-450 字(复刻"≥300字实质推进"绑定规则)。
+    # 正文篇幅:默认45约990–1420字，短篇偏好仍可向下调整。
     "reply_length": {
         "default": 45,
         "lo": 120,   # knob=0  → ~120 字下限锚
-        "hi": 900,   # knob=100 → ~900 字上限锚
+        "hi": 3000,  # knob=100 → ~3000 字上限锚
     },
     # 镜头焦点(#28 维度):玩家动作 vs 对方反应的篇幅占比。默认 15 → 强对方反应优先。
     "player_action_focus": {"default": 15},
@@ -153,6 +153,7 @@ def render_style_block(profile: dict[str, Any] | None, *, causal_history: bool =
     lines = [
         "# 叙事风格(本局可调倾向 — 由玩家偏好确定,不影响下方安全/正确性铁律)",
         f"- 正文篇幅:本轮正文目标约 {floor}-{target} 字的【实质推进】,要有场景、动作、对白、感官细节,推动情节明显往前走;严禁一两句话敷衍后立刻甩选项。",
+        "- 场景推进:在玩家已授权的行动内，通常写完2—3个相连节拍，呈现交涉、办理或查证的过程、世界回应与明确结果，推进到下一处实质抉择。普通手续、安全行程和已同意的准备合并处理，不停在递纸、走到门口或等待答复。增加篇幅用于新进展和人物互动，不复述环境凑字；重大风险、阵营、亲密关系和不可逆代价仍由玩家决定，刻意细演时尊重其节奏。",
         f"- 镜头焦点:{_FOCUS_LEVELS[_band(p['player_action_focus'])]}",
         f"- 戏剧密度:{_DRAMA_LEVELS[_band(p['drama_density'])]}",
         f"- 心理与潜台词:{_INTERIORITY_LEVELS[_band(p['interiority'])]}",

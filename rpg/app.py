@@ -348,7 +348,7 @@ def _acceptance_verifier_mode(api_user: dict | None) -> str:
     return default
 
 
-CHAT_MAX_TOKENS_DEFAULT = 4096
+CHAT_MAX_TOKENS_DEFAULT = 6144
 CHAT_MAX_TOKENS_MIN = 256
 CHAT_MAX_TOKENS_MAX = 65536
 

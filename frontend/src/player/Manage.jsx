@@ -21,7 +21,7 @@ export function Manage({ navigate }) {
     name: "玩家服务模型",
     api_id: "",
     model: "",
-    max_output: 2048,
+    max_output: 6144,
     enabled: true,
     tools_mode: "internal",
   });
@@ -373,7 +373,7 @@ export function Manage({ navigate }) {
                   name: "玩家服务模型",
                   api_id: "",
                   model: "",
-                  max_output: 2048,
+                  max_output: 6144,
                   enabled: true,
                   tools_mode: "internal",
                 })
