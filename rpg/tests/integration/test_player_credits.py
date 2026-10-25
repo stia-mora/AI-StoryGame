@@ -273,6 +273,119 @@ def test_invalid_guide_data_prevents_half_created_save_without_charging(player):
     assert wallet.wallet(uid)["held_micro"] == 0
 
 
+@pytest.mark.parametrize("new_time,expected", [
+    ("同章午后", "afternoon"),
+    ("次章清晨", "morning"),
+    ("尚未编定的日期", "start"),
+])
+def test_narrated_time_reaches_guide_gm_and_npc_cards_after_paid_commit(player, monkeypatch, new_time, expected):
+    import json
+    from types import SimpleNamespace
+
+    from agents import recorder
+    from chat_pipeline.postproc import _apply_gm_json_ops, _response_with_recorder_ops
+    from context_engine import build_context_bundle
+    from context_providers import Demand, ProviderServices, resolve_content_pack, run_providers
+    from gm_serving.recorder_bridge import run_unified_recorder
+    from kb.save_kb import materialize
+    from platform_app import branches
+    from platform_app.api.player import Create, create
+    from platform_app.branches import runtime as branch_runtime
+    from platform_app.player import guide_world
+    from state import GameState
+
+    uid = player["uid"]
+    script_id = catalog.player_save(uid, player["sid"])["script_id"]
+    stages = [("start", "同章清晨", 1), ("afternoon", "同章午后", 1),
+              ("morning", "次章清晨", 2), ("evening", "次章入夜", 2)]
+    model = dict(version=1, edition="narrated-clock", moments=[
+        dict(key=key, order=index, label=label, chapter_min=chapter, chapter_max=chapter)
+        for index, (key, label, chapter) in enumerate(stages)
+    ], subjects=[dict(key="clerk", name="随军书吏", kind="character")], facts=[
+        dict(id=f"{key}-{field}", subject="clerk", kind="state", field=field,
+             value=f"{key}期的{field}", starts_at=key,
+             ends_at=stages[index+1][0] if index+1 < len(stages) else None,
+             basis="novel", evidence=[dict(source="测试故事", locator=label)])
+        for index, (key, label, _) in enumerate(stages)
+        for field in ("status", "personality", "speech_style")
+    ])
+    with connect() as db:
+        db.execute("insert into script_overrides(script_id,data) values(%s,%s)",
+                   (script_id, Jsonb({"guide_world": model})))
+        db.execute("update player_stories set identities=%s where id=%s",
+                   (Jsonb([{"id": "native", "name": "随行小吏"}]), player["story"]))
+    view = create(Create(story_id=player["story"], name="玩家", identity_id="native"), user=player["user"])
+    sid = view["save"]["id"]
+    branches.activate_save(uid, sid)
+    original = catalog.player_save(uid, sid)
+    assert guide_world.load(uid, sid).clock()["moment_key"] == "start"
+    g = GameState(copy.deepcopy(original["state_snapshot"]))
+    prose = f"时间到了{new_time}，随军书吏前来听命。"
+    op = dict(op="set", path="world.time", value=new_time)
+    monkeypatch.setattr(recorder, "_resolve_recorder_api_and_model", lambda *a: ("test", "test"))
+    monkeypatch.setattr(recorder, "_call_recorder", lambda **kw: (json.dumps({"ops": [op]}), {}))
+    monkeypatch.setattr(branch_runtime, "schedule_llm_summary", lambda *a: None)
+    extracted = run_unified_recorder(g, prose, sid, uid, tasks=["ops"])
+    _apply_gm_json_ops(
+        state=g, response_with_ops=_response_with_recorder_ops(prose, extracted["ops"]),
+        api_user=player["user"], active_script_id=lambda _: script_id,
+        ctx=SimpleNamespace(early_active_save_id=sid, directive_updates=[]),
+    )
+    assert g.data["world"]["time"] == new_time
+    assert "guide_moment" not in g.data["world"]
+    request, _, _ = reservation({**player, "sid": sid}, "等候书吏")
+    run = Run(request)
+    token = active_run.set(run)
+    try:
+        with phase("reply"):
+            run.record(str(uuid.uuid4()), "openai", "text", {"prompt_tokens": 100, "completion_tokens": 50})
+        app._persist_chat_turn(player["user"], g, "等候书吏", prose,
+                               persist_user_id=uid, active_save_id=sid)
+    finally:
+        active_run.reset(token)
+    advanced = catalog.player_save(uid, sid)
+    assert advanced["active_commit_id"] != original["active_commit_id"]
+    assert run.receipt["charged_micro"] == 300_000
+    with connect() as db:
+        projected = materialize(db, sid, advanced["active_commit_id"])
+    assert projected["world"] == advanced["state_snapshot"]["world"]
+
+    def check_current(moment):
+        snapshot = catalog.player_save(uid, sid)["state_snapshot"]
+        before = copy.deepcopy(snapshot)
+        query = guide_world.load(uid, sid)
+        assert query.clock()["moment_key"] == moment
+        rows = query.query(dict(tool="get_character", query="随军书吏"))["facts"]
+        assert {row["value"] for row in rows} == {
+            f"{moment}期的{field}" for field in ("status", "personality", "speech_style")}
+        state = GameState(copy.deepcopy(snapshot))
+        manifest = resolve_content_pack(state, script_id=script_id)
+        manifest["context_providers"] = ["curated_world", "novel_characters"]
+        contributions, used = run_providers(
+            state, manifest, Demand(player_intent="随军书吏如何奏对"),
+            ProviderServices(user_id=uid, script_id=script_id, save_id=sid))
+        assert used == ["curated_world", "novel_characters"]
+        assert all(c.debug["moment"] == moment for c in contributions)
+        bundle = build_context_bundle(state, "随军书吏如何奏对", contributions=contributions, manifest=manifest)
+        for contribution in contributions:
+            text = "\n".join(layer["content"] for layer in contribution.layers)
+            assert f"{moment}期的personality" in text and f"{moment}期的speech_style" in text
+            assert "evening期的" not in text
+            for layer in contribution.layers:
+                assert layer["content"] in bundle["prompt"]
+        # Even an explicitly authorised future lookup is read-only.
+        future = guide_world.load(uid, sid, allow_future=True)
+        assert future.query(dict(tool="get_character", query="随军书吏", at="evening"))["facts"]
+        assert catalog.player_save(uid, sid)["state_snapshot"] == before
+        assert state.data == before
+
+    check_current(expected)
+    branches.activate_node(uid, original["active_commit_id"])
+    check_current("start")
+    branches.activate_node(uid, advanced["active_commit_id"])
+    check_current(expected)
+
+
 @pytest.fixture
 def player(tmp_path):
     from platform_app import branches
