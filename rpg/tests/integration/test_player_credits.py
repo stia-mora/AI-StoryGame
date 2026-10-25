@@ -136,10 +136,16 @@ def test_recorded_rescue_commits_and_branch_checkout_restores_its_own_world(play
     baseline["worldline"]["progress_chapter"] = 12
     model = {"version": 1, "edition": "rescue-test", "continuity_policy": "causal", "moments": [
         {"key": "battle", "order": 1, "label": "战后", "chapter_min": 12, "chapter_max": 12},
+        {"key": "next", "order": 2, "label": "翌日", "chapter_min": 13, "chapter_max": 13},
     ], "subjects": [{"key": "hou", "name": "侯丹", "kind": "character"}], "facts": [
         {"id": "death", "subject": "hou", "kind": "state", "field": "status", "value": "原著阵亡",
          "starts_at": "battle", "basis": "novel", "evidence": [{"source": "测试", "locator": "12章"}]},
-    ]}
+    ], "beats": [dict(key='casualty-review', title='战后伤亡核验', starts_at='battle', ends_at='next',
+                      subjects=['hou'], pressure='核当前分支的实际伤亡与救护。',
+                      conditions=[dict(key='health', label='人员状态', fact_ids=['death'],
+                                       recheck='若本分支已救下，按实际伤势安排后续。')],
+                      choices=['可按实际伤情安排照护。'],
+                      evidence=[dict(source='测试故事', locator='12章')]) ]}
     guide_world.bind_initial(model, baseline)
     with connect() as db:
         db.execute("insert into script_overrides(script_id,data) values(%s,%s)",
@@ -232,6 +238,11 @@ def test_recorded_rescue_commits_and_branch_checkout_restores_its_own_world(play
         npc_reference = next(layer["content"] for layer in contributions[1].layers if layer["id"] == "npc_cards")
         current_status = guide_world.load(uid, sid).query({"tool": "get_character", "query": "侯丹"})["facts"][0]["value"]
         assert current_status in npc_reference
+        conditions = guide_world.load(uid, sid).query(dict(tool='get_scene_conditions'))['facts']
+        expected = 'reassess' if current_status == '存活，右臂受伤' else 'baseline'
+        assert conditions[0]['conditions'][0]['state'] == expected
+        scene_layer = next(layer for layer in contributions[0].layers if layer['id'] == 'scene_conditions')
+        assert current_status in scene_layer['content'] and expected in scene_layer['content']
         bundle = build_context_bundle(state, "询问侯丹伤势", contributions=contributions, manifest=manifest)
         with connect() as db:
             serving = assemble_gm_context(db, save_id=sid, user_id=uid, state=state)
@@ -255,7 +266,8 @@ def test_recorded_rescue_commits_and_branch_checkout_restores_its_own_world(play
         for contribution in contributions:
             for layer in contribution.layers:
                 assert layer["content"] in bundle["prompt"]
-                reference.append(layer["content"])
+                if layer['id'] != 'scene_conditions':  # Baseline comparisons are explicit inside conditions.
+                    reference.append(layer["content"])
         return "\n".join(reference)
 
     reference = gm_reference()

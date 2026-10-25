@@ -41,15 +41,19 @@ def _world_overrides(root: Path, chapters: list[dict]) -> dict:
     by_chapter = {ch["chapter_index"]: ch for ch in chapters}
     if any(m.chapter_max is not None and m.chapter_max > LAST_CHAPTER for m in model.moments):
         raise ValueError("Guide moments exceed the reviewed release scope")
+    evidence_groups = []
     for fact in model.facts:
         if fact.basis != "novel":
             continue
-        for evidence in fact.evidence:
+        evidence_groups.append((fact.id, fact.evidence))
+    evidence_groups.extend((beat.key, beat.evidence) for beat in model.beats)
+    for key, evidence_list in evidence_groups:
+        for evidence in evidence_list:
             ch = by_chapter.get(evidence.chapter_index)
             if (ch is None or evidence.chapter_sha256 != ch["sha256"]
                     or evidence.line_start is None or evidence.line_end is None
                     or not ch["line_start"] <= evidence.line_start <= evidence.line_end <= ch["line_end"]):
-                raise ValueError(f"Guide evidence does not match reviewed chapter: {fact.id}")
+                raise ValueError(f"Guide evidence does not match reviewed chapter: {key}")
     return {"guide_world": model.model_dump()}
 
 

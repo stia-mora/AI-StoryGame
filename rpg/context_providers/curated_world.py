@@ -92,13 +92,27 @@ class CuratedWorldProvider(ContextProvider):
             if not rows:
                 lines.append('本轮相关对象没有已编制的当期状态；不得用未来状态补齐。')
         text = '\n'.join(lines)
+        layers = [self.make_layer('curated_world', '人物与局势的当期资料', text,
+                                  sticky=True, priority=85)]
+        scene_keys = []
+        if not warning and world is not None and world.model.beats:
+            from context_engine.helpers import _neutralize_state_write_tags
+
+            scene = world.query(dict(tool='get_scene_conditions', limit=2))
+            scene_keys = [row['key'] for row in scene['facts']]
+            if scene_keys:
+                scene_text = ('当期候选场景条件，供主持核因果；不是角色自动获知的消息，也不是已触发或已完成的事件。\n'
+                              + json.dumps(scene, ensure_ascii=False))
+                layers.append(self.make_layer('scene_conditions', '当期场景的前提与分歧',
+                                               _neutralize_state_write_tags(scene_text),
+                                               sticky=True, priority=85))
         return ContextContribution(
             provider_id=self.id, kind='curated_world', priority=85,
-            layers=[self.make_layer('curated_world', '人物与局势的当期资料', text,
-                                    sticky=True, priority=85)],
-            warnings=[warning] if warning else [], tokens_estimate=len(text)//2,
+            layers=layers,
+            warnings=[warning] if warning else [],
+            tokens_estimate=sum(len(layer['content']) for layer in layers)//2,
             debug=dict(edition=edition, moment=world.current.key if world and world.current else None,
-                       fact_ids=rows, truncated=truncated),
+                       fact_ids=rows, truncated=truncated, scene_keys=scene_keys),
         )
 
 

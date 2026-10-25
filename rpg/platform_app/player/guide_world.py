@@ -24,6 +24,7 @@ TOOL_HELP = {
     "get_situation": "查地方、势力和天下局势。query可为空或为名称。",
     "get_history": "查真实历史对照，不能覆盖小说或本存档事实。",
     "get_evidence": "按fact_id查某条已允许资料的出处，不读取整本原文。",
+    "get_scene_conditions": "查当期候选场景、前提及本分支改变；query可为场景key、相关人物或地点。候选不代表已触发。",
 }
 
 
@@ -79,6 +80,25 @@ class Fact(Record):
     evidence: list[Evidence] = Field(min_length=1, max_length=4)
 
 
+class BeatCondition(Record):
+    key: str = Field(min_length=1, max_length=80)
+    label: str = Field(min_length=1, max_length=120)
+    fact_ids: list[str] = Field(default_factory=list, max_length=2)
+    recheck: str = Field(min_length=1, max_length=300)
+
+
+class SceneBeat(Record):
+    key: str = Field(min_length=1, max_length=100)
+    title: str = Field(min_length=1, max_length=120)
+    starts_at: str
+    ends_at: str
+    subjects: list[str] = Field(min_length=1, max_length=12)
+    pressure: str = Field(min_length=1, max_length=500)
+    conditions: list[BeatCondition] = Field(min_length=1, max_length=4)
+    choices: list[str] = Field(min_length=1, max_length=3)
+    evidence: list[Evidence] = Field(min_length=1, max_length=4)
+
+
 class GuideWorld(Record):
     version: Literal[1]
     edition: str = Field(min_length=1, max_length=100)
@@ -86,6 +106,7 @@ class GuideWorld(Record):
     moments: list[Moment] = Field(min_length=1, max_length=2000)
     subjects: list[Subject] = Field(max_length=5000)
     facts: list[Fact] = Field(max_length=50000)
+    beats: list[SceneBeat] = Field(default_factory=list, max_length=2000)
 
     @model_validator(mode="after")
     def references(self):
@@ -112,12 +133,35 @@ class GuideWorld(Record):
                                           or fact.certainty != "confirmed"
                                           or not fact.value.strip() or len(fact.value) > 100):
                 raise ValueError("Dated names and aliases must be confirmed short novel states")
+        by_fact = {f.id: f for f in self.facts}
+        if len({b.key for b in self.beats}) != len(self.beats):
+            raise ValueError('Scene beat keys must be unique')
+        for beat in self.beats:
+            if (beat.starts_at not in moments or beat.ends_at not in moments
+                    or moments[beat.starts_at].order >= moments[beat.ends_at].order
+                    or not set(beat.subjects) <= subjects
+                    or len(set(beat.subjects)) != len(beat.subjects)
+                    or len({c.key for c in beat.conditions}) != len(beat.conditions)
+                    or any(not choice.strip() or len(choice) > 300 for choice in beat.choices)):
+                raise ValueError('Invalid scene window, subjects, conditions or choices')
+            for condition in beat.conditions:
+                if len(set(condition.fact_ids)) != len(condition.fact_ids):
+                    raise ValueError('Duplicate condition fact reference')
+                for key in condition.fact_ids:
+                    fact = by_fact.get(key)
+                    if (fact is None or fact.basis != 'novel' or fact.kind != 'state'
+                            or fact.subject not in beat.subjects
+                            or fact.certainty != 'confirmed' or fact.field in ('report', 'proposal')
+                            or moments[fact.starts_at].order > moments[beat.starts_at].order
+                            or (fact.ends_at is not None and
+                                moments[fact.ends_at].order < moments[beat.ends_at].order)):
+                        raise ValueError('Scene premises need confirmed novel states valid throughout their window')
         return self
 
 
 class Query(Record):
     tool: Literal["get_current_time", "get_timeline", "get_character", "get_situation",
-                  "get_history", "get_evidence"]
+                  "get_history", "get_evidence", "get_scene_conditions"]
     query: str = Field(default="", max_length=100)
     fact_id: str = Field(default="", max_length=120)
     at: str = Field(default="", max_length=180)
@@ -137,6 +181,7 @@ class WorldQueries:
         self.allow_future = allow_future is True
         self.moments = {m.key: m for m in self.model.moments}
         self.fact_orders = {f.id: self.moments[f.starts_at].order for f in self.model.facts}
+        self.facts_by_id = {f.id: f for f in self.model.facts}
         self.subjects = {s.key: s for s in self.model.subjects}
         self.worldline = copy.deepcopy(worldline or {})
         # Branch snapshots outrank session-wide estimates after a checkout.
@@ -386,6 +431,62 @@ class WorldQueries:
         rows.extend(row for row in self._recorded_rows(target=self.current) if row["kind"] == "event")
         return sorted(rows, key=lambda r: r.get("turn", 0))
 
+    def _condition(self, condition, target):
+        observations = []
+        for key in condition.fact_ids:
+            fact = self.facts_by_id[key]
+            subject = self.subjects[fact.subject]
+            saved = []
+            if self.current is not None and target.order <= self.current.order:
+                saved = [row for row in self._live_rows(subject, target) if row['field'] == fact.field]
+            confirmed = [row for row in saved if row['certainty'] == 'confirmed']
+            current = (confirmed or saved or [None])[-1]
+            state = 'baseline'
+            if current:
+                state = ('unverified' if current['certainty'] != 'confirmed' else
+                         'recorded' if current['value'] == fact.value else 'reassess')
+            observation = dict(fact_id=key, state=state, baseline=fact.value[:240],
+                               evidence=[dict(source=e.source, locator=e.locator) for e in fact.evidence[:1]])
+            if current:
+                observation['current'] = {k: current[k] for k in ('id', 'value', 'cause', 'certainty', 'turn')
+                                          if k in current}
+                for field in ('value', 'cause'):
+                    if field in observation['current']:
+                        observation['current'][field] = observation['current'][field][:240]
+            observations.append(observation)
+        states = {row['state'] for row in observations}
+        state = ('reassess' if 'reassess' in states else
+                 'unverified' if not observations or 'unverified' in states else
+                 'recorded' if states == {'recorded'} else 'baseline')
+        return dict(key=condition.key, label=condition.label, state=state,
+                    recheck=condition.recheck, observations=observations)
+
+    def _scene_rows(self, args, target):
+        if target is None:
+            return [], 0
+        matches = {s.key for s in self.subjects.values() if args.query in (s.key, *self.known_names(s))}
+        beats = [b for b in self.model.beats
+                 if self.moments[b.starts_at].order <= target.order < self.moments[b.ends_at].order
+                 and (not args.query or args.query == b.key or args.query in b.title
+                      or set(b.subjects) & matches)]
+        beats.sort(key=lambda b: (self.moments[b.starts_at].order, b.key))
+        rows = [dict(key=b.key, title=b.title, state='candidate', pressure=b.pressure,
+                     related_subjects=[dict(key=k, name=self.display_name(self.subjects[k], target))
+                                       for k in b.subjects if self.known_names(self.subjects[k])],
+                     conditions=[self._condition(c, target) for c in b.conditions],
+                     choices=b.choices, evidence=[e.model_dump() for e in b.evidence])
+                for b in beats[:min(args.limit, 3)]]
+        return rows, len(beats)
+
+    @staticmethod
+    def _bounded_result(result, rows, limit, total=None):
+        result['facts'] = rows[:limit]
+        result['truncated'] = (len(rows) if total is None else total) > limit
+        while result['facts'] and len(json.dumps(result, ensure_ascii=False)) > MAX_RESULT_CHARS:
+            result['facts'].pop()
+            result['truncated'] = True
+        return result
+
     def query(self, request):
         args = Query.model_validate(request)  # No model-controlled script, save, or future switch.
         result = {"tool": args.tool, "as_of": self.clock(), "facts": []}
@@ -399,6 +500,17 @@ class WorldQueries:
                 return {**result, "unavailable": "未来资料需要本轮明确许可"}
         if target is None and not self.allow_future:
             result["notice"] = "无法确定当前时点，仅查询已记录的存档事实"
+        if args.tool == 'get_scene_conditions':
+            result['notice'] = ('仅列当期候选，不代表在场、前提全部满足或事件已发生；baseline为原著前提，'
+                                'recorded为存档原值记录，reassess须据改变重估，unverified尚待核实。'
+                                '不因文字不同自动判失败，关联人物不自动在场，全局所见不自动成为角色所知。')
+            rows, total = self._scene_rows(args, target)
+            if not rows:
+                result['notice'] += ' 此时点未命中已编制的场景条件；不得从未来补齐。'
+            result = self._bounded_result(result, rows, min(args.limit, 3), total)
+            if rows and not result['facts']:
+                result['notice'] += ' 完整前提超出本次预算，不能据空结果判定条件不存在或已满足。'
+            return result
         if args.tool == "get_evidence":
             facts = [f for f in self.model.facts if f.id == args.fact_id and self._visible(f)]
         else:
@@ -480,12 +592,7 @@ class WorldQueries:
         total = len(rows)
         if args.tool in ("get_timeline", "get_history"):
             rows = rows[-args.limit:]
-        result["facts"] = rows[:args.limit]
-        result["truncated"] = total > args.limit
-        while result["facts"] and len(json.dumps(result, ensure_ascii=False)) > MAX_RESULT_CHARS:
-            result["facts"].pop()
-            result["truncated"] = True
-        return result
+        return self._bounded_result(result, rows, args.limit, total)
 
 
 def bind_initial(model, snapshot, *, default_opening=False):

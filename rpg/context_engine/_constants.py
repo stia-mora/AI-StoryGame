@@ -44,6 +44,7 @@ _BASE_LAYER_CHARS = {
     "fact_groups": 4000,    # canon / runtime / user_constraint 分组渲染
     "world_facts": 4000,    # 分支内人物/地方变化，不随普通记忆裁剪丢失
     "curated_world": 6000,  # 与助手共用的当期人物/局势，存档事实优先
+    "scene_conditions": 6500,  # 当前候选与前提，和只读助手共用时间／分支闸
     "hypotheses": 1200,
     "candidate_actions": 1600,
     "recent_chat": 16000,         # 多保留对话历史 → 连贯性

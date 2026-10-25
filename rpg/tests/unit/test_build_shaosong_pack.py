@@ -107,6 +107,33 @@ def test_curated_world_is_validated_and_included_without_marking_story_complete(
         assert json.loads(zf.read("manifest.json"))["authoring_status"] == "draft"
 
 
+@pytest.mark.parametrize('corrupt', [False, True])
+def test_scene_conditions_round_trip_and_unreviewed_evidence_never_replaces_pack(manuscript, corrupt):
+    root, output = manuscript
+    path, model = write_world(root)
+    model['moments'].append(dict(key='end', order=1, label='场景结束边界'))
+    evidence = dict(model['facts'][0]['evidence'][0])
+    if corrupt:
+        evidence['chapter_sha256'] = '0'*64
+    model['beats'] = [dict(key='opening', title='开场条件', starts_at='start', ends_at='end',
+                          subjects=['test'], pressure='先核实际状态。', evidence=[evidence],
+                          conditions=[dict(key='status', label='人员状态', fact_ids=['test-state'],
+                                           recheck='改变后重估。')], choices=['可核实后行动。'])]
+    path.write_text(json.dumps(model), encoding='utf-8')
+    output.write_bytes(b'previous draft')
+    if corrupt:
+        with pytest.raises(ValueError, match='Guide evidence'):
+            build_pack(root, output)
+        assert output.read_bytes() == b'previous draft'
+    else:
+        from platform_app.player.guide_world import GuideWorld
+
+        build_pack(root, output)
+        with zipfile.ZipFile(output) as zf:
+            packed = json.loads(zf.read('overrides.json'))['guide_world']
+        assert GuideWorld.model_validate(packed).beats == GuideWorld.model_validate(model).beats
+
+
 def test_timeline_exports_only_selectable_moments_and_does_not_use_later_chapter_results(manuscript):
     root, output = manuscript
     path, model = write_world(root)
