@@ -6,11 +6,12 @@
 from __future__ import annotations
 
 from kb import canon_repo
+from story_continuity import reference_goal, uses_causal_history
 
 
 def resolve_steering_target(db, *, save_id: int, script_id: int,
                             progress_chapter: int | None = None,
-                            steering_strength: str = "guided") -> dict:
+                            steering_strength: str = "guided", state=None) -> dict:
     """产出 ① 层软目标。
 
     返回 {worldline, passed_nodes, next_node, soft_goal, pending_anchors, strength}。
@@ -26,10 +27,11 @@ def resolve_steering_target(db, *, save_id: int, script_id: int,
     `strength` 字段回传给 context_inject.build_injection,决定外层包裹标签的强弱
     (rail 用「强制下一拍」硬标签;guided 用「软目标·引导非铁轨」温和标签)。
     """
+    causal = uses_causal_history(state)
     worldlines = canon_repo.read_worldlines(db, script_id)
     if not worldlines:
         return _fallback_soft_goal(save_id, wl_key=None, steering_strength=steering_strength,
-                                   progress_chapter=progress_chapter)
+                                   progress_chapter=progress_chapter, state=state)
     # 默认主线(is_primary),否则第一条
     wl = next((w for w in worldlines if w.get("is_primary")), worldlines[0])
     nodes = canon_repo.read_worldline_nodes(db, script_id, wl["wl_key"], progress_chapter=progress_chapter)
@@ -38,7 +40,7 @@ def resolve_steering_target(db, *, save_id: int, script_id: int,
         # 没跑世界树脊柱)→ 旧代码静默返回空 soft_goal,GM 完全无引导、玩家「锚点推不动」。
         # 降级:用细锚点层的 top-1~2 pending 合成 soft_goal,受 steering_strength 控制。
         return _fallback_soft_goal(save_id, wl_key=wl["wl_key"], steering_strength=steering_strength,
-                                   progress_chapter=progress_chapter)
+                                   progress_chapter=progress_chapter, state=state)
 
     # 已 occurred 的锚点 keys
     occurred = {
@@ -63,6 +65,8 @@ def resolve_steering_target(db, *, save_id: int, script_id: int,
         if steering_strength == "free":
             # 自由模式:不注入软目标,让 GM 自由发挥
             soft = ""
+        elif causal:
+            soft = reference_goal(f"{next_node['label']}:{next_node.get('summary', '')}", must)
         elif steering_strength == "rail":
             # 贴原著:强措辞「下一拍」收束。带 top-2 后续节点提示往哪推。
             nxt2 = nodes[passed_idx + 2] if passed_idx + 2 < len(nodes) else None
@@ -83,7 +87,9 @@ def resolve_steering_target(db, *, save_id: int, script_id: int,
             )
         pending = next_node.get("anchor_keys") or []
     else:
-        if steering_strength == "rail":
+        if causal and steering_strength != 'free':
+            soft = '已到原著当前节点末尾；依本分支既成事实收束，未受影响部分仍依小说，不强制复原结局。'
+        elif steering_strength == "rail":
             soft = (
                 "已抵达/超出当前规范世界线末节点。保持世界自洽,围绕已确立的原著走向收尾,"
                 "不要凭空另起一条与原著无关的新主线。"
@@ -101,7 +107,7 @@ def resolve_steering_target(db, *, save_id: int, script_id: int,
         "next_node": next_node["node_key"] if next_node else None,
         "soft_goal": soft,
         "pending_anchors": pending,
-        "strength": steering_strength,
+        "strength": 'causal' if causal and steering_strength != 'free' else steering_strength,
     }
 
 
@@ -127,7 +133,7 @@ def _rail_directive(*, target: str, must_str: str = "", after: str = "") -> str:
 
 def _fallback_soft_goal(save_id: int, *, wl_key: str | None,
                         steering_strength: str = "guided",
-                        progress_chapter: int | None = None) -> dict:
+                        progress_chapter: int | None = None, state=None) -> dict:
     """粗弧层(script_worldline_nodes)缺失时的确定性降级:用细锚点层的【最近的待发生】
     锚点合成 soft_goal,别让 GM 完全失去引导(用户「锚点推不动」根因之一)。本书
     script_worldline_nodes 多半为空,steering 实际就走这条路径。
@@ -143,8 +149,10 @@ def _fallback_soft_goal(save_id: int, *, wl_key: str | None,
       的主要角色)当下一拍。同时锚定到玩家当前章(progress_chapter),开局窗口不再是死的
       [1,30]、也绝不取玩家身后的锚点。与 retrieval.py 进度窗口注入(已修)保持同一语义。
     """
+    causal = uses_causal_history(state)
     base = {"worldline": wl_key, "passed_nodes": 0, "next_node": None,
-            "soft_goal": "", "pending_anchors": [], "strength": steering_strength}
+            "soft_goal": "", "pending_anchors": [],
+            "strength": 'causal' if causal and steering_strength != 'free' else steering_strength}
     if steering_strength == "free":
         return base
     # rail 多带一条(次近)给「下一拍 + 其后」;guided 仍只取最近 1 个。
@@ -178,8 +186,12 @@ def _fallback_soft_goal(save_id: int, *, wl_key: str | None,
     a = pend[0]
     summary = (a.get("summary") or "").strip()
     must = a.get("must_preserve") or []
+    if causal:
+        must = (a.get('metadata') or {}).get('original_outcomes', must)
     must_str = f" 须保留:{'、'.join(must)}。" if must else ""
-    if steering_strength == "rail":
+    if causal:
+        soft = reference_goal(summary, must)
+    elif steering_strength == "rail":
         after = ""
         if len(pend) > 1 and (pend[1].get("summary") or "").strip():
             after = f" 其后将推进到:{(pend[1].get('summary') or '').strip()}。"

@@ -82,6 +82,7 @@ class Fact(Record):
 class GuideWorld(Record):
     version: Literal[1]
     edition: str = Field(min_length=1, max_length=100)
+    continuity_policy: Literal['convergent', 'causal'] = 'convergent'
     moments: list[Moment] = Field(min_length=1, max_length=2000)
     subjects: list[Subject] = Field(max_length=5000)
     facts: list[Fact] = Field(max_length=50000)
@@ -499,6 +500,10 @@ def bind_initial(model, snapshot, *, default_opening=False):
         moment = min(chapter_moments, key=lambda m: (m.chapter_min, m.order), default=None)
     target = snapshot.setdefault("world", {})
     target["guide_edition"] = world.model.edition
+    if world.model.continuity_policy == 'causal':
+        target['guide_policy'] = 'causal'
+    else:
+        target.pop('guide_policy', None)
     if moment is not None:
         target["guide_moment"] = moment.key
         if not target.get("time"):

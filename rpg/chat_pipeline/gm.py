@@ -124,6 +124,7 @@ async def run_gm_phase(
                 _pd = assemble_gm_context(
                     _db_pd, save_id=_save_id_pd, user_id=_uid_pd,
                     user_input=message_for_model or "",
+                    state=state,
                 )
             _inj = (_pd or {}).get("injection_text") or ""
             if _inj and _inj not in (bundle.get("prompt") or ""):

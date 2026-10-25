@@ -21,7 +21,7 @@ GM_ALL_KB_TOOLS = GM_KB_QUERY_TOOLS + GM_KB_WRITE_TOOLS + GM_ANCHOR_TOOLS
 
 
 def assemble_gm_context(db, *, save_id: int, user_id: int, user_input: str = "",
-                        scene_summary: str = "") -> dict:
+                        scene_summary: str = "", state=None) -> dict:
     """组装一回合 GM 上下文(第①层常驻 + 软目标),并给出本回合动作的影响分级。
 
     返回 {injection_text, tokens, budget, steering, impact, world_view, kb_tools}。
@@ -51,6 +51,10 @@ def assemble_gm_context(db, *, save_id: int, user_id: int, user_input: str = "",
 
     save_settings = _set.read_settings(db, save_id)
     steering_strength = save_settings.get("steering_strength", "guided")
+    if state is None:
+        saved = db.execute('select state_snapshot from game_saves where id=%s and user_id=%s',
+                           (save_id, user_id)).fetchone()
+        state = (saved or {}).get('state_snapshot') or {}
 
     # M5(进度信号矩阵审计):此前用 _save_ctx 的裸标量 ctx["progress_chapter"]
     # (command_tools_kb._save_ctx 只读 worldline.progress_chapter 原始值,default=1,
@@ -64,12 +68,12 @@ def assemble_gm_context(db, *, save_id: int, user_id: int, user_input: str = "",
 
     steer = ST.resolve_steering_target(
         db, save_id=save_id, script_id=script_id, progress_chapter=_progress_chapter,
-        steering_strength=steering_strength,
+        steering_strength=steering_strength, state=state,
     )
     inj = CI.build_injection(
         db, script_id=script_id, scene_summary=scene_summary,
         steering_hint=steer.get("soft_goal", ""),
-        steering_strength=steering_strength,
+        steering_strength=steer.get('strength', steering_strength),
     )
     level = IM.classify_impact(user_input)
 

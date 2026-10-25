@@ -102,7 +102,9 @@ def build_injection(db, *, script_id: int, scene_summary: str = "", steering_hin
     if scene_summary:
         blocks.append(f"【当前场景】{scene_summary}")
     if steering_hint:
-        if steering_strength == "rail":
+        if steering_strength == 'causal':
+            blocks.append(f"【原著基线与因果前提】{steering_hint}")
+        elif steering_strength == "rail":
             blocks.append(f"【世界线收束 · 强制下一拍(必须推进)】{steering_hint}")
         else:
             blocks.append(f"【剧情软目标(引导非铁轨)】{steering_hint}")

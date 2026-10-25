@@ -43,6 +43,14 @@
 无guide_world的旧故事保持原有建角流程。无效世界资料返回明确错误，不留下半建档或收费。
 更新edition后，旧存档仍需明确的资料版本迁移或保留旧版；目前不会自动把旧存档改绑最新版。
 
+`continuity_policy`可选`convergent`（缺省，保持既有收束模式）或`causal`。
+新建存档绑定经校验的causal资料时，同时保存`world.guide_policy=causal`；已有存档不会自动改约。
+因果模式下，GM总提示、叙事引导偏好、上下文选择验收、粗节点、细锚点降级和原文检索统一将原著后果作为基线。
+即使引导强度选rail，也不要求被实际阻止的死亡换一种方式重演；未受影响的小说脉络继续推进。
+只读查询、计划和传闻不算改史，当前分支的实际记录仍是依据，角色所知受消息来路限制。
+自动播种的因果锚点不设必死锁；原著is_fatal及结果维度保存在metadata的original_is_fatal、original_outcomes中作对照。
+已有收束模式的播种、强度和提示保留。此策略统一不是逐场资源条件执行器；事件条件配置、消息传播及真实模型游玩仍需验收。
+
 subjects的aliases仅放稳定姓名异写；新封爵位、称号是有起止时点的事实，不能作为永久别名。
 facts的kind为state、event或history；basis为novel或history。
 certainty可为confirmed、reported、inferred、disputed，报告和推断不可装成既成事实。

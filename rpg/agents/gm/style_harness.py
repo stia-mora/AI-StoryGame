@@ -131,13 +131,22 @@ _GUIDANCE_LEVELS = [
 ]
 
 
-def render_style_block(profile: dict[str, Any] | None) -> str:
+def render_style_block(profile: dict[str, Any] | None, *, causal_history: bool = False) -> str:
     """旋钮 profile → 注入 system prompt 的「# 叙事风格(本局)」段。
 
     默认 profile 渲染出的内容,语义等价于 master.py 原先散落的 6 条硬规则
     (篇幅/镜头/戏剧密度/心理/悬念/引导),并带相同量级的字数目标。
     """
     p = normalize_profile(profile)
+    guidance = _GUIDANCE_LEVELS[_band(p['guidance_force'])]
+    if causal_history:
+        guidance = [
+            '跟随玩家行动，保持世界与未受影响的小说脉络，不强推下一场。',
+            '偶尔顺势引入小说已有压力，先核当前分支前提。',
+            '主动让世界与NPC行动，依当期因果自然推进小说脉络。',
+            '每轮推动NPC行动、事件或世界反应；前提改变后重估后果，未受影响部分依小说推进。',
+            '积极推进当前可发生的关键场景，提供有代价的选择；依据实际前提裁定，不强制原著结局。',
+        ][_band(p['guidance_force'])]
     target = _lerp(KNOBS["reply_length"]["lo"], KNOBS["reply_length"]["hi"], p["reply_length"])
     # 篇幅下限:默认档保留"实质推进、不敷衍"的硬约束(≥ 约 0.7*target)
     floor = int(round(target * 0.7))
@@ -148,7 +157,7 @@ def render_style_block(profile: dict[str, Any] | None) -> str:
         f"- 戏剧密度:{_DRAMA_LEVELS[_band(p['drama_density'])]}",
         f"- 心理与潜台词:{_INTERIORITY_LEVELS[_band(p['interiority'])]}",
         f"- 收尾与悬念:{_CLIFF_LEVELS[_band(p['cliffhanger'])]}",
-        f"- 剧情推进与引导:{_GUIDANCE_LEVELS[_band(p['guidance_force'])]}",
+        f"- 剧情推进与引导:{guidance}",
     ]
     return "\n".join(lines)
 

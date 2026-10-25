@@ -391,7 +391,7 @@ class M5FunctionalWithFakeDB(unittest.TestCase):
 
         captured = {}
 
-        def _fake_resolve(db, *, save_id, script_id, progress_chapter=None, steering_strength="guided"):
+        def _fake_resolve(db, *, save_id, script_id, progress_chapter=None, steering_strength="guided", state=None):
             captured["progress_chapter"] = progress_chapter
             return {"soft_goal": "", "pending_anchors": [], "strength": steering_strength}
 
@@ -403,7 +403,7 @@ class M5FunctionalWithFakeDB(unittest.TestCase):
                         return_value={"text": "", "tokens": 0, "budget": 0}), \
              mock.patch("gm_serving.impact.classify_impact", return_value="low"), \
              mock.patch("gm_serving.impact.needs_offband_sim", return_value=False):
-            serve_mod.assemble_gm_context(fake_db, save_id=1, user_id=1, user_input="hi")
+            serve_mod.assemble_gm_context(fake_db, save_id=1, user_id=1, user_input="hi", state={})
 
         self.assertEqual(
             captured.get("progress_chapter"), 88,

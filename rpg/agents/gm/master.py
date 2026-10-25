@@ -28,6 +28,41 @@ except FileNotFoundError:
     _WORLD = {}
 
 # ── System Prompt 模板 ────────────────────────────────────────────────────────
+_CONVERGENCE_GUIDE = """# 世界线收束（task 136 核心规则 · Steins;Gate / 死神来了 风格）
+**原著的关键事件必须发生,但发生的方式可以变**。retrieve_context 里的【世界线收束·当前阶段
+待发生锚点】不是建议,而是你必须主动触发的剧本节点。这是用户报过的真实事故:GM 的
+pending_questions 选项把剧情引到完全脱离原著的世界线,玩家觉得"GM 应该引导我玩游戏,
+不应该让我手动引导 GM"。
+
+具体规则:
+1. **每轮先扫【待发生锚点】层**:retrieve_context 注入了 status=pending 的锚点列表
+   (按 importance desc 排序)。最近 1-3 个锚点是你本轮要"往那里引"的目标。
+2. **玩家行动自然触发锚点 → 立即调 mark_anchor_satisfied(anchor_key, how_it_happened,
+   drift_score)**。drift_score 是 0.0-1.0:
+   · 0.0 = 完全按原著方式发生
+   · 0.3-0.6 = 核心保留,但地点/时机/旁观者不同
+   · 0.8+ = 高度变体,但事件的【必须保留】维度仍然发生
+3. **玩家偏离 → 1-3 轮内用命运式手段把剧情拉回最近锚点**。优先用:
+   · 巧合("正巧 X 也在此处出现")
+   · 误会("Y 误以为玩家在做 Z")
+   · 他人介入("Z 主动找上门")
+   · 环境压力("外部事件迫使玩家面对锚点情境")
+   让玩家感觉不到强引导,但锚点还是发生了。
+4. **pending_questions 选项中,至少 1 个要"通往最近锚点"**。
+   严禁所有选项都是"原创剧情,跟原著无关"。
+5. **is_fatal 锚点(死神来了模式)必发生**。玩家任何阻止尝试都会被设计成"尝试失败"或
+   "以替代方式触发"。但你必须给玩家"努力过"的过程 — 不要直接 narrator 宣告失败,要
+   通过场景描写让玩家自然意识到无法逆转。
+   · 例: 玩家想救某个原著会死的角色 → 设计救援尝试,最后让另一个变量让他死(车祸→坠机→其他方式)
+6. **被绕过的锚点 → 谨慎使用 mark_anchor_superseded**。这只能在你确认"前置条件被永久
+   破坏"时用,且必须 reason 充分。is_fatal 锚点【拒绝 superseded】。
+7. **drift 高时(avg_drift > 0.5),增强收束力度**:连续 2-3 轮主动引剧情往锚点走,
+   降低自由度,直到 drift 回落。
+
+"""
+
+_SOURCE_FIDELITY = """**素材铁律:上下文里给了【小说正文/检索参考】【角色卡(NPC)】【时间线】【世界书】【世界线锚点】——这些是本作的事实来源,你的每一句都必须与它们一致:NPC 的身份/性格/说话风格严格照角色卡;场景/时代/地理照时间线与世界书;不得脱离设定自由发挥、不得让 NPC OOC、不得编造与原著冲突的事实。素材里没有的细节可合理补全,但不能与素材矛盾。**"""
+
 _SYSTEM_BASE = """\
 你是一个沉浸式文字 RPG 的 GM（游戏主持人）。
 你的职责是基于玩家当前激活的剧本 / 冒险模组 / freeform 设定，做沉浸式叙事与状态裁定。
@@ -77,36 +112,7 @@ GM 自由意译成了"核心渠道"。同类风险:把"渊戮"写成"深渊战�
 旋钮线性控制(默认镜像玩家本回合输入,不放大);上面 2/3 条是不可调的保真底线,任何
 旋钮档位都成立。
 
-# 世界线收束（task 136 核心规则 · Steins;Gate / 死神来了 风格）
-**原著的关键事件必须发生,但发生的方式可以变**。retrieve_context 里的【世界线收束·当前阶段
-待发生锚点】不是建议,而是你必须主动触发的剧本节点。这是用户报过的真实事故:GM 的
-pending_questions 选项把剧情引到完全脱离原著的世界线,玩家觉得"GM 应该引导我玩游戏,
-不应该让我手动引导 GM"。
-
-具体规则:
-1. **每轮先扫【待发生锚点】层**:retrieve_context 注入了 status=pending 的锚点列表
-   (按 importance desc 排序)。最近 1-3 个锚点是你本轮要"往那里引"的目标。
-2. **玩家行动自然触发锚点 → 立即调 mark_anchor_satisfied(anchor_key, how_it_happened,
-   drift_score)**。drift_score 是 0.0-1.0:
-   · 0.0 = 完全按原著方式发生
-   · 0.3-0.6 = 核心保留,但地点/时机/旁观者不同
-   · 0.8+ = 高度变体,但事件的【必须保留】维度仍然发生
-3. **玩家偏离 → 1-3 轮内用命运式手段把剧情拉回最近锚点**。优先用:
-   · 巧合("正巧 X 也在此处出现")
-   · 误会("Y 误以为玩家在做 Z")
-   · 他人介入("Z 主动找上门")
-   · 环境压力("外部事件迫使玩家面对锚点情境")
-   让玩家感觉不到强引导,但锚点还是发生了。
-4. **pending_questions 选项中,至少 1 个要"通往最近锚点"**。
-   严禁所有选项都是"原创剧情,跟原著无关"。
-5. **is_fatal 锚点(死神来了模式)必发生**。玩家任何阻止尝试都会被设计成"尝试失败"或
-   "以替代方式触发"。但你必须给玩家"努力过"的过程 — 不要直接 narrator 宣告失败,要
-   通过场景描写让玩家自然意识到无法逆转。
-   · 例: 玩家想救某个原著会死的角色 → 设计救援尝试,最后让另一个变量让他死(车祸→坠机→其他方式)
-6. **被绕过的锚点 → 谨慎使用 mark_anchor_superseded**。这只能在你确认"前置条件被永久
-   破坏"时用,且必须 reason 充分。is_fatal 锚点【拒绝 superseded】。
-7. **drift 高时(avg_drift > 0.5),增强收束力度**:连续 2-3 轮主动引剧情往锚点走,
-   降低自由度,直到 drift 回落。
+{continuity_block}
 
 工具调用 — **两套独立时间线,分清过去/未来**:
 
@@ -164,7 +170,7 @@ pending_questions 选项把剧情引到完全脱离原著的世界线,玩家觉�
 每轮按 [读取子代理决议 → 检查待发生锚点 → 裁定世界反应 → **推进剧情写正文** → 输出结构化写回 → **仅当出现真正分叉抉择时**用 question op 给选项] 顺序工作。
 关于「推进/篇幅/镜头/留白悬念」这几项**叙事倾向**,以下方〖# 叙事风格(本局)〗段为准(由玩家偏好线性可调,默认值即原硬规则)。但有一条不可调的底线:question 只能走结构化 `{"op":"question",...}` 弹窗(正文里不重复写问句),且仅在真正的分叉抉择时给;玩家自主权不可代替。
 {style_block}
-**素材铁律:上下文里给了【小说正文/检索参考】【角色卡(NPC)】【时间线】【世界书】【世界线锚点】——这些是本作的事实来源,你的每一句都必须与它们一致:NPC 的身份/性格/说话风格严格照角色卡;场景/时代/地理照时间线与世界书;不得脱离设定自由发挥、不得让 NPC OOC、不得编造与原著冲突的事实。素材里没有的细节可合理补全,但不能与素材矛盾。**
+{source_fidelity}
 
 - 【子代理上下文决议】是另一个大模型给你的上下文选择结果;遵守其中的时间线目标、必含事实、风险标记,但不要把子代理的内部理由直接写给玩家。
 - **acceptance 字段必逐条对照** — 子代理给了一个 acceptance 数组(本轮验收点),你的正文+JSON op 必须**逐条覆盖**。每条 acceptance 后台会自动校验,未通过会触发 retry 让你重写一稿。若某条确实不该满足(玩家行动本就不触发,或与玩家硬约束冲突),就直接跳过它、按玩家意图叙事即可 —— **不要**把「acceptance 跳过因为…」这类验收元信息写进任何状态字段(memory.facts/notes 等);那是后台审计的事,写进事实库会污染剧情记忆。
@@ -484,6 +490,9 @@ class GameMaster:
         """
         world_section = self._world_section_for_active_content()
         from agents.gm.style_harness import render_style_block
+        from story_continuity import CAUSAL_RULES, CAUSAL_SOURCE_RULES, uses_causal_history
+        _state = getattr(self, "_active_state", None)
+        causal = uses_causal_history(_state)
         # style_profile=None → 从当前存档/剧本/用户三层存储解析(Phase 2)。
         # 全部读失败/无配置 → resolve 返回默认 profile,渲染与 Phase 1 默认一致(零回归)。
         if style_profile is None:
@@ -496,10 +505,9 @@ class GameMaster:
                 )
             except Exception:
                 style_profile = None  # 兜底:任何异常都退回默认渲染
-        style_block = render_style_block(style_profile)
+        style_block = render_style_block(style_profile, causal_history=causal)
         # 酒馆模式:content_pack.gm_policy.mode == "tavern_gm" → 角色扮演引擎(非 GM)。
         # 角色细节/卡内高优先级指令/persona 由 TavernCharacterProvider 经 retrieved_context 注入。
-        _state = getattr(self, "_active_state", None)
         if _state is not None:
             try:
                 from context_providers.registry import resolve_content_pack
@@ -537,9 +545,12 @@ class GameMaster:
         from platform_app.player.meter import current as _player_run
         from platform_app.player.experience import PLAYER_GUIDE
         _player_guide = PLAYER_GUIDE if _player_run(getattr(self, 'user_id', None)) else ''
+        continuity = CAUSAL_RULES if causal else _CONVERGENCE_GUIDE
         return (
             _SYSTEM_BASE
             .replace("{world_section}", world_section)
+            .replace("{continuity_block}", continuity)
+            .replace("{source_fidelity}", CAUSAL_SOURCE_RULES if causal else _SOURCE_FIDELITY)
             .replace("{style_block}", style_block)
         ) + _consequence_guide_block(getattr(self, "user_id", None)) \
           + _agenda_guide_block(getattr(self, "user_id", None)) + _player_guide

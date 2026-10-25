@@ -590,6 +590,7 @@ def _curator_task_prompt(state, user_input: str, directives: list[Any],
     from platform_app.player.meter import current as player_run
     from platform_app.player.pacing import instructions as pacing_instructions
     _managed_pacing = pacing_instructions(player_run()) if player_run() else ""
+    from story_continuity import uses_causal_history
     if _ss == "free":
         goal_block = [
             "【当前目标/主线（仅背景，自由模式勿强推）】",
@@ -597,6 +598,13 @@ def _curator_task_prompt(state, user_input: str, directives: list[Any],
             "【引导强度=自由(free)】玩家在自由发挥。本轮 acceptance 只覆盖玩家实际请求/所处场景，"
             "**严禁**凭空造「推进主线/修炼进度」之类与玩家本轮行动无关的验收点；日常/亲密/休息等"
             "与主线无关的场景，acceptance 可只含「如实响应玩家所提场景」或留空。",
+        ]
+    elif uses_causal_history(state):
+        goal_block = [
+            '【当前目标与小说基线】', _main,
+            '【因果改史】按小说脉络提供压力；本分支既成改变优先，未受影响部分继续依小说。'
+            'acceptance只覆盖本轮实际行动与可满足的前提，不要求人物必死、必降或按日期自动任官。'
+            '愿望、拟议、传闻和助手所见不能算已发生，禁止用巧合强行复原已被阻止的原著结局。',
         ]
     elif _ss == "rail":
         goal_block = [

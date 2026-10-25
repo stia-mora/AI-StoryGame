@@ -101,13 +101,15 @@ def seed_anchors_for_save(save_id: int, *, force: bool = False) -> dict[str, Any
     sid = int(save_id)
     with connect() as db:
         save_row = db.execute(
-            "select id, script_id from game_saves where id = %s", (sid,)
+            "select id, script_id, state_snapshot from game_saves where id = %s", (sid,)
         ).fetchone()
         if not save_row:
             return {"ok": False, "reason": f"save {sid} not found"}
         script_id = int(save_row["script_id"])
         if not script_id:
             return {"ok": False, "reason": f"save {sid} 没有关联 script_id"}
+        from story_continuity import uses_causal_history
+        causal = uses_causal_history(save_row.get('state_snapshot'))
 
         # 拉所有 chapter_facts (按 chapter 升序)
         facts = db.execute(
@@ -198,6 +200,13 @@ def seed_anchors_for_save(save_id: int, *, force: bool = False) -> dict[str, Any
                 may_vary = ev.get("may_vary")
                 if not isinstance(may_vary, list):
                     may_vary = ["地点", "触发时机", "旁观者"]
+                original_outcomes = must_preserve
+                original_fatal = is_fatal
+                if causal:
+                    # Fatal describes the novel, not an unavoidable outcome in this save.
+                    is_fatal = False
+                    must_preserve = []
+                    may_vary = [*may_vary, '因果前提改变后的结果']
                 db.execute(
                     """
                     insert into save_anchor_states (
@@ -215,6 +224,8 @@ def seed_anchors_for_save(save_id: int, *, force: bool = False) -> dict[str, Any
                         Jsonb(must_preserve), Jsonb(may_vary),
                         importance, is_fatal,
                         Jsonb({
+                            **({'continuity_policy': 'causal', 'original_is_fatal': original_fatal,
+                                'original_outcomes': original_outcomes} if causal else {}),
                             "participants": participants[:8],
                             "locations": locations[:4],
                             "concepts": concepts[:5],

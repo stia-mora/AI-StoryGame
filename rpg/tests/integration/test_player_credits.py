@@ -117,7 +117,8 @@ def test_guide_consultations_follow_active_branch_ancestry(player):
     assert [r["text"] for r in guide.history(uid, sid)] == ["共同祖先的咨询", "左支的咨询"]
 
 
-def test_recorded_rescue_commits_and_branch_checkout_restores_its_own_world(player, monkeypatch):
+@pytest.mark.parametrize('coarse', [False, True])
+def test_recorded_rescue_commits_and_branch_checkout_restores_its_own_world(player, monkeypatch, coarse):
     import json
     from types import SimpleNamespace
 
@@ -133,12 +134,13 @@ def test_recorded_rescue_commits_and_branch_checkout_restores_its_own_world(play
     baseline = copy.deepcopy(root["state_snapshot"])
     baseline["world"].update(guide_edition="rescue-test", time="战后")
     baseline["worldline"]["progress_chapter"] = 12
-    model = {"version": 1, "edition": "rescue-test", "moments": [
+    model = {"version": 1, "edition": "rescue-test", "continuity_policy": "causal", "moments": [
         {"key": "battle", "order": 1, "label": "战后", "chapter_min": 12, "chapter_max": 12},
     ], "subjects": [{"key": "hou", "name": "侯丹", "kind": "character"}], "facts": [
         {"id": "death", "subject": "hou", "kind": "state", "field": "status", "value": "原著阵亡",
          "starts_at": "battle", "basis": "novel", "evidence": [{"source": "测试", "locator": "12章"}]},
     ]}
+    guide_world.bind_initial(model, baseline)
     with connect() as db:
         db.execute("insert into script_overrides(script_id,data) values(%s,%s)",
                    (root["script_id"], Jsonb({"guide_world": model})))
@@ -146,6 +148,33 @@ def test_recorded_rescue_commits_and_branch_checkout_restores_its_own_world(play
                    (Jsonb(baseline), root["active_commit_id"]))
         db.execute("update game_saves set state_snapshot=%s where id=%s", (Jsonb(baseline), sid))
     branches.activate_save(uid, sid)
+    from agents.anchor_seed_agent import seed_anchors_for_save
+    from platform_app.knowledge import ensure_game_session
+
+    session = ensure_game_session(uid, sid, baseline)
+    with connect() as db:
+        events = [dict(event="侯丹救护未及而阵亡", participants=["侯丹"], importance="high"),
+                  dict(event="宋廷继续转运军粮至前线", importance="high")]
+        db.execute("insert into chapter_facts(book_id,script_id,chapter,events) values(%s,%s,12,%s)",
+                   (session["book_id"], root["script_id"], Jsonb(events)))
+        if coarse:
+            db.execute("insert into script_worldlines(script_id,wl_key,label,is_primary) values(%s,'main','主线',true)",
+                       (root["script_id"],))
+            db.execute("insert into script_worldline_nodes(script_id,wl_key,node_key,seq,label,summary,"
+                       "chapter_min,chapter_max,anchor_keys,must_preserve) "
+                       "values(%s,'main','hou',1,'战场救援','侯丹救护未及而阵亡',12,12,%s,%s)",
+                       (root["script_id"], Jsonb(["chapter:12:event:0"]), Jsonb(["侯丹阵亡"])))
+        db.execute("update game_sessions set worldline=worldline || %s where save_id=%s",
+                   (Jsonb(dict(steering_strength="rail", progress_chapter=12)), sid))
+    assert seed_anchors_for_save(sid)["seeded"] == 2
+    with connect() as db:
+        seeded = db.execute("select is_fatal,must_preserve,metadata from save_anchor_states "
+                            "where save_id=%s and anchor_key='chapter:12:event:0'", (sid,)).fetchone()
+    assert not seeded["is_fatal"] and not seeded["must_preserve"]
+    assert seeded["metadata"]["original_is_fatal"]
+    before_wish = copy.deepcopy(catalog.player_save(uid, sid)["state_snapshot"])
+    guide_world.load(uid, sid).query(dict(tool="get_character", query="侯丹"))
+    assert catalog.player_save(uid, sid)["state_snapshot"] == before_wish
     prose = "你将侯丹拖离战阵。军医确认侯丹尚活，右臂受伤，留营休养。"
     op = {"op": "world_fact", "subject": "侯丹", "field": "status", "value": "存活，右臂受伤",
           "quote": "军医确认侯丹尚活，右臂受伤，留营休养。", "cause": "玩家拖离战阵", "diverges": True}
@@ -185,8 +214,11 @@ def test_recorded_rescue_commits_and_branch_checkout_restores_its_own_world(play
     assert run.receipt["charged_micro"] == 300_000
 
     def gm_reference():
+        from agents.gm import master
         from context_engine import build_context_bundle
         from context_providers import Demand, ProviderServices, resolve_content_pack, run_providers
+        from gm_serving.serve import assemble_gm_context
+        from retrieval import assemble
 
         current = catalog.player_save(uid, sid)
         state = GameState(copy.deepcopy(current["state_snapshot"]))
@@ -201,6 +233,24 @@ def test_recorded_rescue_commits_and_branch_checkout_restores_its_own_world(play
         current_status = guide_world.load(uid, sid).query({"tool": "get_character", "query": "侯丹"})["facts"][0]["value"]
         assert current_status in npc_reference
         bundle = build_context_bundle(state, "询问侯丹伤势", contributions=contributions, manifest=manifest)
+        with connect() as db:
+            serving = assemble_gm_context(db, save_id=sid, user_id=uid, state=state)
+            stored = assemble_gm_context(db, save_id=sid, user_id=uid)
+        assert serving["steering"]["strength"] == stored["steering"]["strength"] == "causal"
+        assert '侯丹救护未及而阵亡' in serving["injection_text"]
+        assert '强制下一拍' not in serving["injection_text"]
+        monkeypatch.setattr(assemble, '_ensure_timeline_ready', lambda: None)
+        retrieved = assemble.retrieve_context('我想救侯丹，问宋廷粮运', state=state, user_id=uid,
+                                              script_id=root['script_id'])
+        assert '宋廷继续转运军粮至前线' in retrieved  # A local rescue does not disable unrelated baseline.
+        assert '原著候选事件' in retrieved and '结果不可省' not in retrieved
+        assert '死神来了·必发生' not in retrieved and '1-3 轮内' not in retrieved
+        gm = master.GameMaster.__new__(master.GameMaster)
+        gm._active_state, gm.user_id = state, uid
+        monkeypatch.setattr(gm, '_world_section_for_active_content', lambda: '')
+        final_prompt = gm._build_system(style_profile={}) + serving['injection_text'] + retrieved + bundle['prompt']
+        assert current_status in final_prompt and '因果改史' in final_prompt
+        assert '玩家任何阻止尝试都会' not in final_prompt
         reference = []
         for contribution in contributions:
             for layer in contribution.layers:
@@ -229,7 +279,7 @@ def test_free_character_creation_binds_guide_world_before_root_and_kb_seed(playe
 
     uid, sid = player["uid"], player["sid"]
     script_id = catalog.player_save(uid, sid)["script_id"]
-    model = {"version": 1, "edition": "creation-test", "moments": [
+    model = {"version": 1, "edition": "creation-test", "continuity_policy": "causal", "moments": [
         {"key": "historical", "order": 0, "label": "早期史实参考"},
         {"key": "start", "order": 1, "label": "开篇", "chapter_min": 1, "chapter_max": 2},
         {"key": "battle", "order": 10, "label": "会战", "chapter_min": 12, "chapter_max": 12},
@@ -243,6 +293,7 @@ def test_free_character_creation_binds_guide_world_before_root_and_kb_seed(playe
     view = create(Create(story_id=player["story"], name="新角色", identity_id="native"), user=player["user"])
     saved = catalog.player_save(uid, view["save"]["id"])
     assert saved["state_snapshot"]["world"]["guide_edition"] == "creation-test"
+    assert saved["state_snapshot"]["world"]["guide_policy"] == "causal"
     assert saved["state_snapshot"]["world"].get("guide_moment") == expected
     with connect() as db:
         root = db.execute("select state_snapshot from branch_commits where id=%s", (saved["active_commit_id"],)).fetchone()
@@ -251,6 +302,34 @@ def test_free_character_creation_binds_guide_world_before_root_and_kb_seed(playe
     assert guide_world.load(uid, saved["id"]).clock()["moment_key"] == expected
     assert wallet.wallet(uid)["held_micro"] == 0
     assert wallet.wallet(uid)["free_micro"] == 100_000_000
+
+
+@pytest.mark.parametrize('causal', [False, True])
+def test_anchor_seeding_keeps_legacy_fatal_contract_and_causal_reference(player, causal):
+    from agents.anchor_seed_agent import seed_anchors_for_save
+    from platform_app.knowledge import ensure_game_session
+
+    uid, sid = player['uid'], player['sid']
+    saved = catalog.player_save(uid, sid)
+    snapshot = copy.deepcopy(saved['state_snapshot'])
+    if causal:
+        snapshot['world'].update(guide_edition='seed-test', guide_policy='causal')
+    session = ensure_game_session(uid, sid, snapshot)
+    with connect() as db:
+        db.execute('update game_saves set state_snapshot=%s where id=%s', (Jsonb(snapshot), sid))
+        event = dict(event='侯丹战死沙场，军士收殓', participants=['侯丹'], importance='high')
+        db.execute('insert into chapter_facts(book_id,script_id,chapter,events) values(%s,%s,1,%s)',
+                   (session['book_id'], saved['script_id'], Jsonb([event])))
+    assert seed_anchors_for_save(sid)['seeded'] == 1
+    with connect() as db:
+        row = db.execute('select is_fatal,must_preserve,metadata from save_anchor_states where save_id=%s',
+                         (sid,)).fetchone()
+    assert row['is_fatal'] is (not causal)
+    assert bool(row['must_preserve']) is (not causal)
+    if causal:
+        assert row['metadata']['original_is_fatal'] and row['metadata']['original_outcomes']
+    else:
+        assert 'continuity_policy' not in row['metadata']
 
 
 def test_invalid_guide_data_prevents_half_created_save_without_charging(player):
