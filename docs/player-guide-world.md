@@ -60,6 +60,7 @@
 候选、阅读资料或到达日期均不自动执行事件、任官、死亡或推进时间；相关人物不因此自动在场。
 主持复用同一查询，以独立有界`scene_conditions`层接入当前回合；需求中的未来日期或全知设置不能打开此层未来闸。
 新增查询至多返回三个完整候选，并沿用6000字符预算；助手仍最多四次只读查询，无法返回完整前提时须说明限制。
+若GM整体上下文预算再压缩此层，整份条件改为未完整载入的说明，避免半段JSON漏掉分歧或未知限定；截断仍记入debug。
 私人构建器也校验每个细拍的章节、行区间和章节指纹；坏依据不覆盖已有包。开篇细拍逐批接入，不代表全篇条件及资源模拟已经完成。
 
 subjects的aliases仅放稳定姓名异写；新封爵位、称号是有起止时点的事实，不能作为永久别名。
@@ -165,8 +166,8 @@ full_access/auto_review沿既有叙事写入规则直接应用。普通path写�
 
 ## 工具和调用
 
-助手最多选择四个查询：get_current_time、get_timeline、get_character、get_situation、
-get_history、get_evidence。参数只有query、at、fact_id、limit；没有可选的user_id、save_id、
+助手从七项工具中最多选择四个查询：get_current_time、get_timeline、get_character、get_situation、
+get_history、get_evidence、get_scene_conditions。参数只有query、at、fact_id、limit；没有可选的user_id、save_id、
 script_id或未来开关。存档授权和剧本绑定由服务器确定，单次读取后固定同一资料版本。
 
 模型先返回查询计划，服务器执行白名单工具，再让模型依据结果回答；各供应商沿用同一结构化调用接口。

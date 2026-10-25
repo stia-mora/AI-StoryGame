@@ -117,6 +117,28 @@ def test_actual_provider_bundle_uses_current_conditions_despite_future_demand(mo
     assert g.data == before
 
 
+@pytest.mark.parametrize('cap', [800, 1200])
+def test_constrained_gm_context_does_not_receive_half_a_scene_premise(model, monkeypatch, cap):
+    from context_engine import build_context_bundle, core
+    from context_providers import Demand, ProviderServices, resolve_content_pack, run_providers
+
+    monkeypatch.setattr('context_providers.curated_world._load_model', lambda _: model)
+    budget = core.layer_char_budget
+    monkeypatch.setattr(core, 'layer_char_budget',
+                        lambda key: (cap, True) if key == 'scene_conditions' else budget(key))
+    g = state('choice')
+    manifest = resolve_content_pack(g, script_id=1)
+    manifest['context_providers'] = ['curated_world']
+    contributions, _ = run_providers(g, manifest, Demand(), ProviderServices(script_id=1))
+    scene = next(row for row in contributions[0].layers if row['id'] == 'scene_conditions')
+    assert len(scene['content']) > cap
+    bundle = build_context_bundle(g, '救侯丹', contributions=contributions, manifest=manifest)
+    assert '场景条件未完整载入' in bundle['prompt']
+    assert '"conditions":' not in bundle['prompt'] and '"pressure":' not in bundle['prompt']
+    row = next(r for r in bundle['debug']['layers'] if r['id'] == 'scene_conditions')
+    assert row['truncated'] and row['chars'] <= cap and row['original_chars'] == len(scene['content'])
+
+
 def test_history_does_not_receive_later_rescue_and_result_is_bounded(model):
     g = state('after')
     prose = '军医确认侯丹尚活。'

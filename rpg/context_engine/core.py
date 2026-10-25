@@ -288,7 +288,12 @@ def build_context_bundle(
             continue
         cap = granted.get(lid, want_by_id.get(lid, 0))
         raw = (layer["content"] or "").strip()
-        trimmed = _trim(layer["content"], cap)
+        if lid == 'scene_conditions' and len(raw) > cap:
+            # A partial JSON premise can omit its changed-state or uncertainty qualifier.
+            notice = '场景条件未完整载入；不能据此认定前提已满足、事件已发生或原著结果必然重演。请依实际存档核实。'
+            trimmed = notice if len(notice) <= cap else ''
+        else:
+            trimmed = _trim(layer["content"], cap)
         if not trimmed:
             continue
         part = f"【{layer['title']}】\n{trimmed}"
