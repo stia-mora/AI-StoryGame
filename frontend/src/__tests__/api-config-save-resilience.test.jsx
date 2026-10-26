@@ -343,7 +343,8 @@ describe('__refreshPlatform:后端忙 ≠ 掉登录', () => {
       library: { list: vi.fn().mockResolvedValue({ entries: [] }) },
       game: { state: vi.fn().mockResolvedValue({}) },
     };
-    await import('../data-loader.js');
+    const { startDataLoader } = await import('../data-loader.js');
+    startDataLoader();
     await waitFor(() => expect(window.RPG_AUTH && window.RPG_AUTH.authed).toBe(true));
     const platformBefore = window.MOCK_PLATFORM;
     const onReady = vi.fn();

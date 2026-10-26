@@ -9,7 +9,7 @@ import '../mock-data.js';
 import '../api-client.js';
 // 运行环境采集 — 反馈抽屉提交时附带最近 20 个错误 + 10 个失败 API 给管理员排查
 import '../runtime-telemetry.js';
-import '../data-loader.js';
+import { startDataLoader } from '../data-loader.js';
 import '../state-event-bridge.js';
 import '../worldbook-status-toast.js';
 import '../ui-atlas.js';
@@ -27,6 +27,7 @@ const CLIENT_CMDS = new Set(['retry', 'save', 'status', 'debug']);
 // 反馈抽屉使用 Cloudscape 组件；游戏页也必须加载同一套暗色主题。
 import '@cloudscape-design/global-styles/index.css';
 import { installWarmTheme } from '../cloudscape-theme.js';
+startDataLoader();
 installWarmTheme();
 
 // 组件模块 — named import

@@ -2,7 +2,7 @@
  *  RPG Roleplay · Data Loader
  *  -----------------------------------------------------------
  *  Bridges the real backend (window.api) with the Claude Design
- *  mock globals (window.MOCK_*). On first load it tries to fill
+ *  mock globals (window.MOCK_*). startDataLoader() fills
  *  the globals from /api/*. Static designer fallback values are
  *  only allowed in explicit offline preview; authenticated pages
  *  must render loading/empty states instead of mock records.
@@ -513,9 +513,12 @@ window.__refreshPlatform = async function () {
 // P0 根修配套:启动推迟一个 microtask —— 模块图求值是同步的,求值期间入队的
 // microtask 必然在整张图(含 mock-data.js / api-client.js 的副作用)完成后才跑,
 // 恢复「boot 时全局已就绪」的原始语义,不再依赖 chunk 内模块排序。
-queueMicrotask(() => {
-  if (window.api) bootstrap();
-  else window.addEventListener("api-ready", bootstrap, { once: true });
-});
+// 仅由创作端入口启动；共享 chunk 被玩家页加载时不得请求私有账户接口。
+export function startDataLoader() {
+  queueMicrotask(() => {
+    if (window.api) bootstrap();
+    else window.addEventListener("api-ready", bootstrap, { once: true });
+  });
+}
 
 export { normalizeScript };

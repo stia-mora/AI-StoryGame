@@ -10,7 +10,7 @@ import '../api-client.js';
 import '../a11y-tooltip-labels.js';   // data-tip → aria-label 镜像(屏幕阅读器)
 // 运行环境采集 — 反馈抽屉提交时附带最近 20 个错误 + 10 个失败 API 给管理员排查
 import '../runtime-telemetry.js';
-import '../data-loader.js';
+import { startDataLoader } from '../data-loader.js';
 import '../state-event-bridge.js';
 import '../worldbook-status-toast.js';
 import '../ui-atlas.js';
@@ -22,6 +22,7 @@ import { isMobileV2Enabled } from '../lib/mobile-gate.js';
 // Cloudscape 设计系统 + 暖色主题(UI 底座)
 import '@cloudscape-design/global-styles/index.css';
 import { installWarmTheme } from '../cloudscape-theme.js';
+startDataLoader();
 installWarmTheme();
 
 // 组件模块 — named import(ESM 自动拉入传递依赖)

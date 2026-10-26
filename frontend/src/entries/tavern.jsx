@@ -7,7 +7,7 @@ import * as ReactDOM from 'react-dom/client';
 import '../mock-data.js';
 import '../api-client.js';
 import '../runtime-telemetry.js';
-import '../data-loader.js';
+import { startDataLoader } from '../data-loader.js';
 import '../state-event-bridge.js';
 import '../worldbook-status-toast.js';
 import '../ui-atlas.js';
@@ -20,6 +20,7 @@ import { lsGet, lsSet } from '../lib/storage.js';
 import '@cloudscape-design/global-styles/index.css';
 import '../media.css';
 import { installWarmTheme } from '../cloudscape-theme.js';
+startDataLoader();
 installWarmTheme();
 
 import { ErrorBoundary } from '../components/ErrorBoundary.jsx';
