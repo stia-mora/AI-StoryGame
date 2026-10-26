@@ -1,318 +1,163 @@
 <div align="center">
 
-# RPG Roleplay
+# 故事之间 · AI-StoryGame
 
-**Self-hostable LLM RPG engine that turns a novel into a playable world.**
+**选择一个世界，成为其中的人，让行动改变故事。**
 
-[![status](https://img.shields.io/badge/status-private%20beta-orange)](https://play.stellatrix.icu)
-[![python](https://img.shields.io/badge/python-3.12%2B-blue)](#)
-[![license](https://img.shields.io/badge/license-AGPL--3.0-blue)](./LICENSE)
-[![waitlist](https://img.shields.io/badge/waitlist-open-success)](https://play.stellatrix.icu)
+面向玩家与创作者的 AI 文字角色扮演平台。
 
-[Landing & waitlist](https://play.stellatrix.icu) · [中文 README](./README.zh-CN.md)
+[项目仓库](https://github.com/stia-mora/AI-StoryGame) · [问题反馈](https://github.com/stia-mora/AI-StoryGame/issues) · [部署说明](deploy/PRODUCTION.md) · [MCP 开发交接](docs/creator-mcp-handoff.md)
 
 </div>
 
-![RPG Roleplay — live game console](./docs/assets/hero.png)
+## 平台是什么
 
----
+故事之间将小说和原创设定编制成可以进入、探索和改变的故事世界。玩家选择身份、阅读剧情并决定行动，AI 主持根据世界设定与当前存档推进故事；人物关系、物品、任务和局势随已发生的事件更新。
 
-## What it is
+创作者可以管理章节、人物、世界书和时间线，配置不同的角色与开局，试玩后将故事提供给玩家。平台支持自部署，模型服务可由用户配置，也可由平台为玩家统一提供。
 
-**Every reader who plays your story plays a different one.**
+## 玩家如何游玩
 
-RPG Roleplay drops a long-form novel into a self-hosted, LLM-driven RPG runtime: branching saves, retrieval over the original text, agent-driven scenes, and all the boring scaffolding — dice, provider routing, token accounting, cards, worldbook — is already wired up. Originally written to host one 4.85-million-character novel as a playable world; now any author or GM can point it at their own.
+1. 在故事大厅浏览介绍，选择想进入的世界。
+2. 选择原著人物、推荐身份或自定角色，确认开局设定。
+3. 阅读剧情，选择行动建议或自由输入自己的决定。
+4. 查看局势、角色、背包、人物、任务和世界线，依据变化作出下一步选择。
+5. 保存进度、继续游玩，或从已有节点探索不同分支。
 
-## What works today
+游玩助手提供独立咨询入口。故事配置了时序世界资料时，可以查询当前人物状态、局势和事件依据；未来资料按本次请求的许可揭示，咨询本身不替玩家行动。
 
-> The table below is the actual state, not marketing.
-> ✅ = tests pass and the feature is used in production by the author.
-> 🟡 = the code is there, rough edges remain.
-> ❌ = planned but not built.
+## 当前功能
 
-| Layer | Status |
-|---|---|
-| **Python core game loop** (state, ops, scenes, dice, D&D 5E core, encounters, inventory, retrieval, agents) | ✅ Stable |
-| **LLM routing** (Anthropic native, OpenAI, Vertex Gemini, OpenAI-compatible) | ✅ Stable, streaming + tool-use + multimodal |
-| **Postgres + pgvector storage**, v96+ versioned migrations, auto-apply on boot under advisory lock | ✅ Stable |
-| **Vite + React 19**, JSDoc type annotations, multi-page entries | ✅ Stable |
-| **Branchable saves** — commit / ref / checkout work like Git, hard-delete with 30-day grace queue | ✅ Stable |
-| **Script ingestion** — TXT / ZIP upload, 7 chapter splitters, auto-extract character cards + worldbook + timeline, vector index | ✅ Stable |
-| **SillyTavern V2/V3 import** — character cards (PNG tEXt / JSON) + chat history (JSONL → new save) | ✅ Stable |
-| **Tavern Mode** — SillyTavern-style 1:1 character chat: drop-in cards, agent tools (create/swap character, popup choices, import/export card), per-conversation system-prompt editor, round-trip JSONL | ✅ Stable |
-| **Script & novel editor** (`/md-editor`) — three-pane IDE (file tree · CodeMirror 6 · AI side-panel) over chapters / cards / worldbook / personas with lossless Markdown round-trip; AI writing copilot: inline ghost-text continuation, per-hunk diff accept/reject, persistent Problems panel, delegated BYOK sub-models | ✅ Stable |
-| **Native iOS / iPadOS client** — native SwiftUI client (bring-your-own-server) that connects to this open-source server over its public API, **in this repo under `ios/`** (XcodeGen + Xcode automatic signing). Mirrors the web game console; QR scan-login, invite-link join, register / OTP / forgot-password | ✅ Open source (beta) |
-| **Achievements** — declarative catalog, unlock toasts, public profile wall | ✅ Stable |
-| **Image generation** — covers / avatars / in-chat scene art / character + persona portraits, unified provider layer, BYOK | ✅ Stable |
-| **Provider catalog** — 11 providers (Anthropic / OpenAI / Vertex / DeepSeek / DashScope / Doubao / Hunyuan / MiniMax / SiliconFlow / OpenRouter / MiMo), BYOK encrypted at-rest (AES-256-GCM HKDF per-user-per-api), live model sniffing | ✅ Stable |
-| **i18n** — zh-CN + en, ~6400 keys, full UI coverage (settings / login / platform / game / admin) | ✅ Stable |
-| **Help system** — in-app HelpDrawer with ~34 module docs | ✅ Stable |
-| **Compliance suite** — adult-content splash gate, AGPL legal banner, feedback channel with NSFW pre-moderation, AUP/DMCA/CSAM admin runbooks | ✅ Stable |
-| **Auth + registration** — invite-code gate, email verification (Resend), Argon2id with rehash-on-login, forgot-password, two-step register | ✅ Stable |
-| **Account lifecycle** — soft deactivate, request-delete (30-day grace), data export, hard-delete cron | ✅ Stable |
-| **License** | ✅ AGPL-3.0-or-later (this repo) + commercial dual-license available — contact <chaosai31@gmail.com> |
+| 能力 | 当前内容 |
+| --- | --- |
+| 故事大厅 | 游客浏览与搜索已上架故事，查看介绍、封面和可选身份 |
+| 角色创建 | 推荐身份、自定角色、原著人物固定姓名，以及故事专属开局选项 |
+| 剧情推进 | 流式正文、行动建议与自由输入，支持合并普通步骤、推进到实质选择 |
+| 状态与存档 | 六类状态、已保存回合变化、历史阅读、分支存档与恢复 |
+| 游玩助手 | 只读咨询；有相应资料的故事支持人物、时间线、局势和证据查询 |
+| 评论区 | 每部已上架故事独立评论；游客可读，登录后发表，作者可删除自己的评论 |
+| 积分与费用 | 生成前报价、额度预留、实际用量结算，以及停止、断线后的结果恢复 |
+| 创作工作台 | 章节、人物卡、世界书、设定复核、时间线与开局配置相关能力 |
+| 剧本导入导出 | TXT/MD 分章导入、剧本包迁移、人物卡与相关资料管理 |
+| 酒馆模式 | 以人物卡为中心的角色对话，支持 SillyTavern 格式导入导出 |
+| 模型与部署 | 多种模型接口、自带凭据、自部署，以及平台统一模型服务 |
 
-## Tavern Mode — SillyTavern-style 1:1 character chat
+玩家无需配置模型即可游玩已由管理员配置服务的故事。创作能力和管理能力按账号权限开放；当前玩家大厅上架由管理员配置。
 
-A second way to play, alongside the script-driven Game Console. **Tavern Mode** is a 1:1 character chat (think SillyTavern) where you talk directly to a *character* instead of a GM. It reuses the entire GM turn pipeline — memory, worldbook, branching, token accounting, prompt caching — so there is **no separate engine**; it just runs script-free, with its own saves and a Claude-web-style UI.
+## 示例故事：《绍宋 · 尧山篇》
 
-- **Drop-in character cards.** Import SillyTavern V2 cards (PNG / JSON / WebP) by drag-and-drop, or upload one mid-chat and let the agent parse + import it via the `import_character_card` tool. Export any character back to V2 JSON.
-- **Harness agent, not a fixed script.** The character is a full tool-using agent: it can create/switch characters and personas, optionally bind one of *your own* scripts to ground the roleplay in a novel (permission-gated), and pop a **multiple-choice question** to you (`ask_player_choice`) when the story needs your decision.
-- **Dedicated, branchable saves.** Each chat is its own save with persistent memory + relationships and git-style fork; the sidebar lists conversations Claude-Code-style (archive / rename / delete / auto-title). Pick who to talk to from a dedicated character-selection panel.
-- **In-page right panel** (collapsible, never covers the top nav) with three tabs: the AI character card, your editable persona, and a **per-conversation system-prompt editor** (jailbreak / persona / behaviour overrides).
-- **Immersion-first transcript.** Roleplay prose stays clean; tool calls and the model's reasoning stream render as collapsible blocks and **persist in history** (still there after reload). Live turn timer + a context-usage ring fed by real token accounting.
-- **Round-trippable export.** Export a conversation to SillyTavern JSONL (with a confirm step) and re-import it losslessly — opening message included.
-- **User-level tool fencing.** Every agent tool call is scoped to your own account + save: it can read/write only *your* data, never another user's or any server-level state.
+<img src="frontend/public/assets/story-covers/shaosong-yaoshan-v1.png" alt="绍宋·尧山篇封面" width="180" align="right" />
 
-Worldbook overlays, character-book ingestion, a deterministic opening (`first_mes` pasted verbatim, never LLM-invented), and BYOK routing (Anthropic / OpenAI-compatible / Vertex Gemini, streaming + tool-use) are all wired in.
+本机已完成首个试玩版：范围为前三卷 1—244 章，止于尧山决战及战后收束。
 
-## Quick start
+- 可扮演赵官家（赵玖）、岳飞、杨沂中、张浚、赵鼎、胡寅、韩世忠、吕颐浩，也可使用普通身份或自定角色。
+- 原著人物从各自对应的时期进入，身份、职分和所知受当期资料约束。
+- 已发生的存档事实优先；未改变的部分遵循小说，小说未说明处以宋史补足。
+- 允许玩家通过有因果的行动造成分歧，原著后果作为参照。
+- 助手默认查看当前和已发生资料，未来按需揭示。
 
-Four ways to play the same server: **self-hosted web** (below), the **desktop app** (Electron, one-click), **iOS / iPadOS** (native SwiftUI, built from `ios/`), and **Android** (Expo app in `mobile/`).
+这是一份限定范围的试玩版，完整人物分期和全篇连续游玩仍需继续完善。小说原文、私人研究包及本机数据库不随仓库分发；克隆代码后，故事大厅需在自己的实例中导入和配置。
 
-### Easiest — desktop app (no setup, one click)
+详情见 [试玩说明](docs/shaosong/playtest.md) 与 [制作过程](docs/shaosong/README.md)。
 
-Don't want to touch a terminal? Download the desktop app — it bundles its own PostgreSQL + Python and runs the whole stack locally with one click (fully offline, your data never leaves the machine; NSFW is on you). It also has an online mode that just connects to the cloud account.
+<br clear="all" />
 
-**[→ Download for macOS / Windows (Releases)](https://github.com/felixchaos/rpg-roleplay-platform/releases)**
+## 创作者 MCP：开发计划
 
-- macOS (Apple Silicon) `.dmg` · Windows `.exe` — signed/notarized
-- Built-in console: start/stop the service, logs, LAN sharing (a phone scans a **login QR** to sign in passwordlessly, or an **invite QR/link** to register on your instance), backup & restore, in-app updates
-- Auto-creates a local account; set a username/password if you expose it on your LAN
-- Update channel: pulls from GitHub Releases, falls back to a mirror if GitHub is slow
+目标是让用户接入自己的 Agent，提供一本小说，由 Agent 按平台规范制作故事并上传为自己的作品：
 
-### Native iOS / iPadOS app
-
-The native SwiftUI client (bring-your-own-server) now lives **in this repo under `ios/`** and is covered by the same AGPL license as the rest of the codebase. Point it at the official cloud or your own self-hosted server; sign in by typing your credentials or by **scanning a QR code** from the desktop app — either a passwordless login QR for your own account, or an invite link to register on a self-hosted LAN instance. Build it with XcodeGen + Xcode automatic signing — see [`ios/README.md`](./ios/README.md). Currently in beta.
-
-### Self-host from source — one command
-
-With Postgres installed and running:
-
-```bash
-git clone https://github.com/felixchaos/rpg-roleplay-platform.git
-cd rpg-roleplay-platform
-./scripts/setup.sh        # venv + deps + database + .env + migrations, then launches
+```text
+提供小说与要求 → 分章阅读与编制 → 校验缺项 → 上传私人草稿 → 试玩修订 → 提交上架
 ```
 
-`setup.sh` is idempotent (safe to re-run): it creates the venv + installs deps, creates the `rpg` database/role + extensions, writes `rpg/.env`, runs migrations, then starts the backend (`:7860`) + frontend (`:5173`). Open <http://localhost:5173/Login.html> when it finishes; pass `--no-start` to set up without launching. Creating the database + the `vector` extension needs a Postgres **superuser** (a default local install runs as one; on a Linux server pre-create the role/db/extensions as `postgres`, then re-run).
+**创作者 MCP 服务端尚未实现。** 当前已有剧本包、外部访问令牌和导入接口作为基础。接下来需要补齐创作契约、包校验、进度恢复、游玩配置和外部 Agent 接入。
 
-### Manual setup
+平台现有的 MCP 设置用于调用外部工具，创作者 MCP 将提供平台自身的创作工具。动态场景背景切换也仍处于方案阶段。
 
-```bash
-git clone https://github.com/felixchaos/rpg-roleplay-platform.git
-cd rpg-roleplay-platform
+- [创作者 MCP 方案](docs/creator-mcp-proposal.md)
+- [下一轮开发交接](docs/creator-mcp-handoff.md)
+- [场景背景方案](docs/player-scene-backgrounds.md)
 
-# 1. Install Postgres + pgvector (macOS example; Ubuntu: apt install postgresql-16 postgresql-16-pgvector)
-brew install postgresql pgvector
-brew services start postgresql
+## 本地开发
 
-# 2. Create rpg user + database
-psql postgres -c "CREATE USER rpg WITH PASSWORD 'rpg_dev';"
-psql postgres -c "CREATE DATABASE rpg OWNER rpg;"
-psql -U rpg -d rpg -c "CREATE EXTENSION IF NOT EXISTS vector;"
-psql -U rpg -d rpg -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+需要 Python 3.11+（推荐 3.12）、Node.js 22.12+、npm，以及可连接的 PostgreSQL 数据库。准备数据库角色、数据库和 pgvector 扩展的步骤见 [部署文档](deploy/README.md)。下面以 Windows PowerShell 为例。
 
-# 3. Install Python dependencies
-#    !! IMPORTANT: run from rpg/ sub-directory, not the repo root !!
-cd rpg/
+### 1. 获取代码
+
+```powershell
+git clone https://github.com/stia-mora/AI-StoryGame.git
+cd AI-StoryGame
+```
+
+### 2. 安装后端并配置环境
+
+```powershell
+cd rpg
 python -m venv .venv
-.venv/bin/pip install -r requirements.txt
-
-# 4. Configure .env  (only DATABASE_URL is required to boot)
-cp .env.example .env   # rpg/.env.example — annotated template
-$EDITOR .env           # set DATABASE_URL; everything else degrades gracefully
-
-# 5. Run migrations — fresh DB requires "full", not "up"
-#    !! Must run from rpg/ directory (module resolution depends on cwd) !!
-.venv/bin/python -m platform_app.migrate full
-
-# 6. Start the backend
-.venv/bin/uvicorn app:app --port 7860 --reload   # dev
-# Or use the one-shot script (starts postgres + backend + frontend):
-# cd .. && ./scripts/dev.sh start
-
-# 7. Start the frontend (separate terminal)
-cd ../frontend && npm install && npm run dev
-
-# 8. Open the login page (multi-page Vite build, not a SPA)
-open http://localhost:5173/Login.html
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+Copy-Item .env.example .env
 ```
 
-You'll land on the Login page, create a user, then bounce to `Platform.html` (library + cards + scripts) or `Game Console.html` (the actual gameplay screen).
+编辑 `rpg/.env`，将 `DATABASE_URL` 设置为自己准备的 PostgreSQL 数据库。完整配置说明见 [环境模板](rpg/.env.example)。迁移使用数据库直连地址；本机端口可能是 5432 或 5433，按实际部署填写。
 
-> **Production deployment**: see `deploy/` for Docker / bare-metal templates.
+### 3. 迁移数据库并启动后端
 
-## Architecture
+在 `rpg/` 目录执行；新数据库使用 `full`，已有数据库升级使用 `up`。
 
-```
-┌─ browser ──────────────────────────────────────────────────┐
-│  React 19 + Vite + JS (ESM multi-page)                     │
-│  Login.html · Platform.html · Game Console.html            │
-│  Cloudscape Design System · api-client.js · i18n           │
-└───────────────────────────────┬────────────────────────────┘
-                                │ fetch / SSE
-┌─ uvicorn :7860 ───────────────▼────────────────────────────┐
-│  FastAPI · Python 3.12 · async + asyncio.to_thread         │
-│                                                            │
-│  platform_app/   auth · saves · branches · cards ·         │
-│                  scripts · admin · feedback · policy       │
-│                                                            │
-│  agents/         gm/master · context · extractor ·         │
-│                  black_swan · verifier                     │
-│                                                            │
-│  tools_dsl/      tool_registry · MCP · Skill · executor    │
-│                                                            │
-│  state/          GameState · op protocol                   │
-│  retrieval/      BM25-lite · pgvector                      │
-│  knowledge/      chapter_indexer · embeddings              │
-└───────────────┬──────────────────────────┬─────────────────┘
-                │ psycopg                  │ httpx
-                ▼                          ▼
-┌────────────────────────────┐   ┌────────────────────────────┐
-│  pgbouncer :6432           │   │  LLM providers (BYOK)      │
-│  Postgres 16 + pgvector    │   │  Anthropic · OpenAI ·      │
-│  v96+ migrations           │   │  Vertex · DeepSeek ·       │
-│                            │   │  DashScope · Doubao ·      │
-│  Redis :6379               │   │  Hunyuan · MiniMax · MiMo  │
-│  session · cache · ratelim │   │  SiliconFlow · OpenRouter  │
-└────────────────────────────┘   └────────────────────────────┘
+```powershell
+.\.venv\Scripts\python.exe -m platform_app.migrate full
+.\.venv\Scripts\python.exe -X utf8 -m uvicorn app:app --host 127.0.0.1 --port 7860 --reload
 ```
 
-FastAPI backend with ~30+ route modules / agents / state mixins, ~2700 pytest cases.
+### 4. 启动前端
 
-## LLM providers
+另开终端，在仓库根目录执行：
 
-| Provider | Catalog | Streaming | Tool use | Multimodal | Extended thinking |
-|---|---|---|---|---|---|
-| Anthropic | ✅ | ✅ | ✅ | ✅ | ✅ |
-| OpenAI (Chat Completions, openai-compat backend) | ✅ | ✅ | ✅ | ✅ | — |
-| Google Vertex (Gemini) | ✅ | ✅ | ✅ | ✅ | — |
-| OpenRouter | ✅ | ✅ via OpenAI-compat | partial | — | — |
-| DeepSeek | ✅ | ✅ via OpenAI-compat | partial | — | — |
-| SiliconFlow | ✅ | ✅ via OpenAI-compat | partial | — | — |
-| MiniMax | ✅ | ✅ via OpenAI-compat | partial | — | — |
-| Doubao (ByteDance) | ✅ | ✅ via OpenAI-compat | partial | — | — |
-| MiMo (Xiaomi) | ✅ | ✅ via OpenAI-compat | partial | — | — |
-| Hunyuan (Tencent) | ✅ | ✅ via OpenAI-compat | partial | — | — |
-| DashScope (Qwen) | catalog only | — | — | — | — |
-
-> Google AI Studio was delisted (datacenter-IP ban); Gemini is served through Vertex AI instead.
-
-Adding a provider = one entry in `rpg/config/model_catalog.json` + (if a new wire protocol) one backend in `rpg/agents/gm/backends/`. Everything else — picker, capability filtering, cost accounting — is automatic.
-
-## Companion PyPI packages
-
-Seven reusable pieces were extracted from this repo and published standalone under MIT (author `felixchaos`):
-
-- [`tavern-card`](https://pypi.org/project/tavern-card/) — SillyTavern V2/V3 character-card parse / import / export
-- [`llm-scrub`](https://pypi.org/project/llm-scrub/) — PII / secret scrubbing for LLM inputs & outputs
-- [`zh-narrative-guard`](https://pypi.org/project/zh-narrative-guard/) — deterministic Chinese-narrative consistency checks (dates / weekdays / time)
-- [`byok-vault`](https://pypi.org/project/byok-vault/) — per-user AES-256-GCM HKDF encryption for BYOK credentials
-- [`gram-recall`](https://pypi.org/project/gram-recall/) — episodic / long-form recall helpers for retrieval
-- [`safe-outbound`](https://pypi.org/project/safe-outbound/) — SSRF-safe outbound HTTP (urlopen / httpx) layer
-- [`zh-chapter-splitter`](https://pypi.org/project/zh-chapter-splitter/) — Chinese-novel chapter splitters
-
-## Stack
-
-`Python 3.12+` · `FastAPI` · `uvicorn` · `psycopg` · `pgvector` · `pgbouncer` · `Redis` · `React 19` · `Vite` · `Cloudscape Design System`
-
-## Why not SillyTavern / Risu / KoboldCpp?
-
-We love SillyTavern. It's an incredible character-card playground. But it answers a different question:
-
-- **SillyTavern** = *"I have a character card. Let me chat with it."*
-- **RPG Roleplay** = *"I have a million-character novel. Let me play **inside** it."*
-
-| Concern | SillyTavern / Risu | RPG Roleplay |
-|---|---|---|
-| Primary unit | Character card | Novel + setting bible |
-| Long-form retrieval | Extension required | Built-in: BM25 + pgvector over the original text |
-| Branching saves | Manual chat export | Git-style commit / ref / checkout |
-| Engine state | Conversation history | Typed `GameState` + op protocol + D&D 5E core |
-| Worldbook | YAML / JSON files | DB-backed entries with semantic activation |
-| Multi-user | Single-user app | Auth + per-user runtime + quota |
-| Stack | Node, plain HTML/CSS | Python + FastAPI + pgvector + React |
-| Tests | Mostly ad-hoc | ~2700 pytest cases |
-
-Use SillyTavern when your story is a character. Use RPG Roleplay when your story is a *world*. The two import the same V2 card format, so moving sideways is trivial.
-
-## Configuration
-
-Only `DATABASE_URL` is required to boot; everything else is optional and degrades gracefully.
-
-| Variable | Purpose | Required |
-|---|---|---|
-| `DATABASE_URL` | Postgres connection string. Use a **direct** 5432 connection — `migrate` cannot go through PgBouncer (its advisory lock breaks under transaction pooling) | ✅ |
-| `RPG_MASTER_KEY` | Encrypts stored BYOK keys at rest; auto-generated + persisted on first boot if unset (back it up) | optional |
-| `RPG_REQUIRE_AUTH` | `0` = local single-user, auth off; `1` = multi-user / public (login + registration) | optional |
-| `ANTHROPIC_API_KEY` | Server-side fallback LLM before any user configures BYOK | optional |
-| `EMBED_API_ID` / `EMBED_BASE_URL` / `EMBED_MODEL` / `EMBED_API_KEY` | Embedding provider for semantic retrieval; unset = keyword search only | optional |
-| `EMBED_DIM` | Vector dimension of the embedding model (default 768); must be fixed before the first deploy | optional |
-| `REDIS_URL` | Rate-limit + cache backend; unset = in-process fallback (fine for a single node) | optional |
-| `RPG_CORS_ORIGINS` | Comma-separated allowed origins (multi-user / public deploys) | optional |
-| `RESEND_API_KEY` / `RESEND_FROM` | Resend email for registration verification codes; required only for self-service signup | optional |
-| `EMAIL_CODE_SECRET` | HMAC key for email OTP; set the same value across workers when `workers>1` | optional |
-| `RPG_SETUP_TOKEN` | One-time token that promotes the first registration to admin (server mode) | optional |
-| `RPG_SKIP_AUTO_MIGRATE=1` | Skip the boot-time migration runner | optional |
-
-A full annotated example lives in [`rpg/.env.example`](./rpg/.env.example).
-
-## Project layout
-
-```
-.
-├── rpg/                       # Backend (Python 3.12+) — FastAPI app + GM / KB / import / LLM
-│   ├── app.py                 # FastAPI · uvicorn :7860 (router assembly + lifespan)
-│   ├── platform_app/          # auth / saves / branches / scripts / cards / admin
-│   │   ├── api/               # FastAPI route modules
-│   │   ├── db/migrations.py   # v96+ versioned migrations + auto-apply
-│   │   ├── knowledge/         # chapter indexer / canon repo
-│   │   ├── import_pipeline/   # script-import stage orchestration
-│   │   ├── tavern_cards.py    # SillyTavern V2 PNG/JSON import
-│   │   └── crypto.py          # AES-256-GCM HKDF per-user key
-│   ├── chat_pipeline/         # /api/chat SSE turn pipeline (directives → context → rules → gm → persist)
-│   ├── agents/gm/             # three-sage GM (master.py) + backends/ (Anthropic / OpenAI / Vertex / compat)
-│   ├── context_engine/        # layered context assembly (+ context_providers/)
-│   ├── kb/ · extract/ · ingest/   # save KB · novel → facts extraction · split / clean
-│   ├── retrieval/             # BM25-lite + pgvector (packaged)
-│   ├── tools_dsl/             # tool registry + dispatcher + MCP broker
-│   ├── state/                 # GameState + op protocol
-│   └── tests/                 # ~2700 pytest cases
-│
-├── frontend/                  # React 19 + Vite (multi-page ESM)
-│   ├── Login.html · Platform.html · Game Console.html
-│   └── src/                   # pages/ · components/ · i18n/ (zh-CN + en) · api-client.js
-│
-├── ios/                       # Native SwiftUI client (BYO-server, XcodeGen) — see ios/README.md
-├── mobile/                    # Expo / React Native app (rpg-roleplay-mobile)
-├── desktop/                   # Electron desktop shell (self-updating, channel B)
-├── docs-site/                 # Starlight documentation site (Astro)
-├── scripts/                   # dev.sh / setup.sh / bump_version.sh
-│
-├── deploy/                    # Docker / bare-metal production templates
-├── docs/                      # design docs · runbooks · docs/knowledge/ (AI-collaborator map)
-└── CLAUDE.md                  # repo navigation for AI collaborators
+```powershell
+cd frontend
+npm ci
+npm run dev
 ```
 
-## Community
+打开以下入口：
 
-Player community (Chinese): **QQ group 584876566** — [join via QQ](https://qm.qq.com/q/49Dqcr0aw0). Bug reports, feature requests, and gameplay chat welcome.
+| 入口 | 地址 |
+| --- | --- |
+| 玩家故事大厅 | http://localhost:5173/play |
+| 登录 | http://localhost:5173/Login.html |
+| 创作工作台 | http://localhost:5173/Platform.html |
+| 玩家服务管理（管理员） | http://localhost:5173/play/manage |
 
-<a href="https://qm.qq.com/q/49Dqcr0aw0"><img src="./docs/assets/qq-group.jpg" alt="QQ group 584876566 — scan to join" width="240"></a>
+macOS/Linux 使用 `.venv/bin/python` 替换上述 Python 路径，使用 `cp` 复制环境模板，其余步骤相同。桌面端、移动端与原生 iOS 客户端源码分别位于 [desktop](desktop/README.md)、[mobile](mobile/README.md)、[ios](ios/README.md)。
 
-## Contributing
+## 部署与开发文档
 
-This is an open-source project — contributions welcome. For now, please file issues and follow the [landing page](https://play.stellatrix.icu) for the public release window.
+公网部署以 [生产配置与验收](deploy/PRODUCTION.md) 为准，另有 [裸机部署](deploy/bare-metal/README.md) 和 [测试服说明](deploy/test-server/README.md)。
 
-## License
+| 文档 | 内容 |
+| --- | --- |
+| [产品定义](PRODUCT.md) / [视觉规范](DESIGN.md) | 玩家体验、交互与界面约定 |
+| [玩家服务](docs/player-service.md) | 故事上架、报价、积分、回合保存与恢复 |
+| [助手世界查询](docs/player-guide-world.md) | 人物分期、时序资料、证据与未来边界 |
+| [故事评论](docs/story-comments.md) | 评论权限、分页、草稿与接口 |
+| [MCP 交接](docs/creator-mcp-handoff.md) | 下一轮实现入口、范围与验收 |
+| [仓库协作规则](AGENTS.md) | 修改范围、验证和 Git 工作流程 |
 
-Licensed under the **GNU Affero General Public License v3.0 or later** (AGPL-3.0-or-later). See [LICENSE](./LICENSE) and [NOTICE](./NOTICE). The license covers the **entire** repository — server, web frontend, desktop shell, and the native iOS client under `ios/`.
+## 项目结构
 
-**Why AGPL?** RPG Roleplay is a server-side application. AGPL ensures any operator running it as a public service must also make their modified source available to users — keeping the engine open even when used as a SaaS.
+```text
+rpg/             FastAPI 后端、剧情与状态引擎、模型接入、存档和数据库迁移
+frontend/        React + Vite 网页端、玩家入口与创作工作台
+desktop/         Electron 桌面端
+mobile/          Expo / React Native 移动端
+ios/             SwiftUI 原生客户端
+docs/            功能说明、设计与开发交接
+docs-site/       文档站源码
+deploy/          部署配置与运行说明
+```
 
-**Commercial / closed-source use** is available under a separate dual-license. Contact <chaosai31@gmail.com>.
+修改前先读 [AGENTS.md](AGENTS.md)，按改动范围执行相关测试。前端检查使用 `npm test` 与 `npm run build`；后端在 `rpg/` 目录使用虚拟环境中的 pytest，集成测试需要相应数据库及测试配置。
 
----
+## 来源与许可证
 
-*Originally written to host one 4.85 million-character novel as a playable world. The engine has since outgrown its first story.*
+本项目在 [RPG Roleplay](https://github.com/felixchaos/rpg-roleplay-platform) 的基础上继续开发，保留上游及第三方版权声明。代码采用 **AGPL-3.0-or-later**，详见 [LICENSE](LICENSE) 与 [NOTICE](NOTICE)。故事素材、原文及用户上传内容与代码分别管理。
