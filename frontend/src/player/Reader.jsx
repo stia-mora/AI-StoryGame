@@ -493,6 +493,7 @@ export function Reader({
             </span>
           )}
           <div className="workspace-reading-tools">
+            <button className="icon-button" aria-label="故事评论" disabled={busy || helperBusy} onClick={() => navigate(`/play/stories/${view.save.story_id}/comments`)}><ChatCircleText size={18} /></button>
             <button className="icon-button workspace-state-toggle" aria-label={split.collapsed ? "展开状态栏" : "收起状态栏"} aria-expanded={!split.collapsed} aria-controls="player-state" onClick={split.toggle}><SidebarSimple size={18} />{stateUnread > 0 && <span className="workspace-tab-change" aria-label="状态有未读变化" />}</button>
             <button
               className="icon-button"

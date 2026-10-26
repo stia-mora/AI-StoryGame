@@ -79,7 +79,7 @@ export function Lobby({ data, navigate, search, setSearch, onHelp, archive = fal
           <section className="lobby-library" aria-labelledby="lobby-library-title">
             <div className="lobby-section-heading"><h2 id="lobby-library-title">全部故事</h2><span role="status">{stories.length} 部{query && ` / 共 ${data.stories.length} 部`}</span></div>
             <div className="lobby-stories">
-              {stories.map((story) => <StoryCard key={story.id} story={story} onStart={() => navigate(`/play/stories/${story.id}`)} />)}
+              {stories.map((story) => <StoryCard key={story.id} story={story} onStart={() => navigate(`/play/stories/${story.id}`)} onComments={() => navigate(`/play/stories/${story.id}/comments`)} />)}
             </div>
             {!stories.length && <Empty title={data.stories.length ? "没有找到这个故事" : "下一段故事正在准备中"}>{data.stories.length ? "换个关键词试试。" : "故事上架后会出现在这里。"}</Empty>}
             {query && !stories.length && data.stories.length > 0 && <Button quiet onClick={() => setSearch("")}>清除关键词</Button>}

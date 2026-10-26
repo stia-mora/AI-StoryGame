@@ -183,7 +183,7 @@ export function BookCover({ story, large = false }) {
     </div>
   );
 }
-export function StoryCard({ story, onStart }) {
+export function StoryCard({ story, onStart, onComments }) {
   return (
     <article className="story-card entry-story" aria-labelledby={`story-title-${story.id}`}>
       <BookCover story={story} />
@@ -193,9 +193,9 @@ export function StoryCard({ story, onStart }) {
           <h3 id={`story-title-${story.id}`}>{story.title}</h3>
         </div>
         {story.introduction && <p className="story-introduction">{story.introduction}</p>}
-        <Button quiet onClick={onStart}>
+        <div className="story-card-actions"><Button quiet onClick={onStart}>
           开始故事 <ArrowRight size={18} />
-        </Button>
+        </Button>{onComments && <button className="text-button" aria-label={`查看${story.title}的评论`} onClick={onComments}>评论</button>}</div>
       </div>
     </article>
   );

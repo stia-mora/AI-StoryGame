@@ -1,0 +1,29 @@
+.story-comments { max-width: 780px; padding-block: 28px 60px; }
+.comments-heading, .comment-meta, .comment-composer-actions, .comment-delete-confirm, .comments-login { display: flex; align-items: center; gap: 12px; }
+.comments-heading { margin-bottom: 16px; }
+.comments-heading h1 { margin: 4px 0 0; font-size: 1.375rem; }
+.comments-heading span, .comments-note, .comment-composer-actions > span, .comment-meta time { color: var(--muted); font-size: .8125rem; }
+.comments-note { line-height: 1.7; margin-bottom: 24px; }
+.comment-composer { display: grid; gap: 10px; }
+.comment-composer label { font-size: .875rem; font-weight: var(--weight-medium); }
+.comment-composer textarea { width: 100%; min-height: 116px; padding: 12px; resize: vertical; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; line-height: 1.7; }
+.comment-composer-actions { justify-content: space-between; flex-wrap: wrap; }
+.comments-feedback { min-height: 20px; color: var(--success); font-size: .875rem; }
+.story-comments h2 { display: flex; align-items: center; gap: 8px; font-size: 1rem; margin: 28px 0 8px; }
+.comment-list { list-style: none; padding: 0; margin: 0 0 16px; }
+.comment-list > li { padding: 20px 0; border-bottom: 1px solid var(--line); }
+.comment-meta { flex-wrap: wrap; gap: 6px 14px; }
+.comment-meta strong { font-size: .875rem; overflow-wrap: anywhere; }
+.comment-content { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .9375rem; line-height: 1.8; margin: 12px 0 6px; }
+.comment-delete, .comment-delete-confirm { font-size: .8125rem; }
+.comment-delete-confirm { flex-wrap: wrap; }
+.comment-delete-confirm .text-button { color: var(--error); }
+.comments-empty { color: var(--muted); padding: 18px 0; }
+.comments-login { justify-content: space-between; flex-wrap: wrap; }
+.story-card-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.story-card-actions .text-button { min-height: 44px; padding-inline: 8px; }
+@media (max-width: 600px) {
+  .story-comments { padding-top: 18px; }
+  .comment-meta time { font-size: .75rem; }
+  .comment-delete, .comment-delete-confirm .text-button { min-height: 44px; }
+}

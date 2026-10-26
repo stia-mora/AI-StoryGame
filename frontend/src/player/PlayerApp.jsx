@@ -23,6 +23,7 @@ import { Manage } from "./Manage.jsx";
 import { Initialize } from "./Initialize.jsx";
 import { PlayerHelp } from "./PlayerHelp.jsx";
 import { Lobby } from "./Lobby.jsx";
+import { Comments } from "./Comments.jsx";
 
 export function PlayerApp() {
   const [path, setPath] = useState(location.pathname);
@@ -101,7 +102,8 @@ export function PlayerApp() {
   const archive = path === "/play/saves";
   const saveId = /^\/play\/saves\/(\d+)$/.exec(path)?.[1];
   const storyId = /^\/play\/stories\/(\d+)$/.exec(path)?.[1];
-  const story = data?.stories.find((s) => String(s.id) === storyId);
+  const commentsId = /^\/play\/stories\/(\d+)\/comments$/.exec(path)?.[1];
+  const story = data?.stories.find((s) => String(s.id) === (storyId || commentsId));
   return (
     <div
       className={`player-app ${saveId || storyId ? "has-workspace" : "player-entry"}`}
@@ -177,9 +179,9 @@ export function PlayerApp() {
         <Wallet refresh={reload} navigate={navigate} />
       ) : path === "/play/manage" && data.user?.admin ? (
         <Manage navigate={navigate} />
-      ) : storyId ? (
+      ) : (storyId || commentsId) ? (
         story ? (
-          <Initialize key={story.id} uid={data.user?.id} story={story} navigate={navigate} refresh={reload} guest={!data.user} login={login} />
+          commentsId ? <Comments key={`${story.id}-${data.user?.id || "guest"}`} story={story} user={data.user} navigate={navigate} login={login} /> : <Initialize key={story.id} uid={data.user?.id} story={story} navigate={navigate} refresh={reload} guest={!data.user} login={login} />
         ) : (
           <main id="player-main" className="player-shell">
             <Empty title="故事暂未上架">可以返回故事大厅，选择其他故事。</Empty>

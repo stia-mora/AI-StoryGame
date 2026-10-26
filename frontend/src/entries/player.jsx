@@ -5,6 +5,7 @@ import "../player/player.css";
 import "../player/workspace.css";
 import "../player/entry.css";
 import "../player/refinement.css";
+import "../player/comments.css";
 import { PlayerApp } from "../player/PlayerApp.jsx";
 
 class PlayerBoundary extends React.Component {

@@ -128,6 +128,7 @@ export function Initialize({ story, uid, navigate, refresh, guest = false, login
         <header className="workspace-reader-header setup-header">
           <button className="icon-button" aria-label="返回故事大厅" disabled={busy} onClick={() => navigate("/play")}><ArrowLeft size={18} /></button>
           <h1>{story.title}</h1>
+          <button className="text-button" disabled={busy} onClick={() => navigate(`/play/stories/${story.id}/comments`)}>故事评论</button>
           <span className="setup-phase">角色设定</span>
         </header>
         {!guest && (

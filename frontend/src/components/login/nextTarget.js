@@ -12,7 +12,7 @@ export function __resolveNextOrDefault(user) {
     if (!raw || /[\\\u0000-\u0020\u007f]/.test(raw)) return fallback;
     const target = new URL(raw, location.origin);
     if (!['http:', 'https:'].includes(target.protocol) || target.origin !== location.origin) return fallback;
-    const play = /^\/play(?:\/(?:saves\/\d+|stories\/\d+|wallet|manage))?\/?$/.test(target.pathname) || target.pathname === '/Player.html';
+    const play = /^\/play(?:\/(?:saves\/\d+|stories\/\d+(?:\/comments)?|wallet|manage))?\/?$/.test(target.pathname) || target.pathname === '/Player.html';
     const page = target.pathname.replace(/^\/|\/$/g, '');
     const creator = page === 'Platform.html' || PL_PAGE_IDS.includes(PL_HASH_ALIASES[page] || page);
     if (!play && (player || !creator)) return fallback;

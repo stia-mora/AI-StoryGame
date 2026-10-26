@@ -362,6 +362,9 @@
     base: BASE,
     raw: { GET, POST, PATCH, PUT, DEL, sseStream },
     player: {
+      comments: (storyId, before) => GET(`/api/player/stories/${storyId}/comments`, before ? { before } : {}),
+      postComment: (storyId, content) => POST(`/api/player/stories/${storyId}/comments`, { content }),
+      deleteComment: (storyId, id) => POST(`/api/player/stories/${storyId}/comments/${id}/delete`, {}),
       catalog: () => GET(`${API_PREFIX}/player/catalog`),
       session: () => GET(`${API_PREFIX}/player/session`),
       history: (sid, before) => GET(`${API_PREFIX}/player/saves/${sid}/history?before=${before}`),
