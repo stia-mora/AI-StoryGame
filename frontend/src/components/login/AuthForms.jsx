@@ -358,7 +358,7 @@ function MainAuthForm({ submit, schemaErr, schema, fields, values, setField, err
                 ? t('auth.min_password', { min: minPw })
                 : ''}
             </span>
-            <button
+            <button type="button"
                onClick={() => {
                  setForgotEmail('');
                  setErr(''); setNotice('');

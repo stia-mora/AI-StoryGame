@@ -4,7 +4,8 @@
 
 `Player.html` 显式使用同源 API，支持局域网地址和自定义服务端口；Windows 启动方式见 [局域网游玩](../lan-play.md)。
 
-- `Player.html` / `entries/player.jsx`: `/play` 独立入口，错误边界；只有此入口加载 Tailwind 4 样式和 Phosphor 图标。
+- `Player.html` / `entries/player.jsx`: 默认首页与 `/play` 玩家入口，错误边界；登录、注册也复用玩家壳和阅读主题。旧 `/Platform.html` 保留直接访问，玩家大厅隐藏创作入口。
+- `player/PlayerAuth.jsx` / `auth.css`: `/play/login`、`/play/register` 的认证布局，复用 `login-app.jsx` 的 schema 表单、验证码、找回密码、恢复账户与邀请流程；旧 `/Login.html` 同样加载玩家壳，保留查询参数和重置密码链接。
 - `player/PlayerApp.jsx`: 故事书架、继续存档、推荐身份快速建档与阅读偏好。
 - `player/MartialSoulPicker.jsx`: 配置驱动的推荐、自填与随机武魂选择；免费建角阶段确认，其他剧本不展示此字段。
 - `player/Reader.jsx`: 三栏工作区、单回合阅读与翻页、底部行动框、对话及快进输入、服务端报价、停止、草稿及请求恢复；预设选项与自由行动复用执行和幂等流程。

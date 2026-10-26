@@ -44,7 +44,8 @@ export default defineConfig(({ mode }) => {
           ) {
             return next();
           }
-          req.url = url.startsWith('/play') ? '/Player.html' : '/Platform.html';
+          const path = url.split('?')[0];
+          req.url = path === '/' || /^\/play(?:\/|$)/.test(path) ? '/Player.html' : '/Platform.html';
           next();
         });
       },

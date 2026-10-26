@@ -131,12 +131,14 @@
 
       // 401 — session expired; redirect once, then still throw so caller knows.
       if (res.status === 401) {
-        if (_AUTH_REDIRECT_ARMED && !location.pathname.endsWith("Login.html")) {
+        const authPage = location.pathname.endsWith("Login.html") || /^\/play\/(login|register)\/?$/.test(location.pathname);
+        if (_AUTH_REDIRECT_ARMED && !authPage) {
           _AUTH_REDIRECT_ARMED = false;
           try {
             window.dispatchEvent(new CustomEvent("rpg-auth-expired"));
           } catch (_) {}
-          location.replace("/Login.html?next=" + encodeURIComponent(location.pathname + location.search + location.hash));
+          const playerPage = location.pathname === "/" || location.pathname === "/Player.html" || /^\/play(?:\/|$)/.test(location.pathname);
+          location.replace((playerPage ? "/play/login" : "/Login.html") + "?next=" + encodeURIComponent(location.pathname + location.search + location.hash));
         }
         // Fall through: throw ApiError so callers that catch can handle it too.
       }

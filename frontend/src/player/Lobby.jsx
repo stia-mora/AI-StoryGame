@@ -101,7 +101,6 @@ export function Lobby({ data, navigate, search, setSearch, onHelp, archive = fal
       <footer className="player-footer lobby-footer">
         <span>故事之间</span>
         <div>
-          {data.user?.creator && <a href="/Platform.html">创作工作台</a>}
           {data.user?.admin && <button onClick={() => navigate("/play/manage")}>玩家服务管理</button>}
         </div>
       </footer>

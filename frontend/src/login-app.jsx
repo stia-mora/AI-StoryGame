@@ -1,16 +1,5 @@
-// login-app.jsx — 独立 Login 页主组件
-//
-// 设计基线:
-//   1. 视觉系统严格对齐 platform.css 里既有的 `.pl-auth-*` 命名空间(暖灰深色 +
-//      陶土橙 + Noto Serif SC 标题 + Noto Sans SC 正文)
-//   2. **表单字段由后端 GET /api/v1/auth/schema 决定**,不在前端硬编码
-//      — 加字段只需后端改 schema(rust/crates/rpg-routes/src/auth.rs::api_auth_schema)
-//   3. 已登录用户直接 location.replace(?next=... 或 Platform.html),避免回环
-//
-// 与原 platform-app.jsx 内 AuthPage 的区别:
-//   - 不依赖 PlatformShell 的 toast / nav 注入
-//   - 字段循环渲染,不再写死 `username/password/display_name`
-//   - 可作为 Vite 独立入口,跟 PlatformApp 完全解耦
+// Shared authentication flow. PlayerAuth supplies the player layout and theme;
+// form fields and registration policy still come from the backend auth schema.
 
 import React from 'react';
 import { useState, useEffect, useRef } from 'react';
@@ -18,9 +7,9 @@ import { useTranslation } from 'react-i18next';
 import { __resolveNextOrDefault } from './components/login/nextTarget.js';
 import { InviteScreen } from './components/login/InviteScreen.jsx';
 import { VerifyForm, MagicOtpForm, NeedsProfileForm, CodeLoginForm, ForgotForm, ResetForm, MainAuthForm } from './components/login/AuthForms.jsx';
-function LoginApp() {
+function LoginApp({ initialMode = 'login' }) {
   const { t } = useTranslation();
-  const [mode, setMode] = useState('login');
+  const [mode, setMode] = useState(initialMode);
   const [recoveryEmail, setRecoveryEmail] = useState('');
   const [recoveryCode, setRecoveryCode] = useState('');
   const [recoverySent, setRecoverySent] = useState(false);
@@ -86,7 +75,10 @@ function LoginApp() {
         const base = window.__API_BASE || '';
         const r = await fetch(`${base}/api/v1/auth/schema`, { credentials: 'include' });
         const j = await r.json();
-        if (!cancelled) setSchema(j);
+        if (!cancelled) {
+          setSchema(j);
+          if (j.notes?.registration_closed) setMode((current) => current === 'register' ? 'login' : current);
+        }
       } catch (e) {
         if (!cancelled) setSchemaErr(e?.message || t('auth.schema_fail'));
       }
@@ -623,8 +615,9 @@ function LoginApp() {
       });
       const j = await r.json();
       if (j.ok) {
+        const target = __resolveNextOrDefault(j.user);
         try { history.replaceState(null, '', location.pathname); } catch (_) {}
-        location.href = j.user?.account_mode === 'player' ? '/play' : j.next || '/play';
+        location.replace(target);
       } else { setInviteErr(j.error || t('auth.invite.failed')); }
     } catch (err) { setInviteErr(err?.message || t('auth.invite.failed')); }
     finally { setInviteBusy(false); }
@@ -652,8 +645,8 @@ function LoginApp() {
             </svg>
           </div>
           <div>
-            <h1>RPG Roleplay</h1>
-            <div className="pl-auth-sub">{t('auth.subtitle')}</div>
+            <h1>{mode === 'register' ? '创建你的账户' : '登录故事之间'}</h1>
+            <div className="pl-auth-sub">{mode === 'register' ? '从这里，开始你的第一段故事。' : '回来继续你的故事。'}</div>
           </div>
         </div>
 

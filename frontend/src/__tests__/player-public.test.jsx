@@ -62,14 +62,24 @@ it("opens guidance again and keeps logout failures actionable", async () => {
 it.each(["/\\evil.example/login", "//evil.example", "\thttps://evil.example", "javascript:alert(1)", "/Login.html", "/%5cevil.example", "/admin"])("rejects unsafe player redirect %s", (target) => {
   history.replaceState({}, "", `/Login.html?next=${encodeURIComponent(target)}`);
   expect(__resolveNextOrDefault({ account_mode: "player", role: "user" })).toBe("/play");
-  expect(__resolveNextOrDefault({ account_mode: "creator", role: "admin" })).toBe("/Platform.html");
+  expect(__resolveNextOrDefault({ account_mode: "creator", role: "admin" })).toBe("/play");
 });
 
 it("preserves a validated save deep link and rejects duplicate redirect parameters", () => {
   history.replaceState({}, "", "/Login.html?next=%2Fplay%2Fsaves%2F42");
   expect(__resolveNextOrDefault({ account_mode: "player" })).toBe("/play/saves/42");
   history.replaceState({}, "", "/Login.html?next=/play&next=//evil.example");
-  expect(__resolveNextOrDefault({ role: "admin" })).toBe("/Platform.html");
+  expect(__resolveNextOrDefault({ role: "admin" })).toBe("/play");
+});
+
+it.each([{ account_mode: "player" }, { account_mode: "creator" }, { role: "admin" }])("defaults every account to the player lobby", (user) => {
+  history.replaceState({}, "", "/play/login");
+  expect(__resolveNextOrDefault(user)).toBe("/play");
+});
+
+it("returns to the personal archive after login", () => {
+  history.replaceState({}, "", "/play/login?next=%2Fplay%2Fsaves");
+  expect(__resolveNextOrDefault({ account_mode: "player" })).toBe("/play/saves");
 });
 
 it.each(["/settings-models", "/admin-security", "/device?user_code=ABCD", "/me", "/scripts-library"])("preserves the existing creator route %s", (target) => {

@@ -506,6 +506,7 @@ class _SPAStaticFiles(_StaticFiles):
     /api/* 不兜底(交给 API 层返回 JSON 404)。"""
 
     async def get_response(self, path, scope):
+        path = path.replace("\\", "/")
         try:
             resp = await super().get_response(path, scope)
         except _StarletteHTTPException as exc:
@@ -513,7 +514,9 @@ class _SPAStaticFiles(_StaticFiles):
                 last = path.rsplit("/", 1)[-1]
                 is_root = path in ("", ".", "/")
                 if not path.startswith("api/") and (is_root or "." not in last):
-                    resp = await super().get_response("Player.html" if path.strip('/').startswith('play') else "Platform.html", scope)
+                    player_path = path.strip('/')
+                    shell = "Player.html" if is_root or player_path == 'play' or player_path.startswith('play/') else "Platform.html"
+                    resp = await super().get_response(shell, scope)
                 else:
                     raise
             else:
@@ -539,11 +542,11 @@ _FRONTEND_ROOT = _Path(__file__).resolve().parent.parent / "frontend"
 # dist 不存在(未 npm run build)时回退源码目录,仅配合 vite dev server (:5173) 用。
 _FRONTEND_DIR = _FRONTEND_ROOT / "dist" if (_FRONTEND_ROOT / "dist").is_dir() else _FRONTEND_ROOT
 # 是否有「已构建」前端(非源码回退)。routes/core.py 的根路由据此决定:
-# 有 dist → 裸 / 直出 SPA 壳 Platform.html(桌面自托管局域网浏览器访问 :端口/ 直接进应用);
+# 有 dist → 裸 / 直出玩家壳 Player.html，旧创作地址 /Platform.html 保留;
 # 无 dist(纯 API / 未构建 dev,配 Vite :5173)→ 回服务描述 JSON。
 _FRONTEND_HAS_DIST = (_FRONTEND_ROOT / "dist").is_dir()
 if _FRONTEND_DIR.is_dir():
-    # SPA history-fallback:/ 与所有干净路径 → Platform.html(见 _SPAStaticFiles)。
+    # SPA history-fallback:/play/* → Player.html；创作路径 → Platform.html。
     app.mount("/", _SPAStaticFiles(directory=str(_FRONTEND_DIR), html=True), name="frontend")
 
 # 注：init_db 已移到 core.startup.lifespan startup 段（lazy import 避免循环依赖）。

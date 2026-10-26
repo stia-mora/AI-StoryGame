@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import {
   BookOpen,
   Coins,
@@ -25,15 +25,18 @@ import { PlayerHelp } from "./PlayerHelp.jsx";
 import { Lobby } from "./Lobby.jsx";
 import { Comments } from "./Comments.jsx";
 
+const PlayerAuth = lazy(() => import("./PlayerAuth.jsx"));
+
 export function PlayerApp() {
   const [path, setPath] = useState(location.pathname);
+  const authPage = path === "/Login.html" || /^\/play\/(login|register)\/?$/.test(path);
   const [data, setData] = useState(null),
     [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [saveSearch, setSaveSearch] = useState("");
   const [helpOpen, setHelpOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
-  const login = () => location.assign(`/Login.html?next=${encodeURIComponent(location.pathname)}`);
+  const login = () => navigate(`/play/login?next=${encodeURIComponent(location.pathname + location.search + location.hash)}`);
   const logout = async () => {
     setSigningOut(true);
     try {
@@ -62,7 +65,7 @@ export function PlayerApp() {
   const navigate = useCallback((url) => {
     if (url === "/play/saves") setSaveSearch("");
     history.pushState({}, "", url);
-    setPath(url);
+    setPath(new URL(url, location.origin).pathname);
     window.scrollTo(0, 0);
   }, []);
   const reload = useCallback(async () => {
@@ -80,11 +83,11 @@ export function PlayerApp() {
     }
   }, []);
   useEffect(() => {
-    reload();
+    if (!authPage) reload();
     const pop = () => setPath(location.pathname);
     window.addEventListener("popstate", pop);
     return () => window.removeEventListener("popstate", pop);
-  }, [reload]);
+  }, [reload, authPage]);
   useEffect(() => {
     lsSetJSON("player-reading", prefs);
     document.documentElement.dataset.reading = prefs.night ? "night" : "day";
@@ -106,7 +109,7 @@ export function PlayerApp() {
   const story = data?.stories.find((s) => String(s.id) === (storyId || commentsId));
   return (
     <div
-      className={`player-app ${saveId || storyId ? "has-workspace" : "player-entry"}`}
+      className={`player-app ${saveId || storyId ? "has-workspace" : "player-entry"}${authPage ? " player-auth-page" : ""}`}
       style={{ "--reading-size": `${prefs.font}px` }}
     >
       <a className="skip-link" href="#player-main">
@@ -118,7 +121,7 @@ export function PlayerApp() {
           <span>故事之间</span>
         </button>
         <div className="player-main-nav" role="navigation" aria-label="故事导航">
-          <button aria-current={!archive && !saveId && path !== "/play/wallet" && path !== "/play/manage" ? "page" : undefined} onClick={() => { setSearch(""); navigate("/play"); }}>
+          <button aria-current={!authPage && !archive && !saveId && path !== "/play/wallet" && path !== "/play/manage" ? "page" : undefined} onClick={() => { setSearch(""); navigate("/play"); }}>
             <BookOpen size={18} aria-hidden="true" />故事大厅
           </button>
           <button aria-current={archive ? "page" : undefined} onClick={() => navigate("/play/saves")}>
@@ -144,12 +147,14 @@ export function PlayerApp() {
                 <button disabled={signingOut} onClick={logout}>{signingOut ? "正在退出……" : "退出登录 / 切换账号"}</button>
               </div>
             </details>
-          ) : !data ? <span className="header-account-loading" aria-hidden="true" /> : <Button quiet onClick={login}>登录 / 注册</Button>}
+          ) : authPage ? null : !data ? <span className="header-account-loading" aria-hidden="true" /> : <Button quiet onClick={login}>登录 / 注册</Button>}
         </nav>
       </header>
       <PlayerHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
       {data && error && <div className="player-shell" role="alert"><Notice error>{error}</Notice></div>}
-      {!data ? (
+      {authPage ? (
+        <Suspense fallback={<Loading />}><PlayerAuth key={path} register={/^\/play\/register/.test(path)} /></Suspense>
+      ) : !data ? (
         error ? (
           <main id="player-main" className="player-shell">
             <Notice error>{error}</Notice>
