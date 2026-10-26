@@ -1,0 +1,24 @@
+services:
+  gateway:
+    image: ${CADDY_IMAGE:?Set the pinned Caddy image}
+    restart: unless-stopped
+    network_mode: host
+    mem_limit: 128m
+    memswap_limit: 192m
+    cpus: 0.25
+    environment:
+      PUBLIC_IP: ${PUBLIC_IP:?Set the server public IP}
+      GOMEMLIMIT: 80MiB
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  caddy_data:
+  caddy_config:

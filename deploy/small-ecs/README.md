@@ -49,3 +49,34 @@ ssh -i "$env:USERPROFILE\.ssh\your-deploy-key" -o IdentitiesOnly=yes -o StrictHo
 隧道运行时打开 `http://localhost:17860/play`。初始管理员口令单独交付，
 不写入仓库。迁移后的章节数、人物与知识数据、素材校验和、登录隔离、HTTP
 响应及资源余量都应核验；容器 Up 不代表验收完成。
+
+## 公网 IP 的 HTTPS 入口
+
+`compose.ip.yaml` 使用 Caddy 和 Let's Encrypt 的 `shortlived` 证书为公网 IPv4
+提供 HTTPS，无需域名。云安全组必须允许入站 TCP 80（证书验证）和 443（访问）。
+加载固定版本的 Caddy 镜像，将 `Caddyfile` 放在部署目录，在私密 `.env` 设置
+`PUBLIC_IP` 和 `CADDY_IMAGE`（使用镜像摘要固定版本）。同时设置：
+
+```dotenv
+PUBLIC_BASE_URL=https://YOUR_PUBLIC_IP
+RPG_CORS_ORIGINS=https://YOUR_PUBLIC_IP
+RPG_COOKIE_SECURE=1
+RPG_TRUSTED_PROXIES=YOUR_DOCKER_HOST_GATEWAY/32
+```
+
+网关使用 host 网络连接回环后端；受信代理地址应取实际 Docker 网络网关，
+不要信任所有地址。Caddy 默认覆盖不受信客户端的转发头，并即时转发 SSE。
+
+```sh
+docker compose -f compose.yaml -f compose.ip.yaml config --quiet
+docker compose -f compose.yaml -f compose.ip.yaml run --rm --no-deps gateway caddy validate --config /etc/caddy/Caddyfile
+docker compose -f compose.yaml -f compose.ip.yaml up -d --no-build --no-deps --pull never gateway
+# 更新应用的私密配置后，替换运行时，保留数据库与素材。
+docker compose -f compose.yaml -f compose.ip.yaml up -d --no-build --no-deps backend postproc cron
+curl --fail https://YOUR_PUBLIC_IP/readyz
+```
+
+入口为 `https://YOUR_PUBLIC_IP/play`，HTTP 自动跳转 HTTPS。证书与 ACME 账户
+保存在 `caddy_data` 卷，Caddy 自动续期；勿删除此卷。短期证书需要持续保持
+网关运行及 80/443 可达。验收必须从外网确认 TLS、登录 Cookie 和 SSE，
+服务器本机的 HTTPS 成功不表示云安全组已经放行。注册仍需配置邮件后单独开放。
