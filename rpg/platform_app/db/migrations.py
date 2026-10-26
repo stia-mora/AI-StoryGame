@@ -2430,6 +2430,11 @@ MIGRATIONS.append((108, "player_story_comments", [
 _assert_migrations_monotonic()
 
 
+from platform_app.authoring.schema import STATEMENTS as _AUTHORING_STATEMENTS
+
+MIGRATIONS.append((109, "creator_authoring_mcp", _AUTHORING_STATEMENTS))
+
+
 @contextmanager
 def _migration_advisory_lock():
     """Postgres advisory lock 串行化 DDL 阶段。

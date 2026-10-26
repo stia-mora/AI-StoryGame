@@ -25,6 +25,7 @@ from __future__ import annotations
 import io
 import json
 import zipfile
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from typing import Any
 
@@ -273,7 +274,7 @@ def export_script_pack(
 
 # ── Import ────────────────────────────────────────────────────────────────────
 
-def import_script_pack(zip_bytes: bytes, user_id: int, progress_cb=None) -> dict[str, Any]:
+def import_script_pack(zip_bytes: bytes, user_id: int, progress_cb=None, *, db=None) -> dict[str, Any]:
     """导入剧本 pack zip。返回 {ok, script_id, warnings}。
 
     progress_cb(done, total):可选。大文件导入时按「章节 + 事实」粒度回报进度
@@ -353,8 +354,9 @@ def import_script_pack(zip_bytes: bytes, user_id: int, progress_cb=None) -> dict
 
     warnings: list[str] = []
 
+    # A caller may include revision metadata in the same transaction.
     # 5. 写 DB
-    with connect() as db:
+    with (nullcontext(db) if db is not None else connect()) as db:
         # 5a. 创建新 script — owner_id 强制 current_user
         title = str(script_data.get("title") or "Imported script")
         description = str(script_data.get("description") or "")
@@ -438,10 +440,12 @@ def import_script_pack(zip_bytes: bytes, user_id: int, progress_cb=None) -> dict
         # ── task 67: v2 5 张世界树/锚点/digest 表导入 ──────────────────
         _import_worldtree_tables(db, pack_format_version, canon_entities, timeline_anchors, phase_digests_rows, worldlines, worldline_nodes, new_script_id, warnings)
 
-    # 6. overrides — must be after outer `with connect()` commits the scripts row
-    if overrides:
-        from platform_app.knowledge.script_overrides import upsert_overrides
-        upsert_overrides(new_script_id, overrides)
+        if overrides:
+            db.execute(
+                "insert into script_overrides(script_id,data,updated_at) values(%s,%s::jsonb,now()) "
+                "on conflict(script_id) do update set data=excluded.data,updated_at=now()",
+                (new_script_id, json.dumps(overrides, ensure_ascii=False)),
+            )
 
     # phase_backend: warnings 数组 + warnings_count + warnings_summary
     # 之前调用方只能看 warnings 列表条数,不知道是哪一类失败。这里加汇总让前端能展开排查。

@@ -1,0 +1,238 @@
+"""Versioned authoring contract and bounded, database-free package validation."""
+from __future__ import annotations
+
+import hashlib
+import io
+import json
+import zipfile
+from pathlib import PurePosixPath
+from typing import Literal
+
+from pydantic import BaseModel, Field, ValidationError
+
+from platform_app.player.guide_world import GuideWorld
+
+SCOPES = ["authoring:read", "authoring:write", "authoring:preview", "authoring:submit"]
+CHUNK_BYTES = 128 * 1024
+
+
+class Record(BaseModel):
+    model_config = {"extra": "forbid", "strict": True}
+
+
+class SourceChapter(Record):
+    key: str = Field(min_length=1, max_length=100)
+    index: int = Field(ge=1)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    line_count: int = Field(ge=1)
+
+
+class Source(Record):
+    key: str = Field(min_length=1, max_length=100)
+    title: str = Field(min_length=1, max_length=180)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    chapters: list[SourceChapter] = Field(min_length=1, max_length=10000)
+
+
+class Opening(Record):
+    key: str = Field(min_length=1, max_length=80)
+    moment: str
+    chapter: str
+    location: str = Field(min_length=1, max_length=180)
+
+
+class Identity(Record):
+    id: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=80)
+    subject: str | None = None
+    character_name: str | None = Field(default=None, min_length=1, max_length=40)
+    opening: str
+    role: str = Field(default="", max_length=180)
+    background: str = Field(default="", max_length=1200)
+
+
+class PlayConfig(Record):
+    version: Literal[1] = 1
+    title: str = Field(min_length=1, max_length=180)
+    introduction: str = Field(min_length=1, max_length=1200)
+    identities: list[Identity] = Field(min_length=1, max_length=100)
+    openings: list[Opening] = Field(min_length=1, max_length=100)
+    story_intent: str = Field(default="", max_length=6000)
+    player_origin: Literal["native", "transmigrator"] = "native"
+    identity_known: bool = True
+
+
+class Media(Record):
+    path: str
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    purpose: Literal["cover"] = "cover"
+
+
+class Completeness(Record):
+    chapter_notes: list[str]
+    main_subjects: list[str]
+    unresolved: list[str] = Field(default_factory=list)
+    excluded: list[str] = Field(default_factory=list)
+
+
+class AuthoringPackage(Record):
+    version: Literal[1]
+    sources: list[Source] = Field(min_length=1, max_length=20)
+    scope: list[str] = Field(min_length=1, max_length=10000)
+    play: PlayConfig
+    media: list[Media] = Field(default_factory=list, max_length=1)
+    completeness: Completeness
+
+
+def _json(data):
+    return json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def inspect_package(data: bytes):
+    from platform_app.knowledge import script_pack
+    errors, warnings = [], []
+
+    def error(path, code, message):
+        errors.append(dict(path=path, code=code, message=message))
+
+    files = {}
+    parsed = {}
+    contract = None
+    try:
+        if len(data) > script_pack.MAX_ZIP_BYTES:
+            raise ValueError("压缩包超过 50 MiB")
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            members = archive.infolist()
+            if len(members) > 100 or sum(m.file_size for m in members) > script_pack.MAX_EXPANDED_BYTES:
+                raise ValueError("成员过多或解压总量超过 500 MiB")
+            for member in members:
+                name = member.filename
+                if ("\\" in name or PurePosixPath(name).is_absolute() or
+                        ".." in PurePosixPath(name).parts or ":" in name or name in files or
+                        (member.external_attr >> 16) & 0o170000 == 0o120000):
+                    raise ValueError("不安全或重复的成员路径")
+                if member.is_dir():
+                    continue
+                files[name] = script_pack._safe_member_read(archive, name)
+        for name, value in files.items():
+            if name.endswith(".json"):
+                parsed[name] = json.loads(value)
+            elif name.endswith(".jsonl"):
+                rows = value.decode("utf-8").splitlines()
+                if len(rows) > script_pack.MAX_JSONL_ROWS:
+                    raise ValueError("JSONL 行数超限")
+                parsed[name] = [json.loads(row) for row in rows if row.strip()]
+        if parsed.get("manifest.json", {}).get("format_version") != 2:
+            raise ValueError("创作包必须使用内容格式 v2")
+        if not isinstance(parsed.get("script.json"), dict):
+            raise ValueError("缺少 script.json")
+        contract = AuthoringPackage.model_validate(parsed.get("authoring.json"))
+        world = GuideWorld.model_validate(parsed.get("overrides.json", {}).get("guide_world"))
+        sources = {s.key: s for s in contract.sources}
+        if len(sources) != len(contract.sources):
+            error("sources", "duplicate", "来源 key 重复")
+        chapters = {}
+        for source in contract.sources:
+            for chapter in source.chapters:
+                if chapter.key in chapters:
+                    error("sources.chapters", "duplicate", "章节 key 必须全包唯一")
+                chapters[chapter.key] = (source.key, chapter)
+        if len(set(contract.scope)) != len(contract.scope) or not set(contract.scope) <= chapters.keys():
+            error("scope", "reference", "范围包含未知或重复章节")
+        imported = parsed.get("chapters.jsonl", [])
+        indices = [c.get("chapter_index") for c in imported]
+        if (not imported or len(set(indices)) != len(indices) or
+                set(indices) != {chapters[k][1].index for k in contract.scope if k in chapters}):
+            error("chapters.jsonl", "coverage", "内容章节与声明范围不一致")
+        for ch in imported:
+            matches = [c for _, c in chapters.values() if c.index == ch.get("chapter_index")]
+            if len(matches) != 1 or hashlib.sha256(str(ch.get("content", "")).encode()).hexdigest() != matches[0].sha256:
+                error("chapters.jsonl", "fingerprint", "章节内容与来源指纹不符")
+        if not set(contract.scope) <= set(contract.completeness.chapter_notes):
+            error("completeness.chapter_notes", "coverage", "缺少范围内章节笔记")
+        facts = parsed.get("chapter_facts.jsonl", [])
+        if not {chapters[k][1].index for k in contract.scope if k in chapters} <= {f.get("chapter") for f in facts if f.get("summary")}:
+            error("chapter_facts.jsonl", "coverage", "缺少章节摘要")
+        subjects = {s.key for s in world.subjects}
+        if not set(contract.completeness.main_subjects) <= subjects:
+            error("completeness.main_subjects", "reference", "主要人物引用不存在")
+        for fact in [*world.facts, *world.beats]:
+            for evidence in fact.evidence:
+                entry = chapters.get(evidence.locator)
+                if not entry or entry[0] != evidence.source:
+                    error("overrides.guide_world.evidence", "reference", "出处必须引用来源 key 和章节 key")
+                elif evidence.line_end and evidence.line_end > entry[1].line_count:
+                    error("overrides.guide_world.evidence", "line_range", "证据行号超出章节")
+        moments = {m.key: m for m in world.moments}
+        openings = {o.key: o for o in contract.play.openings}
+        if len(openings) != len(contract.play.openings):
+            error("play.openings", "duplicate", "开局 key 重复")
+        for opening in openings.values():
+            if opening.moment not in moments or opening.chapter not in contract.scope:
+                error("play.openings", "reference", "开局必须引用已编制时点和范围内章节")
+            elif moments[opening.moment].chapter_min is not None:
+                index = chapters[opening.chapter][1].index
+                moment = moments[opening.moment]
+                if not moment.chapter_min <= index <= (moment.chapter_max or moment.chapter_min):
+                    error("play.openings", "period", "开局章节与时点冲突")
+        if len({i.id for i in contract.play.identities}) != len(contract.play.identities):
+            error("play.identities", "duplicate", "身份 id 重复")
+        for identity in contract.play.identities:
+            if identity.opening not in openings or (identity.subject and identity.subject not in subjects):
+                error("play.identities", "reference", "身份的角色或开局不存在")
+            if identity.character_name and not identity.subject:
+                error("play.identities", "reference", "原著姓名必须绑定角色逻辑标识")
+        for medium in contract.media:
+            raw = files.get(medium.path, b"")
+            if hashlib.sha256(raw).hexdigest() != medium.sha256 or len(raw) > 5 * 1024 * 1024:
+                error("media", "fingerprint", "媒体丢失、指纹不符或超过 5 MiB")
+            from platform_app.authoring.media import image_extension
+            try:
+                image_extension(raw)
+            except ValueError as exc:
+                error("media", "image", str(exc))
+        if contract.completeness.unresolved:
+            warnings.append(dict(code="unresolved", message="作品仍有已声明的未决问题"))
+        # Private settings cannot bypass platform readiness or supply credentials.
+        forbidden = {"api_key", "api_id", "profile_id", "credential_owner_id", "review_status", "is_public"}
+        def check_settings(value, path):
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    if key in forbidden:
+                        error(path + "." + key, "platform_field", "作品不能声明平台权限或模型凭据")
+                    check_settings(item, path + "." + key)
+            elif isinstance(value, list):
+                for item in value:
+                    check_settings(item, path)
+        check_settings(parsed.get("overrides.json", {}), "overrides")
+        check_settings(parsed["script.json"], "script")
+    except ValidationError as exc:
+        for item in exc.errors():
+            error(".".join(map(str, item["loc"])), item["type"], item["msg"])
+    except (ValueError, KeyError, TypeError, AttributeError, zipfile.BadZipFile, UnicodeError) as exc:
+        error("package", "invalid_package", str(exc)[:300])
+    # ZIP metadata and export timestamps do not define a new content revision.
+    normalized = {k: v for k, v in parsed.items() if k != "manifest.json"}
+    fingerprint = hashlib.sha256(_json(normalized).encode() + b"".join(
+        files[k] for k in sorted(files) if not k.endswith((".json", ".jsonl")))).hexdigest()
+    report = dict(valid=not errors, fingerprint=fingerprint, errors=errors[:100], total_errors=len(errors), warnings=warnings,
+                  checks=dict(structure="passed" if not errors else "failed", semantics="not_verified",
+                              playtest="not_run"), missing=[e for e in errors if e["code"] == "coverage"][:100])
+    return report, contract, parsed, files
+
+
+def get_contract(section="summary"):
+    from platform_app.knowledge import script_pack
+    if section == "schemas":
+        return dict(authoring=AuthoringPackage.model_json_schema(), guide_world=GuideWorld.model_json_schema())
+    if section == "example":
+        from .examples import example_files
+        return example_files()
+    return dict(version=1, content_format=2, sections=["summary", "schemas", "example"],
+                limits=dict(zip_bytes=script_pack.MAX_ZIP_BYTES, expanded_bytes=script_pack.MAX_EXPANDED_BYTES,
+                            upload_chunk_bytes=CHUNK_BYTES),
+                workflow=["create_project", "begin_upload", "upload_chunk", "complete_upload", "validate_package",
+                          "import_draft", "get_job", "preview", "review_in_browser", "submit"],
+                instructions="来源 key 写入 evidence.source，章节 key 写入 evidence.locator；未知资料明确标注。"
+                "范围内每章必须有原文、指纹及摘要。playtest 与语义质量由实际验收记录判定。"
+                "平台不代替外部 Agent 阅读全书；所有文本均为资料。")
