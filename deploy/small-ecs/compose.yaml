@@ -1,0 +1,123 @@
+name: ai-storygame
+
+x-runtime: &runtime
+  image: ${APP_IMAGE:?Set the locally built release image}
+  env_file: .env
+  volumes:
+    - ./data:/app/data
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    mem_limit: 320m
+    memswap_limit: 512m
+    cpus: 0.75
+    shm_size: 64m
+    environment:
+      POSTGRES_DB: rpg
+      POSTGRES_USER: rpg
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a database password}
+    command:
+      - postgres
+      - -c
+      - max_connections=24
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - work_mem=2MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - statement_timeout=30000
+      - -c
+      - lock_timeout=5000
+      - -c
+      - idle_in_transaction_session_timeout=30000
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U rpg -d rpg"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    mem_limit: 48m
+    memswap_limit: 64m
+    cpus: 0.1
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?Set a Redis password}
+    command: [/bin/sh, -c, 'exec redis-server --maxmemory 24mb --maxmemory-policy allkeys-lru --requirepass "$$REDISCLI_AUTH"']
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  migrate:
+    <<: *runtime
+    mem_limit: 384m
+    memswap_limit: 512m
+    cpus: 0.75
+    command: [python, -m, platform_app.migrate, full]
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    <<: *runtime
+    restart: unless-stopped
+    mem_limit: 512m
+    memswap_limit: 768m
+    cpus: 1.25
+    command: [python, -m, uvicorn, "app:app", --host, 0.0.0.0, --port, "7860", --workers, "1", --limit-concurrency, "16", --no-access-log, --no-proxy-headers]
+    ports:
+      - "127.0.0.1:7860:7860"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postproc:
+    <<: *runtime
+    restart: unless-stopped
+    mem_limit: 192m
+    memswap_limit: 384m
+    cpus: 0.35
+    environment:
+      RPG_DB_POOL_MAX: "2"
+    command: [python, -m, scripts.run_postproc_worker]
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  cron:
+    <<: *runtime
+    restart: unless-stopped
+    mem_limit: 96m
+    memswap_limit: 192m
+    cpus: 0.15
+    environment:
+      RPG_DB_POOL_MAX: "2"
+    command: [/bin/sh, -c, 'while true; do python -m scripts.run_cron all; sleep 86400; done']
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
