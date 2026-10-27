@@ -1,5 +1,6 @@
 """Loopback-only visual QA fixture, always run via check_authoring.py --serve."""
 import os
+import uuid
 
 import uvicorn
 from fastapi import FastAPI
@@ -11,10 +12,11 @@ assert conninfo_to_dict(os.environ["DATABASE_URL"])["dbname"].startswith("author
 
 import app
 from platform_app import auth
-from platform_app.authoring import service
-from platform_app.db import connect
+from platform_app.authoring import preview, service
+from platform_app.db import connect, init_db
 from tests.integration.test_authoring import imported
 
+init_db()
 with connect() as db:
     user = db.execute("insert into users(username,password_hash,display_name,account_mode,role,email_verified) "
                       "values('fixture_creator','test','林间作者','creator','admin',true) returning *").fetchone()
@@ -24,6 +26,15 @@ with connect() as db:
 project, _, _, revision = imported(dict(uid=user["id"], user=user))
 service.review(user["id"], revision["id"], "原创短篇，作者授权用于平台公开游玩。")
 service.submit(user["id"], revision["id"])
+if os.environ.get("AUTHORING_FIXTURE_MANY_SAVES") == "1":
+    first = preview.create(user["id"], revision["id"], "keeper", str(uuid.uuid4()))
+    with connect() as db:
+        db.execute("""insert into game_saves(user_id,script_id,title,state_path,state_snapshot,
+                    player_story_id,player_story_snapshot,authoring_revision_id,updated_at)
+            select g.user_id,g.script_id,'存档' || n,g.state_path,
+                   jsonb_set(g.state_snapshot,'{player,name}',to_jsonb('角色' || n)),
+                   g.player_story_id,g.player_story_snapshot,g.authoring_revision_id,now() - n * interval '1 second'
+            from game_saves g cross join generate_series(1,50) n where g.id=%s""", (first["save_id"],))
 with connect() as db:
     cookie = auth._issue_session(db, user["id"])
 

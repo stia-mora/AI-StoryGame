@@ -64,6 +64,7 @@ export function Reader({
   setPrefs,
   refreshWallet,
   saves = [],
+  saveTotal = saves.length,
 }) {
   const [view, setView] = useState(null),
     [error, setError] = useState(""),
@@ -442,6 +443,7 @@ export function Reader({
     <SaveRail
       view={view}
       saves={saves}
+      saveTotal={saveTotal}
       navigate={navigate}
       rounds={rounds}
       selectedId={selected?.id}

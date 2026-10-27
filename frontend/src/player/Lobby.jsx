@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { ArrowRight, BookOpen, Clock, FolderOpen, MagnifyingGlass, Play, X } from "@phosphor-icons/react";
 import { BookCover, Button, Empty, StoryCard } from "./shared.jsx";
 
@@ -22,9 +22,29 @@ function SaveList({ saves, navigate }) {
 }
 
 export function Lobby({ data, navigate, search, setSearch, onHelp, archive = false }) {
+  const [page, setPage] = useState(1);
+  const [remote, setRemote] = useState(null);
+  const [loadError, setLoadError] = useState("");
+  const [retry, setRetry] = useState(0);
+  const saveTotal = data.save_total ?? data.saves.length;
+  const paginated = archive && saveTotal > data.saves.length;
+  useEffect(() => {
+    if (!paginated) return;
+    let current = true;
+    setRemote(null);
+    setLoadError("");
+    const timer = setTimeout(() => {
+      window.api.player.savesPage(page, search.trim()).then(
+        result => { if (current) setRemote(result); },
+        error => { if (current) setLoadError(error.message); },
+      );
+    }, search.trim() ? 200 : 0);
+    return () => { current = false; clearTimeout(timer); };
+  }, [paginated, page, search, retry]);
   const query = search.trim().toLocaleLowerCase();
   const stories = data.stories.filter((story) => `${story.title} ${story.introduction}`.toLocaleLowerCase().includes(query));
-  const saves = data.saves.filter((save) => `${save.story_title} ${save.name || ""} ${save.title || ""}`.toLocaleLowerCase().includes(query));
+  const localSaves = data.saves.filter((save) => `${save.story_title} ${save.name || ""} ${save.title || ""}`.toLocaleLowerCase().includes(query));
+  const saves = paginated ? (remote?.items || []) : localSaves;
   const latest = data.saves[0];
   const latestStory = latest && data.stories.find((story) => story.id === latest.story_id);
   return (
@@ -38,9 +58,10 @@ export function Lobby({ data, navigate, search, setSearch, onHelp, archive = fal
             aria-label={archive ? "搜索存档" : "搜索故事"}
             placeholder={archive ? "搜索故事或角色名" : "搜索故事名称或简介"}
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            maxLength={archive ? 120 : undefined}
+            onChange={(event) => { setPage(1); setSearch(event.target.value); }}
           />
-          {search && <button className="icon-button" aria-label="清除搜索" onClick={() => setSearch("")}><X size={17} /></button>}
+          {search && <button className="icon-button" aria-label="清除搜索" onClick={() => { setPage(1); setSearch(""); }}><X size={17} /></button>}
         </div>
       </div>
 
@@ -66,13 +87,19 @@ export function Lobby({ data, navigate, search, setSearch, onHelp, archive = fal
 
       {archive ? (
         <section className="lobby-archive" aria-label="存档列表">
-          <div className="lobby-section-heading"><h2>全部存档</h2><span role="status">{saves.length} 个{query && ` / 共 ${data.saves.length} 个`}</span></div>
-          {saves.length ? <SaveList saves={saves} navigate={navigate} /> : (
+          <div className="lobby-section-heading"><h2>全部存档</h2><span role="status">{paginated ? (remote ? `${remote.total} 个` : "正在加载") : `${saves.length} 个${query ? ` / 共 ${saveTotal} 个` : ""}`}</span></div>
+          {loadError && <div role="alert">加载存档失败：{loadError} <Button quiet onClick={() => setRetry(value => value + 1)}>重试</Button></div>}
+          {paginated && !remote ? null : saves.length ? <SaveList saves={saves} navigate={navigate} /> : (
             <Empty title={query ? "没有找到这个存档" : "还没有存档"}>
               {query ? "换个故事名称或角色名试试。" : "选择故事并创建角色后，进度会保存在这里。"}
             </Empty>
           )}
-          {!data.saves.length && <Button onClick={() => navigate("/play")}>去选择故事<ArrowRight size={17} /></Button>}
+          {paginated && remote?.pages > 1 && <div className="lobby-section-heading">
+            <Button quiet disabled={remote.page <= 1} onClick={() => setPage(remote.page - 1)}>上一页</Button>
+            <span>第 {remote.page} / {remote.pages} 页</span>
+            <Button quiet disabled={remote.page >= remote.pages} onClick={() => setPage(remote.page + 1)}>下一页</Button>
+          </div>}
+          {!saveTotal && <Button onClick={() => navigate("/play")}>去选择故事<ArrowRight size={17} /></Button>}
         </section>
       ) : (
         <div className="lobby-columns">
@@ -87,7 +114,7 @@ export function Lobby({ data, navigate, search, setSearch, onHelp, archive = fal
           <aside className="lobby-sidebar" aria-label="我的存档与指引">
             <div className="lobby-section-heading">
               <h2><FolderOpen size={18} aria-hidden="true" />我的存档</h2>
-              {data.saves.length > 0 && <button className="text-button" onClick={() => navigate("/play/saves")}>全部 {data.saves.length}<ArrowRight size={14} /></button>}
+              {saveTotal > 0 && <button className="text-button" onClick={() => navigate("/play/saves")}>全部 {saveTotal}<ArrowRight size={14} /></button>}
             </div>
             {data.saves.length ? <SaveList saves={data.saves.slice(0, 4)} navigate={navigate} /> : <p className="lobby-sidebar-empty">{data.user ? "你的角色与游玩进度会收录在这里。" : "登录后，在这里继续你的故事。"}</p>}
             <div className="lobby-guide">

@@ -371,6 +371,7 @@
       session: () => GET(`${API_PREFIX}/player/session`),
       history: (sid, before) => GET(`${API_PREFIX}/player/saves/${sid}/history?before=${before}`),
       bootstrap: () => GET(`${API_PREFIX}/player/bootstrap`),
+      savesPage: (page, query) => GET(`${API_PREFIX}/player/saves`, { page, query }),
       create: (body) => POST(`${API_PREFIX}/player/saves`, body),
       save: (id) => GET(`${API_PREFIX}/player/saves/${id}`),
       guideHistory: (id) => GET(`${API_PREFIX}/player/saves/${id}/guide`),

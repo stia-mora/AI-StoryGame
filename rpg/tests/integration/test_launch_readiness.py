@@ -252,6 +252,40 @@ def test_public_catalog_excludes_private_state_and_unlisted_stories(player):
     assert not any(row["id"] == player["story"] for row in client.get("/api/player/catalog").json()["stories"])
 
 
+def test_save_summaries_are_paginated_searchable_and_owned(player):
+    from platform_app import auth
+
+    with connect() as db:
+        script = db.execute("select script_id from game_saves where id=%s", (player["sid"],)).fetchone()["script_id"]
+        for index in range(52):
+            data = {"player": {"name": f"角色{index}%_"}, "turn": index, "private": "secret" * 1000}
+            db.execute("insert into game_saves(user_id,script_id,title,state_path,state_snapshot,player_story_id,updated_at) "
+                       "values(%s,%s,%s,'',%s,%s,now() - %s * interval '1 second')",
+                       (player["uid"], script, f"存档{index}", Jsonb(data), player["story"], index + 1))
+        other = db.execute("insert into users(username,password_hash,display_name,email_verified) "
+                           "values(%s,'test','Other',true) returning id", ("other_" + uuid.uuid4().hex,)).fetchone()["id"]
+        db.execute("insert into game_saves(user_id,script_id,title,state_path,state_snapshot,player_story_id) "
+                   "values(%s,%s,'other-secret','',%s,%s)", (other, script, Jsonb({}), player["story"]))
+        token = auth._issue_session(db, player["uid"])
+    try:
+        client = TestClient(app.app, cookies={"rpg_session": token})
+        bootstrap = client.get("/api/player/bootstrap").json()
+        assert bootstrap["save_total"] == 53 and len(bootstrap["saves"]) == 50
+        assert "secret" not in str(bootstrap["saves"])
+        first = client.get("/api/player/saves").json()
+        second = client.get("/api/player/saves", params={"page": 2}).json()
+        assert first["total"] == 53 and first["pages"] == 2 and len(first["items"]) == 50
+        assert len(second["items"]) == 3 and not {s["id"] for s in first["items"]} & {s["id"] for s in second["items"]}
+        search = client.get("/api/player/saves", params={"query": "角色51%_"}).json()
+        assert search["total"] == 1 and search["items"][0]["name"] == "角色51%_"
+        assert client.get("/api/player/saves", params={"query": "other-secret"}).json()["total"] == 0
+        assert TestClient(app.app).get("/api/player/saves").status_code == 401
+    finally:
+        with connect() as db:
+            db.execute("delete from game_saves where user_id=%s", (other,))
+            db.execute("delete from users where id=%s", (other,))
+
+
 def test_server_startup_health_guest_root_and_logout_revoke_cookie(user, monkeypatch, tmp_path):
     (tmp_path / "Player.html").write_text("<html>玩家入口</html>", encoding="utf-8")
     (tmp_path / "Platform.html").write_text("<html>创作入口</html>", encoding="utf-8")

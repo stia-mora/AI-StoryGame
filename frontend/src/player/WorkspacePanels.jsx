@@ -414,6 +414,7 @@ export function SaveRail({
   loadEarlier,
   historyBusy,
   saves = [],
+  saveTotal = saves.length,
   navigate,
   rounds,
   selectedId,
@@ -488,6 +489,11 @@ export function SaveRail({
           ))
         ) : (
           <p className="muted">没有其他存档</p>
+        )}
+        {saveTotal > saves.length && (
+          <button disabled={busy} onClick={() => navigate("/play/saves")}>
+            查看全部 {saveTotal} 个存档
+          </button>
         )}
       </details>
       <button

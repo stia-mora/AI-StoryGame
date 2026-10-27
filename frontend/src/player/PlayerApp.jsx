@@ -192,6 +192,7 @@ export function PlayerApp() {
           setPrefs={setPrefs}
           refreshWallet={reload}
           saves={data.saves}
+          saveTotal={data.save_total ?? data.saves.length}
         />
       ) : path.startsWith("/play/authoring") ? (
         data.user?.creator ? <Suspense fallback={<Loading />}>{path === "/play/authoring-admin" && data.user.admin ? <AuthoringAdmin navigate={navigate} /> : <Authoring navigate={navigate} admin={data.user.admin} />}</Suspense> : <main id="player-main" className="player-shell"><Notice error>请先取得创作者权限。</Notice></main>

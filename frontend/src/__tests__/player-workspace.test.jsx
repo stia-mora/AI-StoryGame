@@ -53,6 +53,14 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
+it("links to the full archive when the reader only has recent saves", async () => {
+  const navigate = vi.fn();
+  render(<Reader {...props} navigate={navigate} saves={[{ id: 9, name: "旅人", story_title: "测试世界", turn: 2 }]} saveTotal={51} />);
+  const archive = await screen.findByText("查看全部 51 个存档");
+  fireEvent.click(archive);
+  expect(navigate).toHaveBeenCalledWith("/play/saves");
+});
+
 it("does not execute a quoted action while the IME is selecting or within 500ms of composition ending", async () => {
   render(<Reader {...props} />);
   const input = await screen.findByLabelText("你要如何行动？");

@@ -70,6 +70,31 @@ def listed_stories():
           where p.status='published' and m.enabled order by p.sort_order,p.id limit 200""").fetchall()
 
 
+def list_saves(uid, *, page=1, query="", page_size=50):
+    """Read only public summary fields; never materialize full save snapshots."""
+    query = query.strip()
+    predicate = "g.user_id=%s and g.player_story_id is not null"
+    params = [uid]
+    if query:
+        predicate += (" and position(lower(%s) in lower(concat_ws(' ', "
+                      "coalesce(g.player_story_snapshot->>'title',p.title),g.title,"
+                      "g.state_snapshot#>>'{player,name}'))) > 0")
+        params.append(query)
+    with connect() as db:
+        base = " from game_saves g join player_stories p on p.id=g.player_story_id where " + predicate
+        total = db.execute("select count(*) as n" + base, params).fetchone()["n"]
+        pages = max(1, (total + page_size - 1) // page_size)
+        page = max(1, min(page, pages))
+        rows = db.execute("""select g.id,g.player_story_id,g.title,g.updated_at,
+              coalesce(g.player_story_snapshot->>'title',p.title) as story_title,
+              jsonb_build_object('player',jsonb_build_object('name',
+                coalesce(g.state_snapshot#>'{player,name}','\"\"'::jsonb)),
+                'turn',g.state_snapshot->'turn') as state_snapshot""" + base +
+              " order by g.updated_at desc,g.id desc limit %s offset %s",
+              (*params, page_size, (page - 1) * page_size)).fetchall()
+    return dict(items=[save_summary(row, row["story_title"]) for row in rows], total=total, page=page, pages=pages)
+
+
 def for_save(save):
     snapshot = save.get("player_story_snapshot")
     if snapshot:

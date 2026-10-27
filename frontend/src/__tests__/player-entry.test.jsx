@@ -62,6 +62,38 @@ it("does not let an older navigation refresh overwrite a newer catalog", async (
   expect(screen.getByRole("heading", { name: "新上架故事" })).toBeTruthy();
 });
 
+it("pages and searches older saves", async () => {
+  history.replaceState({}, "", "/play/saves");
+  const first = Array.from({ length: 50 }, (_, index) => ({
+    id: index + 1, story_id: story.id, story_title: story.title, name: `角色${index}`, title: "存档", turn: 0,
+  }));
+  const older = { id: 51, story_id: story.id, story_title: story.title, name: "旧角色", title: "存档", turn: 3 };
+  window.api.player.bootstrap.mockResolvedValue({ ...account, saves: first, save_total: 51 });
+  window.api.player.savesPage = vi.fn().mockImplementation((page, query) => Promise.resolve(
+    query ? { items: [older], total: 1, page: 1, pages: 1 }
+      : { items: page === 1 ? first : [older], total: 51, page, pages: 2 },
+  ));
+  render(<PlayerApp />);
+  expect(await screen.findByRole("button", { name: "下一页" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+  expect(await screen.findByRole("button", { name: /旧角色 · 第 3 回合/ })).toBeTruthy();
+  fireEvent.change(screen.getByRole("searchbox", { name: "搜索存档" }), { target: { value: "旧角色" } });
+  await waitFor(() => expect(window.api.player.savesPage).toHaveBeenLastCalledWith(1, "旧角色"));
+  expect(await screen.findByRole("button", { name: /旧角色 · 第 3 回合/ })).toBeTruthy();
+});
+
+it("allows retrying a failed save page without hiding the error", async () => {
+  history.replaceState({}, "", "/play/saves");
+  window.api.player.bootstrap.mockResolvedValue({ ...account, save_total: 51 });
+  window.api.player.savesPage = vi.fn().mockRejectedValueOnce(new Error("连接失败"))
+    .mockResolvedValueOnce({ items: account.saves, total: 51, page: 1, pages: 2 });
+  render(<PlayerApp />);
+  expect(await screen.findByRole("alert")).toHaveTextContent("连接失败");
+  fireEvent.click(screen.getByRole("button", { name: "重试" }));
+  expect(await screen.findByRole("button", { name: /Alex · 第 3 回合/ })).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
 it("keeps the archive private when a guest opens its URL", async () => {
   history.replaceState({}, "", "/play/saves");
   window.api.player.session.mockResolvedValue({ authenticated: false });

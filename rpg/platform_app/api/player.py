@@ -119,12 +119,8 @@ def estimate_usage(uid, save, profile, kind, message, *, reveal_future=False):
 @router.get("/bootstrap")
 def bootstrap(user=Depends(require_player)):
     uid = user["id"]
-    with connect() as db:
-        stories = catalog.listed_stories()
-        saves = db.execute(
-            "select g.*,p.title as story_title from game_saves g join player_stories p on p.id=g.player_story_id where g.user_id=%s order by g.updated_at desc,g.id desc",
-            (uid,),
-        ).fetchall()
+    stories = catalog.listed_stories()
+    saves = catalog.list_saves(uid)
     return dict(
         user={
             "id": uid,
@@ -134,7 +130,7 @@ def bootstrap(user=Depends(require_player)):
             "admin": user.get("role") == "admin",
         },
         stories=[catalog.public_story(s) for s in stories],
-        saves=[catalog.save_summary(s, s["story_title"]) for s in saves],
+        saves=saves["items"], save_total=saves["total"],
         wallet=wallet.wallet(uid),
     )
 
@@ -179,6 +175,12 @@ def _cover_response(selected, *, private=False):
 def create(body: Create, user=Depends(require_player)):
     with wallet.idle_account(user["id"]):
         return _create(body, user)
+
+
+@router.get("/saves")
+def list_saves(page: int = Query(default=1, ge=1, le=1000000),
+               query: str = Query(default="", max_length=120), user=Depends(require_player)):
+    return catalog.list_saves(user["id"], page=page, query=query)
 
 
 def _create(body: Create, user, *, selected=None, preview_revision=None, preview_key=None):
