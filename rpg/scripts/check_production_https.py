@@ -126,6 +126,32 @@ def main():
             print("PgBouncer SCRAM authentication and rejection: passed")
             run("docker", "run", "--rm", "--network", network, *direct_args, "--entrypoint", "python",
                 image, "-m", "platform_app.migrate", "full")
+            # Exercise an actual v109 -> current upgrade with existing records.
+            run("docker", "exec", pg, "createdb", "-U", "rpg", "upgrade_smoke")
+            upgrade_env = {**env, "DATABASE_URL": f"postgresql://rpg:{password}@db:5432/upgrade_smoke"}
+            upgrade_args = [argument for key, value in upgrade_env.items() for argument in ("-e", f"{key}={value}")]
+            old_schema = ("import uuid; import platform_app.db as d; "
+                          "d.MIGRATIONS[:]=[m for m in d.MIGRATIONS if m[0]<=109]; "
+                          "d._do_init_db(); d.try_enable_pgvector(); d._apply_versioned_migrations(); "
+                          "ctx=d.connect(); db=ctx.__enter__(); "
+                          "u=db.execute(\"insert into users(username,password_hash,display_name,account_mode) "
+                          "values('upgrade_creator','test','Upgrade','creator') returning id\").fetchone(); "
+                          "p=db.execute(\"insert into authoring_projects(id,owner_id,project_key,title) "
+                          "values(%s,%s,'upgrade','Upgrade') returning id\",(uuid.uuid4(),u['id'])).fetchone(); "
+                          "db.execute(\"insert into authoring_jobs(id,project_id,owner_id,kind,input) "
+                          "values(%s,%s,%s,'import','{}')\",(uuid.uuid4(),p['id'],u['id'])); "
+                          "db.execute(\"insert into authoring_oauth_clients(id,name,redirect_uris) "
+                          "values('upgrade_client','Upgrade','[]')\"); ctx.__exit__(None,None,None)")
+            run("docker", "run", "--rm", "--network", network, *upgrade_args, "--entrypoint", "python",
+                image, "-c", old_schema)
+            run("docker", "run", "--rm", "--network", network, *upgrade_args, "--entrypoint", "python",
+                image, "-m", "platform_app.migrate", "up")
+            upgraded = run("docker", "exec", pg, "psql", "-U", "rpg", "-d", "upgrade_smoke", "-Atc",
+                           "select (select count(*) from authoring_jobs where status='pending') || ':' || "
+                           "(select count(*) from authoring_oauth_clients where id='upgrade_client') || ':' || "
+                           "(select count(*) from pg_indexes where indexname='authoring_import_recovery')").stdout.strip()
+            assert upgraded == "1:1:1"
+            print("Existing v109 database upgrade preserves queued work and clients: passed")
             run("docker", "run", "-d", "--name", backend, "--network", network, "--network-alias", "backend",
                 *env_args, image)
             run("docker", "run", "-d", "--name", nginx, "--network", network,

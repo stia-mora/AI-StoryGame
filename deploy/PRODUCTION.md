@@ -30,7 +30,7 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d
 本机可先执行隔离容器冒烟：分别构建应用镜像为 `ai-storygame:creator-readiness-local`、
 连接池镜像为 `ai-storygame:pgbouncer-readiness-local`，然后运行
 `python rpg/scripts/check_production_https.py`。该检查使用临时 PostgreSQL、PgBouncer、
-nginx 和自签证书，覆盖授权、连接池事务锁及备份恢复；它不替代目标服务器验收。
+nginx 和自签证书，覆盖旧版数据库迁移、授权、连接池事务锁及备份恢复；它不替代目标服务器验收。
 
 Compose 后端只绑定本机 7860；使用 HTTPS 反代公开服务。生产不运行或暴露 Vite/Vitest 开发服务。
 
