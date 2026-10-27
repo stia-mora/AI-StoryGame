@@ -116,15 +116,17 @@ async def api_reset_avatar(request: Request):
 @router.get("/api/profile/avatar/file/{name}")
 async def api_avatar_file(name: str, request: Request):
     # 鉴权链接:必须登录(cookie)才能取图,未登录 → 401(同 /api/storage、/api/images/file)。
-    require_user(request)
+    user = require_user(request)
     # Basic safety: only allow our generated naming pattern.
     if "/" in name or "\\" in name or name.startswith("."):
         raise HTTPException(404)
+    from ..api.storage_routes import require_storage_access
+    require_storage_access(user["id"], "avatars", name)
     # 服务改走 storage.resolve_path（统一根 AVATARS_DIR），老 URL 保持兼容
     try:
         path = _storage_resolve_path(f"avatars/{name}")
     except ValueError:
-        raise HTTPException(404)
+        raise HTTPException(404) from None
     if not path.exists():
         raise HTTPException(404)
     return FileResponse(str(path))

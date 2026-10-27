@@ -52,8 +52,8 @@ def _make_user(db) -> int:
     uname = f"w3test_{_rand()}"
     row = db.execute(
         """
-        insert into users(username, display_name, password_hash, email)
-        values (%s, %s, 'x', %s) returning id
+        insert into users(username, display_name, password_hash, email, account_mode)
+        values (%s, %s, 'x', %s, 'creator') returning id
         """,
         (uname, uname, f"{uname}@example.test"),
     ).fetchone()

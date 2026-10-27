@@ -591,50 +591,108 @@ def list_public_cards(q: str | None = None, limit: int = 30, offset: int = 0) ->
 
 def clone_public_card(user_id: int, card_id: int) -> dict[str, Any]:
     """把一张公开 PC 卡【完整复制】到当前用户卡库(复制,非指针)。新卡默认私有。"""
+    import secrets
+    from pathlib import Path
+
+    from fastapi import HTTPException
+
+    from platform_app.api.storage_routes import require_storage_access
+
+    from . import storage
+
     init_db()
-    with connect() as db:
-        src = db.execute(
-            "select user_id, slug from character_cards where id=%s and is_public and card_type='pc'",
-            (int(card_id),),
-        ).fetchone()
-        if not src:
-            raise ValueError("公开角色卡不存在")
-        if int(src["user_id"]) == int(user_id):
-            raise ValueError("这是你自己的角色卡,无需导入")
-        new_slug = f"{src['slug'] or 'card'}-imp{int(card_id)}"
-        new = db.execute(
-            """
-            insert into character_cards(
-              user_id, slug, card_type, source, first_revealed_chapter,
-              name, full_name, aliases, identity, background, appearance, personality,
-              speech_style, current_status, secrets, sample_dialogue,
-              tags, metadata, token_budget, priority, importance, enabled, scope, avatar_path
-            )
-            select %(uid)s, %(slug)s, 'pc', 'cloned', first_revealed_chapter,
-              name, full_name, aliases, identity, background, appearance, personality,
-              speech_style, current_status, '', sample_dialogue,
-              tags, metadata, token_budget, priority, importance, true, scope, avatar_path
-            from character_cards where id = %(src)s and is_public and card_type='pc'
-            on conflict(user_id, slug, card_type) where card_type in ('pc','persona') do nothing
-            returning id
-            """,
-            {"uid": user_id, "slug": new_slug, "src": int(card_id)},
-        ).fetchone()
-        if not new:
-            raise ValueError("你已导入过这张角色卡")
-        db.execute("update character_cards set clone_count = clone_count + 1 where id = %s", (int(card_id),))
-        # 复制人设图历史行 —— image_url 引用同一站内资产(物理文件不重存,满足「公开卡人设图/历史不存两次」)
-        try:
-            db.execute(
+    copied_keys: list[str] = []
+    try:
+        with connect() as db:
+            src = db.execute(
+                "select user_id, slug, avatar_path from character_cards where id=%s and is_public and card_type='pc' for share",
+                (int(card_id),),
+            ).fetchone()
+            if not src:
+                raise ValueError("公开角色卡不存在")
+            if int(src["user_id"]) == int(user_id):
+                raise ValueError("这是你自己的角色卡,无需导入")
+            new_slug = f"{src['slug'] or 'card'}-imp{int(card_id)}"
+            new = db.execute(
                 """
-                insert into card_persona_images
-                    (card_id, image_url, persona_hash, card_row_version, source, status, is_current, prompt_snapshot)
-                select %(newid)s, image_url, persona_hash, card_row_version, 'cloned', status, is_current, prompt_snapshot
-                  from card_persona_images
-                 where card_id = %(src)s
+                insert into character_cards(
+                  user_id, slug, card_type, source, first_revealed_chapter,
+                  name, full_name, aliases, identity, background, appearance, personality,
+                  speech_style, current_status, secrets, sample_dialogue,
+                  tags, metadata, token_budget, priority, importance, enabled, scope, avatar_path
+                )
+                select %(uid)s, %(slug)s, 'pc', 'user', first_revealed_chapter,
+                  name, full_name, aliases, identity, background, appearance, personality,
+                  speech_style, current_status, '', sample_dialogue,
+                  tags, metadata, token_budget, priority, importance, true, scope, avatar_path
+                from character_cards where id = %(src)s and is_public and card_type='pc'
+                on conflict(user_id, slug, card_type) where card_type in ('pc','persona') do nothing
+                returning id
                 """,
-                {"newid": int(new["id"]), "src": int(card_id)},
-            )
-        except Exception as _persona_clone_exc:
-            log.warning("[user_cards] clone persona images failed new=%s src=%s: %s", new["id"], card_id, _persona_clone_exc)
-    return {"ok": True, "card_id": int(new["id"])}
+                {"uid": user_id, "slug": new_slug, "src": int(card_id)},
+            ).fetchone()
+            if not new:
+                raise ValueError("你已导入过这张角色卡")
+            db.execute("update character_cards set clone_count = clone_count + 1 where id = %s", (int(card_id),))
+            history = db.execute("select * from card_persona_images where card_id=%s order by id limit 201", (card_id,)).fetchall()
+            if len(history) > 200:
+                raise ValueError("角色卡图片过多，无法复制")
+            copied: dict[str, str] = {}
+            total = 0
+
+            def copy_image(url: str) -> str:
+                nonlocal total
+                if not url:
+                    return ""
+                if url in copied:
+                    return copied[url]
+                copied[url] = ""
+                prefixes = {"/api/storage/ai_images/": "ai_images", "/api/images/file/": "ai_images",
+                            "/api/storage/avatars/": "avatars", "/api/profile/avatar/file/": "avatars"}
+                for prefix in prefixes:
+                    if url.startswith(prefix):
+                        name = url[len(prefix):]
+                        kind = prefixes[prefix]
+                        break
+                else:
+                    return ""
+                ext = Path(name).suffix.lower()
+                if not name or Path(name).name != name or "\\" in name or ext not in {".png", ".jpg", ".jpeg", ".webp"}:
+                    return ""
+                try:
+                    require_storage_access(user_id, kind, name, db=db)
+                except HTTPException:
+                    return ""
+                path = storage.resolve_path(f"{kind}/{name}")
+                if not path.is_file():
+                    return ""
+                size = path.stat().st_size
+                if size > 8 * 1024 * 1024 or total + size > 100 * 1024 * 1024:
+                    raise ValueError("角色卡图片超过复制大小限制")
+                raw = path.read_bytes()
+                if len(raw) > 8 * 1024 * 1024 or total + len(raw) > 100 * 1024 * 1024:
+                    raise ValueError("角色卡图片超过复制大小限制")
+                total += len(raw)
+                filename = f"upload_{user_id}_{secrets.token_hex(12)}{ext}"
+                copied_keys.append(f"ai_images/{filename}")
+                key, result = storage.store_bytes(raw, kind="ai_images", filename=filename)
+                db.execute("""insert into user_assets(user_id,kind,storage_key,url,source,ref_kind,ref_id,size)
+                              values(%s,'card_image',%s,%s,'cloned_card','card',%s,%s)""",
+                           (user_id, key, result, new["id"], len(raw)))
+                copied[url] = result
+                return result
+
+            db.execute("update character_cards set avatar_path=%s where id=%s", (copy_image(src["avatar_path"]), new["id"]))
+            for image in history:
+                url = copy_image(image["image_url"])
+                if not url:
+                    continue
+                db.execute("""insert into card_persona_images(card_id,image_url,persona_hash,card_row_version,source,status,is_current,prompt_snapshot)
+                              values(%s,%s,%s,%s,'cloned',%s,%s,%s)""",
+                           (new["id"], url, image["persona_hash"], image["card_row_version"], image["status"],
+                            image["is_current"], image["prompt_snapshot"]))
+        return {"ok": True, "card_id": int(new["id"])}
+    except Exception:
+        for key in copied_keys:
+            storage.delete_file(key)
+        raise

@@ -177,7 +177,7 @@ async def api_image_file(filename: str, request: Request) -> FileResponse:
       2. 扩展名白名单：只允许 png / jpg / jpeg / webp。
       3. 实际路径由 storage.resolve_path 做根限定（防穿越/symlink 逃逸）。
     """
-    require_user(request)
+    user = require_user(request)
     from platform_app import storage  # lazy import
 
     # 1. 路径穿越检查（直接拒绝任何非纯文件名字符）
@@ -194,11 +194,14 @@ async def api_image_file(filename: str, request: Request) -> FileResponse:
     if ext not in _ALLOWED_EXTS:
         raise HTTPException(status_code=400, detail="不支持的文件类型")
 
+    from .storage_routes import require_storage_access
+    require_storage_access(user["id"], "ai_images", filename)
+
     # 3. 通过 storage 解析真实路径（内部做路径穿越防护）
     try:
         target = storage.resolve_path("ai_images/" + filename)
     except ValueError:
-        raise HTTPException(status_code=400, detail="非法路径")
+        raise HTTPException(status_code=400, detail="非法路径") from None
 
     if not target.exists():
         raise HTTPException(status_code=404, detail="文件不存在")

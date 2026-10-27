@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .db import connect, init_db, limit_value
@@ -135,7 +136,24 @@ def get_asset(user_id: int, asset_id: int) -> dict | None:
             """,
             (asset_id, user_id),
         ).fetchone()
-    return _row_to_dict(row) if row is not None else None
+    if row is None:
+        return None
+    asset = _row_to_dict(row)
+    # Migration 72 backfilled owners from editable avatar URLs and forked
+    # script source paths. A matching row alone is not proof of ownership.
+    key = str(asset.get("storage_key") or "").replace("\\", "/")
+    parts = key.split("/")
+    if ".." in parts or "" in parts:
+        return None
+    if parts[0] == "avatars" and (
+        len(parts) != 2 or not re.fullmatch(rf"u{int(user_id)}_[0-9]+\.(?:png|jpg|jpeg|webp)", parts[1])
+    ):
+        return None
+    if (parts[0] == "scripts" or asset.get("kind") == "script_txt") and (
+        len(parts) < 3 or parts[0] != "scripts" or parts[1] != f"user_{int(user_id)}"
+    ):
+        return None
+    return asset
 
 
 # ---------------------------------------------------------------------------

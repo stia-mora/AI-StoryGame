@@ -90,8 +90,17 @@ async def api_export_tavern_png(card_id: int, user=Depends(require_user)):
     if isinstance(avatar_path, str) and avatar_path:
         try:
             from ... import storage as _storage
-            key = avatar_path.split("/api/storage/", 1)[-1]
-            if key and not key.startswith(("http://", "https://", "data:", "/")):
+            from ..storage_routes import require_storage_access
+            prefix = "/api/storage/"
+            key = avatar_path.removeprefix(prefix) if avatar_path.startswith(prefix) else ""
+            parts = key.split("/")
+            if len(parts) == 2 and parts[0] in {"ai_images", "avatars", "scripts", "library"}:
+                require_storage_access(user["id"], parts[0], parts[1])
+            elif len(parts) == 3 and parts[0] == "authoring" and parts[1] == str(user["id"]):
+                pass  # Authoring files are scoped to the owner in their storage path.
+            else:
+                key = ""
+            if key:
                 p = _storage.resolve_path(key)
                 if p.exists():
                     raw = p.read_bytes()
