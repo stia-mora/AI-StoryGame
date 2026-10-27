@@ -67,6 +67,7 @@ export function ActionChoices({
           );
         })}
       </div>
+      <p className="fine-print">封顶是本轮扣费上限，实扣按用量结算，未用预留自动退回。</p>
       {unavailable && (
         <button
           className="text-button"

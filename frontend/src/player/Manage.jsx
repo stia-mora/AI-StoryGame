@@ -30,6 +30,7 @@ export function Manage({ navigate }) {
     profile_id: "",
     title: "",
     introduction: "",
+    opening_preview: "",
     cover: "",
     identities: JSON.stringify(starter, null, 2),
     defaults: "{}",
@@ -153,6 +154,7 @@ export function Manage({ navigate }) {
                 onClick={() =>
                   setStory({
                     ...s,
+                    opening_preview: s.defaults?.opening_preview || "",
                     identities: JSON.stringify(s.identities, null, 2),
                     defaults: JSON.stringify(s.defaults, null, 2),
                   })
@@ -181,7 +183,7 @@ export function Manage({ navigate }) {
                   script_id: Number(story.script_id),
                   profile_id: Number(story.profile_id),
                   identities: JSON.parse(story.identities),
-                  defaults: JSON.parse(story.defaults),
+                  defaults: { ...JSON.parse(story.defaults), opening_preview: story.opening_preview },
                 });
               } catch {
                 setError("身份或开局配置不是有效 JSON");
@@ -247,6 +249,11 @@ export function Manage({ navigate }) {
                 onChange={(e) => setStory({ ...story, cover: e.target.value })}
                 placeholder="HTTPS 图片或 /assets/ 路径"
               />
+            </label>
+            <label className="field-label">
+              公开开场试读（可选）
+              <textarea rows={8} maxLength={6000} value={story.opening_preview} onChange={(e) => setStory({ ...story, opening_preview: e.target.value })} />
+              <span className="fine-print">游客可直接阅读，不生成剧情、不扣积分。请填写可公开的正文片段。</span>
             </label>
             <label className="field-label">
               推荐身份

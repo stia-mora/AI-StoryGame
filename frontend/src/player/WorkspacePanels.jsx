@@ -483,7 +483,7 @@ export function SaveRail({
             >
               <span>{save.name}</span>
               <span className="muted">
-                {save.story_title} · {save.turn} 回合
+                {save.story_title} · {save.id === view.save.id ? view.save.turn : save.turn} 回合
               </span>
             </button>
           ))

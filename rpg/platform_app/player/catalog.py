@@ -55,6 +55,9 @@ def public_story(row, *, save_id=None):
         for i in row["identities"]
     ]
     public["martial_soul_creation"] = public_config(row.get("defaults"))
+    preview = (row.get("defaults") or {}).get("opening_preview", "")
+    if isinstance(preview, str) and preview.strip():
+        public["opening_preview"] = preview.strip()[:6000]
     if row.get("author_name"):
         public["author"] = row["author_name"]
         public["version"] = row.get("authoring_version")

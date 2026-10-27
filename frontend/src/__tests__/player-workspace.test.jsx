@@ -53,6 +53,34 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
+it("receives server stages and unlocks a settled turn while the wallet request is stalled", async () => {
+  let handlers, done;
+  window.api.player.execute.mockImplementation((_body, callbacks) => {
+    handlers = callbacks;
+    return { done: new Promise((resolve) => { done = resolve; }) };
+  });
+  const refreshWallet = vi.fn().mockReturnValue(new Promise(() => {}));
+  render(<Reader {...props} refreshWallet={refreshWallet} />);
+  const choice = await screen.findByRole("button", { name: "A 向村长问路" });
+  await waitFor(() => expect(choice.disabled).toBe(false));
+  fireEvent.click(choice);
+  expect(screen.getByRole("timer")).toHaveTextContent("已等待");
+  act(() => handlers.on_stage({ phase: "retrieving", label: "正在整理故事资料" }));
+  expect(screen.getByText("整理资料").getAttribute("aria-current")).toBe("step");
+  act(() => handlers.on_token({ text: "村长为你指明了去学院的路。" }));
+  expect(screen.getByText("生成剧情").getAttribute("aria-current")).toBe("step");
+  act(() => handlers.on_stage({ phase: "saving", label: "正在保存剧情与结算积分" }));
+  expect(screen.getByText("保存结算").getAttribute("aria-current")).toBe("step");
+  window.api.player.request.mockResolvedValue({ status: "running", progress: { phase: "understanding" } });
+  await act(async () => handlers.onClose());
+  expect(screen.getByText("保存结算").getAttribute("aria-current")).toBe("step");
+  window.api.player.request.mockResolvedValue({ status: "settled", receipt: { saved: true } });
+  await act(async () => { done(); });
+  await waitFor(() => expect(screen.getByLabelText("你要如何行动？").disabled).toBe(false));
+  expect(screen.queryByRole("timer")).toBeNull();
+  expect(refreshWallet).toHaveBeenCalled();
+});
+
 it("links to the full archive when the reader only has recent saves", async () => {
   const navigate = vi.fn();
   render(<Reader {...props} navigate={navigate} saves={[{ id: 9, name: "旅人", story_title: "测试世界", turn: 2 }]} saveTotal={51} />);

@@ -1,10 +1,11 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { PlayerApp } from "../player/PlayerApp.jsx";
 import { __resolveNextOrDefault } from "../components/login/nextTarget.js";
 
 const story = { id: 7, title: "雾海来信", introduction: "一封来自远方的信", cover: "", identities: [{ id: "traveler", name: "旅人", description: "从港口出发" }] };
 beforeEach(() => {
+  localStorage.clear();
   history.replaceState({}, "", "/play");
   window.scrollTo = vi.fn();
   window.api = {
@@ -38,6 +39,75 @@ it("shows a login boundary for direct private save URLs", async () => {
   render(<PlayerApp />);
   expect(await screen.findByRole("button", { name: "登录后继续" })).toBeTruthy();
   expect(window.api.player.save).not.toHaveBeenCalled();
+});
+
+it("closes the account menu on outside interaction and navigation", async () => {
+  window.api.player.session.mockResolvedValue({ authenticated: true });
+  window.api.player.bootstrap.mockResolvedValue({ user: { id: 2, name: "测试玩家" }, stories: [], saves: [], wallet: { free_micro: 0, permanent_micro: 0 } });
+  render(<PlayerApp />);
+  const trigger = await screen.findByLabelText("账户菜单");
+  const menu = trigger.closest("details");
+  menu.open = true;
+  fireEvent.pointerDown(screen.getByRole("heading", { name: "故事大厅" }));
+  expect(menu.open).toBe(false);
+  menu.open = true;
+  fireEvent.focusIn(screen.getByRole("button", { name: "指引" }));
+  expect(menu.open).toBe(false);
+  menu.open = true;
+  fireEvent.click(screen.getByRole("button", { name: "我的存档" }));
+  expect(menu.open).toBe(false);
+});
+
+it("reads an explicitly published opening as a guest without creating or charging a save", async () => {
+  window.api.player.catalog.mockResolvedValue({ stories: [{ ...story, opening_preview: "雨落在港口。旅人拆开了那封信。" }] });
+  window.api.player.create = vi.fn();
+  window.api.player.quote = vi.fn();
+  window.api.player.execute = vi.fn();
+  render(<PlayerApp />);
+  fireEvent.click(await screen.findByRole("button", { name: /开场试读/ }));
+  expect(await screen.findByRole("heading", { name: "开场试读" })).toBeTruthy();
+  expect(screen.getByText("雨落在港口。旅人拆开了那封信。")).toBeTruthy();
+  expect(window.api.player.bootstrap).not.toHaveBeenCalled();
+  expect(window.api.player.create).not.toHaveBeenCalled();
+  expect(window.api.player.quote).not.toHaveBeenCalled();
+  expect(window.api.player.execute).not.toHaveBeenCalled();
+});
+
+it("updates the header from redemption even while the ledger refresh is stalled", async () => {
+  window.api.player.session.mockResolvedValue({ authenticated: true });
+  window.api.player.bootstrap.mockResolvedValue({ user: { id: 2, name: "测试玩家" }, stories: [], saves: [], wallet: { free_micro: 0, permanent_micro: 1000000 } });
+  window.api.player.wallet = vi.fn().mockResolvedValue({ free_micro: 0, permanent_micro: 1000000, held_micro: 0, rates: { input: 1, output: 2 } });
+  window.api.player.ledger = vi.fn().mockReturnValue(new Promise(() => {}));
+  window.api.player.redeem = vi.fn().mockResolvedValue({ free_micro: 0, permanent_micro: 6000000, held_micro: 0, rates: { input: 1, output: 2 } });
+  history.replaceState({}, "", "/play/wallet");
+  render(<PlayerApp />);
+  await screen.findByText("1.00 积分");
+  fireEvent.change(await screen.findByLabelText("兑换码"), { target: { value: "TEST" } });
+  fireEvent.click(screen.getByRole("button", { name: "兑换" }));
+  await screen.findByText("兑换成功，积分已加入长期余额。");
+  expect(screen.getByText("6.00 积分")).toBeTruthy();
+});
+
+it("does not overwrite redeemed points with an older turn balance response", async () => {
+  let finishOldBalance;
+  const initialWallet = { free_micro: 0, permanent_micro: 1000000, held_micro: 0, rates: { input: 1, output: 2 } };
+  window.api.player.session.mockResolvedValue({ authenticated: true });
+  window.api.player.bootstrap.mockResolvedValue({ user: { id: 2 }, stories: [], saves: [], wallet: initialWallet });
+  window.api.player.save.mockResolvedValue({ save: { id: 9, turn: 1, story_title: "测试世界" }, status: { name: "旅人" }, messages: [], options: [], has_opening: true });
+  window.api.player.request = vi.fn().mockResolvedValue({ status: "released" });
+  window.api.player.wallet = vi.fn().mockResolvedValue(initialWallet).mockImplementationOnce(() => new Promise((resolve) => { finishOldBalance = resolve; }));
+  window.api.player.ledger = vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, pages: 1 });
+  window.api.player.redeem = vi.fn().mockResolvedValue({ ...initialWallet, permanent_micro: 6000000 });
+  localStorage.setItem("player-request-2-9", JSON.stringify({ request_id: "previous-turn" }));
+  history.replaceState({}, "", "/play/saves/9");
+  render(<PlayerApp />);
+  await waitFor(() => expect(window.api.player.wallet).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByRole("button", { name: "1.00 积分" }));
+  fireEvent.change(await screen.findByLabelText("兑换码"), { target: { value: "TEST" } });
+  fireEvent.click(screen.getByRole("button", { name: "兑换" }));
+  await screen.findByText("6.00 积分");
+  await act(async () => finishOldBalance(initialWallet));
+  expect(screen.getByText("6.00 积分")).toBeTruthy();
 });
 
 it("opens guidance again and keeps logout failures actionable", async () => {

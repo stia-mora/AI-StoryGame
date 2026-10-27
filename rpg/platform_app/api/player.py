@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, StrictBool, model_validator
 from core.sse import SSE_HEADERS, with_keepalive
 from platform_app.db import connect, expose
 from platform_app.player import catalog, wallet
+from platform_app.player.generation_progress import public_stage
 from platform_app.player.meter import Run, active_run
 
 from ._deps import current_user, require_user
@@ -362,7 +363,8 @@ async def execute(body: Execute, user=Depends(require_player)):
             app._invalidate_user_cache(user)
             wallet.heartbeat(run.uid, run.id)
             ticker = asyncio.create_task(pulse())
-            yield event("saving", {"state": "generating"})
+            run.progress = public_stage("stage", {"phase": "preparing"})
+            yield event("saving", {"state": "generating", **run.progress})
             if body.kind == "opening":
                 from routes.game.opening import api_opening
 
@@ -397,6 +399,10 @@ async def execute(body: Execute, user=Depends(require_player)):
                             name = line[6:].strip()
                         if line.startswith("data:"):
                             data = json.loads(line[5:])
+                    progress = public_stage(name, data)
+                    if progress and progress != run.progress:
+                        run.progress = progress
+                        yield event("stage", progress)
                     if name == "token":
                         visible = visible_guard.feed(data.get("text", ""))
                         text += visible
@@ -473,11 +479,14 @@ def request_status(request_id: uuid.UUID, user=Depends(require_player)):
     wallet.reap(user["id"])
     with connect() as db:
         req = db.execute(
-            "select status,receipt,reason from player_requests where id=%s and user_id=%s",
+            "select status,receipt,reason,created_at from player_requests where id=%s and user_id=%s",
             (request_id, user["id"]),
         ).fetchone()
     if not req:
         raise HTTPException(404, "找不到此请求")
+    run = RUNS.get(str(request_id))
+    if run and run.uid == user["id"] and getattr(run, "progress", None):
+        req["progress"] = run.progress
     return req
 
 

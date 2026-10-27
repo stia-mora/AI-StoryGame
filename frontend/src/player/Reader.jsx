@@ -33,6 +33,7 @@ import {
 } from "../lib/storage.js";
 import { safeUUID as uuid } from "../lib/crypto-safe.js";
 import { TurnProgress } from "./Progress.jsx";
+import { GenerationProgress } from "./GenerationProgress.jsx";
 import { ActionChoices } from "./ActionChoices.jsx";
 import { Assistant } from "./Assistant.jsx";
 import { InformationPanel, SaveRail } from "./WorkspacePanels.jsx";
@@ -55,6 +56,8 @@ function mergeMessages(older, newer) {
   const entries = new Map([...older, ...newer].map((message) => [message.id, message]));
   return [...entries.values()].sort((a, b) => parseInt(a.id) - parseInt(b.id) || (a.role === "user" ? -1 : 1));
 }
+
+const generationStages = ["preparing", "understanding", "retrieving", "generating", "saving"];
 
 export function Reader({
   saveId,
@@ -81,6 +84,7 @@ export function Reader({
   const [quoteRevision, setQuoteRevision] = useState(0);
   const [historyBusy, setHistoryBusy] = useState(false);
   const [stateUnread, setStateUnread] = useState(0);
+  const [stage, setStage] = useState("preparing"), [startedAt, setStartedAt] = useState(null), [confirmedAt, setConfirmedAt] = useState(null);
   const [selectedId, setSelectedId] = useState(null),
     [helperBusy, setHelperBusy] = useState(false);
   const changeAssistant = useCallback((open) => {
@@ -169,6 +173,11 @@ export function Reader({
     async (id) => {
       try {
         const result = await window.api.player.request(id);
+        if (mounted.current && execution.current?.request_id === id) {
+          setConfirmedAt(Date.now());
+          if (result.progress?.phase) setStage((current) => generationStages.indexOf(result.progress.phase) > generationStages.indexOf(current) ? result.progress.phase : current);
+          if (!execution.current.started_at && result.created_at) setStartedAt(Date.parse(result.created_at));
+        }
         if (result.status === "settled" || result.status === "released") {
           // Polling and SSE close can both finish an old request after the next one starts.
           if (execution.current?.request_id !== id) return true;
@@ -184,7 +193,6 @@ export function Reader({
           };
           if (followNewer()) return false;
           await load();
-          await refreshWallet();
           if (execution.current?.request_id !== id) return true;
           if (followNewer()) return false;
           lsRemove(requestKey);
@@ -206,6 +214,10 @@ export function Reader({
             setDraft("");
             action.current = null;
           }
+          // A confirmed save must not keep the composer locked behind a wallet read.
+          Promise.resolve().then(refreshWallet).catch(() => {
+            if (mounted.current && !execution.current) setError("本轮已结束，积分余额刷新失败，请稍后打开积分页查看。");
+          });
           return true;
         }
       } catch (e) {
@@ -222,6 +234,7 @@ export function Reader({
     if (pending) {
       execution.current = pending;
       setBusy(true);
+      setStartedAt(pending.started_at || Date.now());
       setSaveState("正在查询保存结果");
       finish(pending.request_id).then(async (completed) => {
         if (completed) return;
@@ -308,30 +321,50 @@ export function Reader({
       request_id: uuid(),
       quote_id: selectedQuote.id,
       cap_micro: selectedQuote.cap_micro,
+      started_at: Date.now(),
     };
     execution.current = request;
     lsSetJSON(requestKey, request);
     setQuote(selectedQuote);
     setBusy(true);
+    setStartedAt(request.started_at);
+    setConfirmedAt(null);
+    setStage("preparing");
     setError("");
     setStreamText("");
     setSelectedId(null);
     setSaveState("正在生成");
     const channel = window.api.player.execute(request, {
-      on_saving: () => {
-        if (mounted.current)
+      on_saving: (data) => {
+        if (mounted.current) {
+          setConfirmedAt(Date.now());
+          setStage(data?.phase || "preparing");
           setSaveState(
             kind === "opening" ? "正在准备故事" : "正在理解你的行动",
           );
+        }
+      },
+      on_stage: (data) => {
+        if (mounted.current) {
+          setConfirmedAt(Date.now());
+          setStage(data.phase);
+          setSaveState(data.label);
+        }
       },
       on_token: (data) => {
         if (mounted.current) {
+          setConfirmedAt(Date.now());
+          setStage("generating");
           setSaveState("故事正在展开");
           setStreamText((t) => t + data.text);
         }
       },
       on_receipt: (receipt) => {
-        if (mounted.current) setStreamText(receipt.text);
+        if (mounted.current) {
+          setStreamText(receipt.text);
+          setStage("saving");
+          setSaveState("正在确认保存结果");
+        }
       },
       on_saved: (data) => {
         if (data.saved && kind === "turn") {
@@ -562,11 +595,7 @@ export function Reader({
                   <p>{actionLabel(action.current?.message || "开始故事")}</p>
                 </div>
                 <StreamingNarration text={streamText} />
-                {!streamText && (
-                  <p className="generating-note" role="status">
-                    正在理解行动，故事即将展开……
-                  </p>
-                )}
+                <GenerationProgress phase={stage} startedAt={startedAt} confirmedAt={confirmedAt} opening={kind === "opening"} />
               </article>
             )}
             {error && <Notice error>{error}</Notice>}
@@ -679,6 +708,7 @@ export function Reader({
                       本轮封顶 {points(quote.cap_micro)}
                       {!quote.affordable && " · 余额不足"}
                     </span>
+                    <span>封顶是扣费上限，实扣按用量结算，未用预留自动退回。</span>
                   </>
                 ) : (
                   <span>

@@ -128,6 +128,9 @@ async def story(request: Request, admin=Depends(_require_admin)):
 
     if not isinstance(defaults, dict):
         raise HTTPException(400, "开局配置必须是对象")
+    preview = defaults.get("opening_preview", "")
+    if not isinstance(preview, str) or len(preview) > 6000:
+        raise HTTPException(400, "公开开场试读须为不超过6000字的正文")
     creation_config(defaults)
     if (
         not isinstance(identities, list)

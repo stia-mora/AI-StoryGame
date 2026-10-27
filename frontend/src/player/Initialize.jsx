@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowUp, ArrowRight, BookOpen, CaretDown, Check, CircleNotch, Copy, PencilSimple, Shuffle, User } from "@phosphor-icons/react";
 import { lsGetJSON, lsRemove, lsSetJSON } from "../lib/storage.js";
-import { BookCover, Button, Notice } from "./shared.jsx";
+import { BookCover, Button, Narration, Notice } from "./shared.jsx";
 import { useComposerKeys } from "./useComposerKeys.js";
 
 export function Initialize({ story, uid, navigate, refresh, guest = false, login }) {
@@ -150,6 +150,16 @@ export function Initialize({ story, uid, navigate, refresh, guest = false, login
                 <details><summary>故事简介<CaretDown size={14} /></summary><p>{story.introduction}</p></details>
               </div>
             </div>
+            {story.opening_preview && (
+              <section aria-labelledby="opening-preview-title">
+                <h2 id="opening-preview-title">开场试读</h2>
+                <details open={guest}>
+                  <summary>阅读公开开场片段</summary>
+                  <p className="fine-print">公开开场片段 · 免费阅读。创建自己的角色后，后续剧情由你的行动决定。</p>
+                  <Narration text={story.opening_preview} />
+                </details>
+              </section>
+            )}
             {!guest && !reviewed && fields.some((field) => field.complete && field.id !== setup.step) && (
               <ol className="setup-transcript" aria-label="已确认设定">
                 {fields.filter((field) => field.complete && field.id !== setup.step).map((field) => (

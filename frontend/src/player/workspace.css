@@ -1325,6 +1325,16 @@
 }
 
 /* Public lobby, account menu and reusable player guidance. */
+.generation-progress { margin-block: 20px; padding-block: 12px; font-size: .8125rem; }
+.generation-progress ol { display: flex; flex-wrap: wrap; gap: 8px 16px; list-style: none; padding: 0; margin: 0 0 12px; }
+.generation-progress li { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.generation-progress li[aria-current] { color: var(--ink); font-weight: 600; }
+.generation-progress li[data-complete="true"] { color: var(--muted); }
+.generation-progress li > span { display: inline-grid; place-items: center; width: 20px; height: 20px; border: 1px solid currentColor; border-radius: 50%; font-size: .6875rem; }
+.generation-progress p { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-block: 8px; font-variant-numeric: tabular-nums; }
+@media (max-width: 600px) {
+  .generation-progress ol { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .player-account { position: relative; font-size: .8125rem; }
 .player-account > summary { list-style: none; padding: 8px; }
 .player-account-menu { position: absolute; right: 0; top: 100%; z-index: 50; width: min(260px, calc(100vw - 24px)); padding: 16px; display: grid; gap: 12px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: 0 8px 24px var(--shadow); overflow-wrap: anywhere; }

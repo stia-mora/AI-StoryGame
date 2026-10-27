@@ -531,11 +531,6 @@ details summary {
   line-height: 2;
   color: var(--muted);
 }
-.generating-note {
-  font-size: 14px;
-  color: var(--muted);
-  padding: 25px 0;
-}
 .composer-wrap {
   position: fixed;
   bottom: 0;

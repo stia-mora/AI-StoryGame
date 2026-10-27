@@ -67,9 +67,24 @@ def test_old_questions_are_not_offered_after_the_scene_moves_forward():
         "permissions": {"pending_questions": [{"turn": 0, "options": ["走进会堂"]}]},
     }
     result = ensure_choices(state)
-    assert len(result) == 4 and "走进会堂" not in result
+    assert len(result) == 2 and "走进会堂" not in result
     assert any("选择求学方向" in action for action in result)
     assert state["options_turn"] == 1
+
+
+def test_missing_opening_choices_use_only_named_facts_without_template_padding():
+    assert choices({}) == []
+    state = {
+        "turn": 0,
+        "player": {"current_location": "村长家"},
+        "memory": {"current_objective": "筹备学院路费", "resources": ["推荐信"]},
+        "relationships": {"老杰克": "相识"},
+    }
+    options = ensure_choices(state)
+    assert len(options) == 4
+    assert all(any(fact in option for fact in ("村长家", "学院路费", "老杰克", "推荐信")) for option in options)
+    assert not any("眼前可交流的人" in option or "基础训练" in option for option in options)
+    assert not any("武魂分殿" in option for option in options)
 
 
 def test_new_question_ops_survive_legacy_persist_turn_increment():

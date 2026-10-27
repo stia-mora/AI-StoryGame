@@ -573,6 +573,7 @@ async def run_gm_phase(
     from platform_app.player.meter import current as _player_run, phase_var as _player_phase
     if _player_run():
         _player_phase.set('postproc')
+        yield ("stage", {"phase": "saving"})
 
     # acceptance 硬闸。
     # 【设计改版 · A/B 用户裁决 + 下线关键路径】

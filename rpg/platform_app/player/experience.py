@@ -9,6 +9,8 @@ PLAYER_GUIDE = """
 每次开场或回合回复都必须提供恰好四个不同的、符合当前现场的下一步行动。
 使用 question op 的 options 数组或正文末尾四项编号列表。选项是建议，不替玩家行动。
 四项分别体现推进、探索、交流或成长、谨慎或不同策略；用具体人物、地点和动作，避免空泛。
+从开场后的第一次选择就执行：每项点明正文已公开的人物或地点、要做的事和眼下可知的条件或代价，让玩家点击前能判断路线差异。
+禁止用「推进主线」「探索周围」「与人交流」「稳妥准备」这类通用话术替代现场行动；不把后续才能知道的结果当作承诺。
 每个建议授权一段有结果的完整行动，合并日常手续与安全行程，停在下一关键抉择；不要把伸手、排队、问一条细节、走到门口拆成付费回合。
 出现可争夺的已知机缘时，明确提供争取与放弃/让给他人的选择，并说明眼下可知的代价。
 不得把原著未来情报、隐藏身份或未接触的机缘写进选项。玩家仍能自由输入其他行动。
@@ -205,14 +207,23 @@ def choices(data, existing=None, narration=""):
     place = text(current["location"])
     known = next((text(item).split(" · ")[0] for item in current["people"] if text(item)), "")
     objective = text(current["objective"])
-    fallback = [
-        f"推进「{objective[:100]}」，办完沿途普通手续并确认结果，再进入下一关键节点"
-        if objective
-        else "整理当前物品与能力，选定安全可行的成长方向并完成一次基础练习",
-        f"调查{place or '眼前环境'}的可见线索，完成安全范围内的查证并带回明确发现",
-        f"与{known or '眼前可交流的人'}完整交流当前问题，取得明确答复并办妥相关普通安排",
-        "采用较稳妥的路线完成当前准备与基础训练，再判断下一处风险；重大代价先停下决定",
-    ]
+    # Missing model options must not turn into four interchangeable template buttons.
+    # Offer only actions grounded in facts we can name; free input remains available.
+    fallback = []
+    if objective:
+        where = f"在{place}，" if place else ""
+        fallback.append(f"{where}着手「{objective[:100]}」，完成可行的普通步骤，遇到重大代价先停下决定")
+    if place:
+        fallback.append(f"留在{place}查证可见线索，弄清这里的情况后再决定去向")
+    if known:
+        subject = f"「{objective[:80]}」的可行路线与条件" if objective else f"{place or '当前局势'}的情况"
+        fallback.append(f"向{known}询问{subject}，听取答复后再决定")
+    resource = next((text(item) for item in current["resources"] + current["inventory"] if text(item)), "")
+    if resource:
+        fallback.append(f"检查随身的「{resource[:80]}」，确认状况和用途，再安排下一步")
+    ability = next((text(item) for item in current["abilities"] if text(item)), "")
+    if ability and place:
+        fallback.append(f"在{place}安全练习已掌握的「{ability[:80]}」，确认运用情况后再行动")
     for item in fallback:
         if len(result) >= 4:
             break

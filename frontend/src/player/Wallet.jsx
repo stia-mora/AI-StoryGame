@@ -11,7 +11,7 @@ const names = {
   redeem: "兑换码",
   grant: "管理员发放",
 };
-export function Wallet({ refresh, navigate }) {
+export function Wallet({ onWalletChange, navigate }) {
   const [wallet, setWallet] = useState(null);
   const [code, setCode] = useState(""), [message, setMessage] = useState(""), [error, setError] = useState("");
   const [busy, setBusy] = useState(false), [loading, setLoading] = useState(true);
@@ -57,11 +57,12 @@ export function Wallet({ refresh, navigate }) {
     setError("");
     setMessage("");
     try {
-      await window.api.player.redeem(code);
+      const value = await window.api.player.redeem(code);
+      setWallet(value);
+      onWalletChange?.(value);
       setCode("");
       setMessage("兑换成功，积分已加入长期余额。");
-      await load();
-      await refresh();
+      setRevision((old) => old + 1);
     } catch (e) {
       setError(e.message);
     } finally {

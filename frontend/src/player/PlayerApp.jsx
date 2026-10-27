@@ -39,7 +39,9 @@ export function PlayerApp() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const latestReload = useRef(0);
+  const latestWallet = useRef(0);
   const previousPath = useRef(path);
+  const accountMenu = useRef(null);
   const login = () => navigate(`/play/login?next=${encodeURIComponent(location.pathname + location.search + location.hash)}`);
   const logout = async () => {
     setSigningOut(true);
@@ -68,11 +70,37 @@ export function PlayerApp() {
     };
   });
   const navigate = useCallback((url) => {
+    if (accountMenu.current) accountMenu.current.open = false;
     if (url === "/play/saves") setSaveSearch("");
     history.pushState({}, "", url);
     setPath(new URL(url, location.origin).pathname);
     window.scrollTo(0, 0);
   }, []);
+  const updateWallet = useCallback((wallet) => {
+    // Invalidate bootstrap reads started before this confirmed balance change.
+    latestReload.current++;
+    latestWallet.current++;
+    setData((old) => old ? { ...old, wallet } : old);
+  }, []);
+  const refreshWallet = useCallback(async () => {
+    const revision = ++latestWallet.current;
+    const wallet = await window.api.player.wallet();
+    if (revision === latestWallet.current) updateWallet(wallet);
+  }, [updateWallet]);
+  useEffect(() => {
+    const dismiss = (event) => {
+      if (accountMenu.current && !accountMenu.current.contains(event.target)) accountMenu.current.open = false;
+    };
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("focusin", dismiss);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      document.removeEventListener("focusin", dismiss);
+    };
+  }, []);
+  useEffect(() => {
+    if (accountMenu.current) accountMenu.current.open = false;
+  }, [path]);
   const reload = useCallback(async () => {
     const request = ++latestReload.current;
     try {
@@ -151,7 +179,7 @@ export function PlayerApp() {
             {prefs.night ? <Sun size={21} /> : <Moon size={21} />}
           </button>
           {data?.user ? (
-            <details className="player-account" onKeyDown={(event) => {
+            <details ref={accountMenu} className="player-account" onKeyDown={(event) => {
               if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary").focus(); }
             }}>
               <summary aria-label="账户菜单"><UserCircle size={22} aria-hidden="true" /><span>账户</span><CaretDown size={12} aria-hidden="true" /></summary>
@@ -190,14 +218,14 @@ export function PlayerApp() {
           navigate={navigate}
           prefs={prefs}
           setPrefs={setPrefs}
-          refreshWallet={reload}
+          refreshWallet={refreshWallet}
           saves={data.saves}
           saveTotal={data.save_total ?? data.saves.length}
         />
       ) : path.startsWith("/play/authoring") ? (
         data.user?.creator ? <Suspense fallback={<Loading />}>{path === "/play/authoring-admin" && data.user.admin ? <AuthoringAdmin navigate={navigate} /> : <Authoring navigate={navigate} admin={data.user.admin} />}</Suspense> : <main id="player-main" className="player-shell"><Notice error>请先取得创作者权限。</Notice></main>
       ) : path === "/play/wallet" ? (
-        <Wallet refresh={reload} navigate={navigate} />
+        <Wallet onWalletChange={updateWallet} navigate={navigate} />
       ) : path === "/play/manage" && data.user?.admin ? (
         <Manage navigate={navigate} />
       ) : (storyId || commentsId) ? (
