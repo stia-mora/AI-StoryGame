@@ -175,6 +175,10 @@ curl https://localhost/api/state               # 不传 CF-Connecting-IP 应被 
 curl https://rpg-roleplay.stellatrix.icu/api/state   # 200
 curl -v https://rpg-roleplay.stellatrix.icu/         # 看 HTTP 200 + index.html
 
+# 使用有权限的会话访问作者私有媒体，检查 Cache-Control 没有 public 或 immutable；
+# 未登录或其他用户访问同一 URL 时应被拒绝。不要在共享缓存中保存认证媒体。
+# 测试服仅允许白名单地址，MCP 验收还须从白名单客户端进行 OAuth 和工具调用。
+
 # 在任意非白名单 IP:
 curl https://rpg-roleplay.stellatrix.icu/            # CF WAF 直接 block(看不到)
 ```

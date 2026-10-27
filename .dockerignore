@@ -16,6 +16,13 @@
 # ── Docs / meta (not needed at runtime) ─────────────────────────────────────
 docs
 deploy
+desktop
+docs-site
+ios
+mobile
+ops
+scripts
+videos
 *.md
 !rpg/**/*.md
 LICENSE
@@ -45,6 +52,9 @@ rpg/saves
 rpg/indexes
 rpg/db
 rpg/claude_design_upload
+rpg/user_skills
+manuscript
+tmp
 .webnovel
 .dev-logs
 
@@ -84,3 +94,5 @@ rpg/config/*.private.json
 output
 .playwright-cli
 .claude
+**/.pytest_cache
+**/.ruff_cache

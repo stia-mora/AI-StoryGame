@@ -18,6 +18,13 @@ UID/GID 10001 可写的 `data/`。`.env` 必须包括：
 - `PUBLIC_BASE_URL`、`RPG_CORS_ORIGINS`：按实际访问入口配置。
 - `RPG_COOKIE_SECURE=1`：公开 HTTPS 时必须启用。
 
+创作包和旧剧本包的解压上限在此配置中默认均为 32 MiB，以适应 512 MiB
+后端内存；上传请求体默认上限为 16 MiB。需要更大的包时，应先按实际内存和并发验证，再分别设置
+`RPG_UPLOAD_BODY_LIMIT_BYTES`、
+`RPG_AUTHORING_MAX_EXPANDED_BYTES` 与 `RPG_SCRIPT_PACK_MAX_EXPANDED_BYTES`。
+应用层的绝对上限为 500 MiB。创作包的 JSON 成员、JSONL 单行及结构节点
+默认分别限制为 4 MiB、4 MiB 和 500,000；调整时应一并考虑解析后的内存占用。
+
 首次启动，先启动基础服务并直连迁移，再导入剧本数据，最后启动运行时：
 
 ```sh

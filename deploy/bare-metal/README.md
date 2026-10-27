@@ -477,6 +477,19 @@ server {
     location = /readyz { proxy_pass http://127.0.0.1:7860; }
     client_max_body_size 50m;
 
+    # 创作者 MCP 及 OAuth 发现、授权端点不能落入 SPA 静态回退。
+    location ~ ^/(mcp/authoring(/|$)|oauth/authoring(/|$)|\.well-known/) {
+        proxy_pass         http://127.0.0.1:7860;
+        proxy_http_version 1.1;
+        proxy_set_header   Host $http_host;
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   Connection "";
+        proxy_buffering    off;
+        proxy_read_timeout 300s;
+    }
+
     # 后端 API（含 SSE — 关闭 buffering）
     location /api/ {
         proxy_pass         http://127.0.0.1:7860;
@@ -501,6 +514,13 @@ server {
     return 301 https://$host$request_uri;
 }
 ```
+
+启用创作者 MCP 时还需设置 `RPG_FEDERATION_PROVIDER=1`。完成代理部署后，
+通过公网 HTTPS 检查 `/.well-known/oauth-authorization-server` 返回 JSON，
+`/mcp/authoring` 返回 MCP 的认证响应而非 HTML，再用真实客户端完成 OAuth
+授权、工具发现和调用。详见 [创作者 MCP 接入文档](../../docs/creator-mcp.md)。
+将 `RPG_TRUSTED_PROXIES` 限定为实际的反向代理地址或专用网段，并确认代理
+正确设置客户端地址；未配置信任代理时，所有用户可能共享代理 IP 的限流额度。
 
 ```bash
 sudo ln -s /etc/nginx/sites-available/rpg /etc/nginx/sites-enabled/
@@ -615,6 +635,12 @@ sudo systemctl status rpg-backend rpg-postproc
 ## §14. 上线签字单
 
 在正式对外开放前，逐项确认：
+
+历史素材升级时，先备份数据库和素材目录，在 `rpg/` 目录用
+`python -m scripts.backfill_media_ownership` 生成只读归属报告。报告可能包含私人文件名，
+应按敏感运维数据保存。确认 `eligible` 条目后，可用 `--apply` 写入有文件名及引用证据的
+归属；`conflicting_owner` 和其他未解决条目不会自动修复，需逐条核对。归属不明的文件
+会拒绝访问，不能把这类拒绝当成迁移已完成。
 
 - [ ] `migrate status` 显示所有 migration 已应用（无待应用项）
 - [ ] `systemctl status rpg-backend` 为 active (running)
