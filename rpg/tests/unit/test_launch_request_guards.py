@@ -121,6 +121,20 @@ def test_one_failed_maintenance_task_does_not_stop_other_recovery(monkeypatch):
     assert calls == ["reservation", "preview", "import"]
 
 
+def test_explicit_secure_cookie_configuration_is_enforced(monkeypatch):
+    from platform_app.api._deps import _cookie_security_kwargs
+
+    request = Request({"type": "http", "method": "POST", "path": "/api/auth/login",
+                       "scheme": "http", "server": ("example.test", 80), "headers": []})
+    monkeypatch.setenv("RPG_COOKIE_SECURE", "1")
+    assert _cookie_security_kwargs(request)["secure"] is True
+    monkeypatch.setenv("RPG_COOKIE_SECURE", "0")
+    assert _cookie_security_kwargs(request)["secure"] is False
+    https = Request({"type": "http", "method": "POST", "path": "/api/auth/login",
+                     "scheme": "https", "server": ("example.test", 443), "headers": []})
+    assert _cookie_security_kwargs(https)["secure"] is True
+
+
 def test_response_header_timeout_does_not_cut_started_stream(monkeypatch):
     from core.startup import api_contract_middleware
     from fastapi.responses import StreamingResponse

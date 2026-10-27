@@ -270,6 +270,17 @@ def test_server_startup_health_guest_root_and_logout_revoke_cookie(user, monkeyp
         assert client.get("/api/player/session").json() == {"authenticated": False}
 
 
+def test_login_cookie_is_secure_when_production_requires_it(user, monkeypatch):
+    from platform_app.security import hash_password
+
+    monkeypatch.setenv("RPG_COOKIE_SECURE", "1")
+    with connect() as db:
+        db.execute("update users set password_hash=%s where id=%s", (hash_password("TestPassword123"), user["id"]))
+    response = TestClient(app.app).post("/api/auth/login", json={"username": user["username"], "password": "TestPassword123"})
+    assert response.status_code == 200, response.text
+    assert "secure" in response.headers["set-cookie"].lower()
+
+
 def test_security_blocklist_is_enforced_before_business_routes():
     with connect() as db:
         previous = db.execute("select value from app_config where key='admin.security_config'").fetchone()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 
 from fastapi import Depends, HTTPException, Request
@@ -140,14 +141,16 @@ def _cookie_security_kwargs(request: Request) -> dict:
     """统一的 cookie 安全参数,set 和 delete 必须用同一组,否则浏览器会把
     delete 当成"另一个 cookie",导致原 cookie 残留。
 
-    samesite 固定 lax(同源部署)。secure 跟随【有效协议】:HTTPS(含反代 X-Forwarded-Proto)
+    samesite 固定 lax(同源部署)。RPG_COOKIE_SECURE 显式启用时强制 Secure；否则 secure 跟随
+    【有效协议】:HTTPS(含反代 X-Forwarded-Proto)
     才带 Secure;明文 HTTP 自托管不带(浏览器会【静默丢弃】明文 HTTP 上的 Secure cookie →
     会话存不下 → 登录后弹回登录页)。反代 HTTPS 终止时容器内 scheme 恒 http,必须靠 XFP
     才能正确带上 Secure。
     """
     return {
         "httponly": True,
-        "secure": _request_is_https(request),
+        "secure": (os.getenv("RPG_COOKIE_SECURE", "").strip().lower() in {"1", "true", "yes", "on"}
+                   or _request_is_https(request)),
         "samesite": "lax",
         "path": "/",
     }
