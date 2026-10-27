@@ -135,26 +135,48 @@ def test_restart_cleans_running_preview_without_billing_request(creator):
 
 def test_approval_publish_new_version_preserves_old_snapshot_and_can_suspend(creator):
     from platform_app.authoring.examples import example_files
-    project, revision, profile = configured(creator)
+
+    def with_cover(alternate, payload):
+        files = example_files(alternate)
+        files["cover.png"] = payload
+        files["authoring.json"]["media"] = [dict(path="cover.png", sha256=hashlib.sha256(payload).hexdigest())]
+        return files
+
+    first_cover = b"\x89PNG\r\n\x1a\nfirst-version"
+    second_cover = b"\x89PNG\r\n\x1a\nsecond-version"
+    project, revision, profile = configured(creator, with_cover(False, first_cover))
     old_preview = preview.create(creator["uid"], revision["id"], "keeper", str(uuid.uuid4()))
     with connect() as db:
         cookie = auth._issue_session(db, creator["admin"]["id"])
+        author_cookie = auth._issue_session(db, creator["uid"])
     client = TestClient(app.app)
     client.cookies.set("rpg_session", cookie)
+    guest = TestClient(app.app)
+    author = TestClient(app.app, cookies={"rpg_session": author_cookie})
+    cover_url = revision["contract"]["play"]["cover"]
+    assert guest.get(cover_url).status_code == 401
+    assert client.get(cover_url).status_code == 404
+    assert author.get(cover_url).content == first_cover
+    save_cover = f"/api/player/saves/{old_preview['save_id']}/cover"
+    assert client.get(save_cover).status_code == 404
+    assert author.get(save_cover).content == first_cover
     service.review(creator["uid"], revision["id"], "原创授权")
     first = service.submit(creator["uid"], revision["id"])
     response = client.post("/api/authoring/admin", json=dict(action="approve", submission_id=str(first["id"]), profile_id=profile["id"]))
     assert response.status_code == 200, response.text
     before = next(s for s in catalog.listed_stories() if s["authoring_project_id"] == project["id"])
     assert catalog.public_story(before)["author"] == "Creator"
+    assert guest.get(catalog.public_story(before)["cover"]).content == first_cover
     project = service.get_draft(creator["uid"], project["id"])["project"]
-    _, _, _, second_revision = imported(creator, example_files(True), project)
+    _, _, _, second_revision = imported(creator, with_cover(True, second_cover), project)
     service.review(creator["uid"], second_revision["id"], "原创授权第二版")
     second = service.submit(creator["uid"], second_revision["id"])
     response = client.post("/api/authoring/admin", json=dict(action="approve", submission_id=str(second["id"]), profile_id=profile["id"]))
     assert response.status_code == 200, response.text
     after = next(s for s in catalog.listed_stories() if s["authoring_project_id"] == project["id"])
     assert before["id"] == after["id"]
+    assert guest.get(catalog.public_story(after)["cover"]).content == second_cover
+    assert author.get(save_cover).content == first_cover
     old = catalog.player_save(creator["uid"], old_preview["save_id"])
     assert catalog.for_save(old)["script_id"] == revision["script_id"]
     assert catalog.story(after["id"])["script_id"] == second_revision["script_id"]
@@ -162,6 +184,7 @@ def test_approval_publish_new_version_preserves_old_snapshot_and_can_suspend(cre
     response = client.post("/api/authoring/admin", json=dict(action="suspend", submission_id=str(second["id"]), reason="review"))
     assert response.status_code == 200, response.text
     assert not any(s["id"] == after["id"] for s in catalog.listed_stories())
+    assert guest.get(f"/api/player/stories/{after['id']}/cover").status_code != 200
     with pytest.raises(HTTPException):
         catalog.for_save(old)
 
