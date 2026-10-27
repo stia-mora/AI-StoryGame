@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import re
 import secrets
@@ -14,6 +15,7 @@ import socket
 import ssl
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import uuid
@@ -188,6 +190,29 @@ def main():
             assert status == 200 and not result["result"].get("isError")
             assert result["result"]["structuredContent"]["version"] == 1
             print("Authenticated OAuth authorization and MCP contract call: passed")
+            # Exercise actual dump/restore against a second disposable database.
+            dump = subprocess.run(["docker", "exec", pg, "pg_dump", "-U", "smoke", "-Fc", "smoke"],
+                                  capture_output=True, check=True, creationflags=FLAGS).stdout
+            run("docker", "exec", pg, "createdb", "-U", "smoke", "smoke_restore")
+            subprocess.run(["docker", "exec", "-i", pg, "pg_restore", "-U", "smoke", "--exit-on-error",
+                            "-d", "smoke_restore"], input=dump, capture_output=True, check=True, creationflags=FLAGS)
+            restored = run("docker", "exec", pg, "psql", "-U", "smoke", "-d", "smoke_restore", "-Atc",
+                           "select count(*) from users where username='smoke_creator'").stdout.strip()
+            assert restored == "1"
+            # Test a known private file through the same archive path used for data backup.
+            run("docker", "exec", backend, "python", "-c",
+                "from pathlib import Path; p=Path('/tmp/creator-smoke-data'); p.mkdir(parents=True,exist_ok=True); (p/'backup-probe').write_bytes(b'creator-backup-test')")
+            archive = subprocess.run(["docker", "exec", backend, "tar", "-cf", "-", "-C",
+                                      "/tmp/creator-smoke-data", "backup-probe"], capture_output=True,
+                                     check=True, creationflags=FLAGS).stdout
+            with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as backup:
+                assert backup.extractfile("backup-probe").read() == b"creator-backup-test"
+            run("docker", "exec", backend, "mkdir", "-p", "/tmp/restored-smoke-data")
+            subprocess.run(["docker", "exec", "-i", backend, "tar", "-xf", "-", "-C", "/tmp/restored-smoke-data"],
+                           input=archive, capture_output=True, check=True, creationflags=FLAGS)
+            restored_file = run("docker", "exec", backend, "cat", "/tmp/restored-smoke-data/backup-probe").stdout
+            assert restored_file == "creator-backup-test"
+            print("Disposable PostgreSQL and private file backup/restore: passed")
             print("Production-mode HTTPS smoke passed with disposable PostgreSQL and nginx")
         finally:
             for name in (nginx, backend, pg):

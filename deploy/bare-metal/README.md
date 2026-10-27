@@ -106,10 +106,13 @@ sudo mkdir -p /var/backups/rpg
 sudo chown postgres:postgres /var/backups/rpg
 sudo tee /etc/cron.d/rpg-backup <<'EOF'
 # 每天凌晨 02:00 备份
-0 2 * * * postgres pg_dump -Fc rpg > /var/backups/rpg/rpg-$(date +\%F).dump && \
-    find /var/backups/rpg/ -name "*.dump" -mtime +14 -delete
+0 2 * * * postgres umask 077; pg_dump -Fc rpg > /var/backups/rpg/rpg-$(date +\%F).dump.tmp && mv /var/backups/rpg/rpg-$(date +\%F).dump.tmp /var/backups/rpg/rpg-$(date +\%F).dump && find /var/backups/rpg/ -name '*.dump' -mtime +14 -delete
 EOF
 ```
+
+将 `RPG_DATA_ROOT` 与数据库一起备份，并单独安全保存加密密钥；需要一致时间点时先停止
+写入，再分别保存数据库与文件。数据库备份为私有权限，失败时不会把未完成文件当成成功备份。
+定期在隔离环境执行 `pg_restore --exit-on-error` 和文件恢复演练，并核对备份可读与应用登录。
 
 ---
 
