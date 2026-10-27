@@ -1,0 +1,14 @@
+.authoring-page { max-width: 64rem; margin-inline: auto; line-height: 1.6; }
+.authoring-page section { padding-block: 1.25rem; border-bottom: 1px solid var(--line, oklch(70% .005 80 / .25)); }
+.authoring-toolbar, .authoring-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.authoring-page h1 { font-size: 1.5rem; } .authoring-page h2 { font-size: 1.2rem; }
+.authoring-page h3 { font-size: 1rem; } .authoring-page p { max-width: 72ch; }
+.authoring-page label { display: grid; gap: .4rem; margin-block: .75rem; }
+.authoring-page input, .authoring-page select, .authoring-page textarea { color: inherit; background: var(--surface, transparent); font: inherit; padding: .65rem; border: 1px solid var(--line, oklch(70% .005 80 / .4)); border-radius: 6px; min-height: 44px; max-width: 100%; }
+.authoring-page input:focus, .authoring-page select:focus, .authoring-page textarea:focus { box-shadow: 0 0 0 2px oklch(75% .12 75 / .6); outline: none; }
+.authoring-page button { min-height: 44px; margin: .25rem .5rem .25rem 0; }
+.authoring-page pre { overflow: auto; max-height: 24rem; padding: .75rem; font-size: .8rem; }
+.authoring-page code { overflow-wrap: anywhere; } .authoring-page summary { cursor: pointer; padding-block: .75rem; }
+.authoring-detail { padding-block: 1rem; } .authoring-page article { padding-block: 1rem; }
+.authoring-chapter { white-space: pre-wrap; }
+@media (max-width: 600px) { .authoring-page form button { width: 100%; } }

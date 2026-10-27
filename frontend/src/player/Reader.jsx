@@ -672,7 +672,7 @@ export function Reader({
                   <span className="error-text">{quoteError}</span>
                 ) : quote ? (
                   <>
-                    <span>预计 {points(quote.estimate_micro)} 积分</span>
+                    <span>{quote.funding === "preview" ? "专用试玩 · " : ""}预计 {points(quote.estimate_micro)} 积分</span>
                     <span>
                       本轮封顶 {points(quote.cap_micro)}
                       {!quote.affordable && " · 余额不足"}
@@ -705,7 +705,7 @@ export function Reader({
               <button
                 className="text-button"
                 type="button"
-                onClick={() => navigate("/play/wallet")}
+                onClick={() => navigate(quote.funding === "preview" ? "/play/authoring" : "/play/wallet")}
               >
                 查看积分与兑换码
               </button>

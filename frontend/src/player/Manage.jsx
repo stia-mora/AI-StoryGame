@@ -457,7 +457,7 @@ export function Manage({ navigate }) {
             {data.codes.map((c) => (
               <div className="management-row" key={c.id}>
                 <span>
-                  {c.label} · {points(c.amount_micro)} 积分 · {c.used_count}/
+                  {c.label} · {c.purpose === "preview" ? "创作者试玩" : "普通游玩"} · {points(c.amount_micro)} 积分 · {c.used_count}/
                   {c.max_uses}
                 </span>
                 <Button
@@ -517,6 +517,7 @@ export function Manage({ navigate }) {
                 <tr key={b.id}>
                   <td>
                     #{b.user_id} / {b.save_id}
+                    <small>{b.funding === "preview" ? "创作者试玩" : "普通游玩"}</small>
                   </td>
                   <td>
                     {b.status}

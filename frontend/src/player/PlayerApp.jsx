@@ -26,6 +26,8 @@ import { Lobby } from "./Lobby.jsx";
 import { Comments } from "./Comments.jsx";
 
 const PlayerAuth = lazy(() => import("./PlayerAuth.jsx"));
+const Authoring = lazy(() => import("./Authoring.jsx").then(m => ({ default: m.Authoring })));
+const AuthoringAdmin = lazy(() => import("./Authoring.jsx").then(m => ({ default: m.AuthoringAdmin })));
 
 export function PlayerApp() {
   const [path, setPath] = useState(location.pathname);
@@ -121,12 +123,13 @@ export function PlayerApp() {
           <span>故事之间</span>
         </button>
         <div className="player-main-nav" role="navigation" aria-label="故事导航">
-          <button aria-current={!authPage && !archive && !saveId && path !== "/play/wallet" && path !== "/play/manage" ? "page" : undefined} onClick={() => { setSearch(""); navigate("/play"); }}>
+          <button aria-current={!authPage && !archive && !saveId && !path.startsWith("/play/authoring") && path !== "/play/wallet" && path !== "/play/manage" ? "page" : undefined} onClick={() => { setSearch(""); navigate("/play"); }}>
             <BookOpen size={18} aria-hidden="true" />故事大厅
           </button>
           <button aria-current={archive ? "page" : undefined} onClick={() => navigate("/play/saves")}>
             <FolderOpen size={18} aria-hidden="true" />我的存档
           </button>
+          {data?.user?.creator && <button aria-current={path.startsWith("/play/authoring") ? "page" : undefined} onClick={() => navigate("/play/authoring")}>我的创作</button>}
         </div>
         {data?.user && <button className="wallet-link" aria-current={path === "/play/wallet" ? "page" : undefined} onClick={() => navigate("/play/wallet")}>
           <Coins size={19} aria-hidden="true" />
@@ -163,7 +166,7 @@ export function PlayerApp() {
         ) : (
           <Loading />
         )
-      ) : !data.user && (saveId || archive || path === "/play/wallet" || path === "/play/manage") ? (
+      ) : !data.user && (saveId || archive || path.startsWith("/play/authoring") || path === "/play/wallet" || path === "/play/manage") ? (
         <main id="player-main" className="player-shell">
           <Empty title="登录后继续">存档、游玩和积分信息仅对本人开放。</Empty>
           <Button onClick={login}>登录后继续</Button>
@@ -180,6 +183,8 @@ export function PlayerApp() {
           refreshWallet={reload}
           saves={data.saves}
         />
+      ) : path.startsWith("/play/authoring") ? (
+        data.user?.creator ? <Suspense fallback={<Loading />}>{path === "/play/authoring-admin" && data.user.admin ? <AuthoringAdmin navigate={navigate} /> : <Authoring navigate={navigate} admin={data.user.admin} />}</Suspense> : <main id="player-main" className="player-shell"><Notice error>请先取得创作者权限。</Notice></main>
       ) : path === "/play/wallet" ? (
         <Wallet refresh={reload} navigate={navigate} />
       ) : path === "/play/manage" && data.user?.admin ? (

@@ -72,6 +72,12 @@ it("preserves a validated save deep link and rejects duplicate redirect paramete
   expect(__resolveNextOrDefault({ role: "admin" })).toBe("/play");
 });
 
+it.each(["/play/authoring?project=example", "/oauth/authoring/authorize?client_id=test&state=hello"])("returns creators to the authoring flow after login: %s", (target) => {
+  history.replaceState({}, "", `/play/login?next=${encodeURIComponent(target)}`);
+  expect(__resolveNextOrDefault({ account_mode: "creator" })).toBe(target);
+  expect(__resolveNextOrDefault({ account_mode: "player" })).toBe("/play");
+});
+
 it.each([{ account_mode: "player" }, { account_mode: "creator" }, { role: "admin" }])("defaults every account to the player lobby", (user) => {
   history.replaceState({}, "", "/play/login");
   expect(__resolveNextOrDefault(user)).toBe("/play");

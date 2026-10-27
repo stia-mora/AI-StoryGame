@@ -14,7 +14,8 @@ export function __resolveNextOrDefault(user) {
     if (!['http:', 'https:'].includes(target.protocol) || target.origin !== location.origin) return fallback;
     const play = /^\/play(?:\/(?:saves(?:\/\d+)?|stories\/\d+(?:\/comments)?|wallet|manage))?\/?$/.test(target.pathname) || target.pathname === '/Player.html';
     const page = target.pathname.replace(/^\/|\/$/g, '');
-    const creator = page === 'Platform.html' || PL_PAGE_IDS.includes(PL_HASH_ALIASES[page] || page);
+    const creator = page === 'Platform.html' || PL_PAGE_IDS.includes(PL_HASH_ALIASES[page] || page)
+      || ['/play/authoring', '/play/authoring-admin', '/oauth/authoring/authorize'].includes(target.pathname);
     if (!play && (player || !creator)) return fallback;
     return target.pathname + target.search + target.hash;
   } catch (_) { return fallback; }

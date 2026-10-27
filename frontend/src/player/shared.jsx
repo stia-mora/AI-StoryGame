@@ -193,6 +193,7 @@ export function StoryCard({ story, onStart, onComments }) {
           <h3 id={`story-title-${story.id}`}>{story.title}</h3>
         </div>
         {story.introduction && <p className="story-introduction">{story.introduction}</p>}
+        {story.author && <p className="story-meta">{story.author}{story.version ? ` · v${story.version}` : ""}</p>}
         <div className="story-card-actions"><Button quiet onClick={onStart}>
           开始故事 <ArrowRight size={18} />
         </Button>{onComments && <button className="text-button" aria-label={`查看${story.title}的评论`} onClick={onComments}>评论</button>}</div>
