@@ -107,6 +107,20 @@ def test_buffered_uploads_are_bounded_and_release_slot_on_failure(monkeypatch):
     asyncio.run(run())
 
 
+def test_one_failed_maintenance_task_does_not_stop_other_recovery(monkeypatch):
+    from core.startup import _player_maintenance_once
+
+    calls = []
+    def fail():
+        calls.append("reservation")
+        raise RuntimeError("temporary failure")
+    monkeypatch.setattr("platform_app.player.wallet.reap", fail)
+    monkeypatch.setattr("platform_app.authoring.preview.reconcile", lambda: calls.append("preview"))
+    monkeypatch.setattr("platform_app.authoring.service.recover", lambda: calls.append("import"))
+    asyncio.run(_player_maintenance_once())
+    assert calls == ["reservation", "preview", "import"]
+
+
 def test_response_header_timeout_does_not_cut_started_stream(monkeypatch):
     from core.startup import api_contract_middleware
     from fastapi.responses import StreamingResponse

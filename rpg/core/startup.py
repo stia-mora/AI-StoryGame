@@ -200,6 +200,20 @@ def _wait_for_db_ready() -> bool:
     return False
 
 
+async def _player_maintenance_once():
+    import asyncio
+
+    from platform_app.authoring.preview import reconcile
+    from platform_app.authoring.service import recover
+    from platform_app.player.wallet import reap
+
+    for name, task in (("reservation", reap), ("preview", reconcile), ("import", recover)):
+        try:
+            await asyncio.to_thread(task)
+        except Exception:
+            log.exception("Player %s maintenance failed", name)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI lifespan: startup → yield → shutdown。"""
@@ -353,16 +367,8 @@ async def lifespan(app: FastAPI):
     async def _player_reaper():
         import asyncio
 
-        from platform_app.player.wallet import reap
         while True:
-            try:
-                await asyncio.to_thread(reap)
-                from platform_app.authoring.preview import reconcile
-                await asyncio.to_thread(reconcile)
-                from platform_app.authoring.service import recover
-                await asyncio.to_thread(recover)
-            except Exception:
-                log.exception('Player reservation reconciliation failed')
+            await _player_maintenance_once()
             await asyncio.sleep(60)
     import asyncio as _player_asyncio
     _player_reaper_task = _player_asyncio.create_task(_player_reaper())
