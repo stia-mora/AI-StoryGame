@@ -37,33 +37,18 @@ services:
 
   # ─── 2. PgBouncer — 连接池(transaction 模式) ──────────────────────────────
   pgbouncer:
-    image: bitnami/pgbouncer:1.22.1
+    image: rpg-pgbouncer:local
+    build:
+      context: ./pgbouncer
     container_name: rpg-pgbouncer
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      # Bitnami pgbouncer 通过 env 驱动配置
-      PGBOUNCER_DATABASE: rpg
-      PGBOUNCER_HOST: postgres
-      PGBOUNCER_PORT: 5432
-      PGBOUNCER_POOL_MODE: transaction
-      PGBOUNCER_MAX_CLIENT_CONN: "1000"
-      PGBOUNCER_DEFAULT_POOL_SIZE: "20"
-      PGBOUNCER_MIN_POOL_SIZE: "5"
-      PGBOUNCER_RESERVE_POOL_SIZE: "5"
-      PGBOUNCER_RESERVE_POOL_TIMEOUT: "3"
-      PGBOUNCER_SERVER_IDLE_TIMEOUT: "600"
-      PGBOUNCER_AUTH_TYPE: md5
-      POSTGRESQL_USERNAME: rpg
-      POSTGRESQL_PASSWORD: ${POSTGRES_PASSWORD:?必须设 POSTGRES_PASSWORD(勿用弱口令)}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?必须设 POSTGRES_PASSWORD(勿用弱口令)}
     ports:
       - "127.0.0.1:6432:6432"
-    volumes:
-      # 可选:挂载自定义 pgbouncer.ini(覆盖 env 设置)
-      - ./pgbouncer.ini:/bitnami/pgbouncer/conf/pgbouncer.ini:ro
-      - ./userlist.txt:/bitnami/pgbouncer/conf/userlist.txt:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h localhost -p 6432 -U rpg"]
       interval: 10s
