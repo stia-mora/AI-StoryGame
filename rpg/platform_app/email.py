@@ -7,9 +7,7 @@ from html import escape
 import httpx
 
 RESEND_API_KEY: str = os.environ.get("RESEND_API_KEY", "")
-RESEND_FROM: str = os.environ.get(
-    "RESEND_FROM", "Stellatrix Labs <noreply@stellatrix.icu>"
-)
+RESEND_FROM: str = os.environ.get("RESEND_FROM", "")
 
 
 class EmailSendError(Exception):
@@ -17,7 +15,7 @@ class EmailSendError(Exception):
 
 
 def _public_base_url() -> str:
-    return os.environ.get("PUBLIC_BASE_URL", "https://rpg-roleplay.stellatrix.icu").rstrip("/")
+    return os.environ.get("PUBLIC_BASE_URL", "http://localhost:7860").rstrip("/")
 
 
 def _preheader(text: str) -> str:
@@ -32,57 +30,62 @@ def _preheader(text: str) -> str:
 def _email_css() -> str:
     return """
     <style>
-      :root { color-scheme: dark; supported-color-schemes: dark; }
+      :root { color-scheme: light dark; supported-color-schemes: light dark; }
       body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
       table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
       img { -ms-interpolation-mode: bicubic; border: 0; outline: none; text-decoration: none; }
-      body { margin: 0 !important; padding: 0 !important; width: 100% !important; background: #131211; }
+      body { margin: 0 !important; padding: 0 !important; width: 100% !important; background: #f5f5f3; }
       .sr-body {
-        margin: 0; padding: 0; background: #131211; color: #ebe7df;
-        font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+        margin: 0; padding: 0; background: #f5f5f3; color: #282824;
+        font-family: "Microsoft YaHei UI", "PingFang SC", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
       }
-      .sr-shell { width: 100%; background: #131211; padding: 28px 12px; }
+      .sr-shell { width: 100%; background: #f5f5f3; padding: 40px 16px; }
       .sr-card {
-        width: 100%; max-width: 560px; background: #211f1d; border: 1px solid #36322d;
-        border-radius: 8px; box-shadow: 0 18px 48px -18px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.25);
-      }
-      .sr-mark {
-        width: 42px; height: 42px; border-radius: 8px; background: #282623;
-        border: 1px solid #36322d; color: #c96442; text-align: center;
-        font: 700 18px/42px "Noto Serif SC", Georgia, serif;
+        width: 100%; max-width: 560px; background: #fcfcfb; border-radius: 8px;
       }
       .sr-brand {
-        color: #ebe7df; font-family: "Noto Serif SC", Georgia, serif;
-        font-size: 25px; line-height: 1.2; letter-spacing: 0; font-weight: 600;
+        color: #282824; font-size: 24px; line-height: 1.4;
+        letter-spacing: .12em; font-weight: 600;
       }
       .sr-eyebrow {
-        color: #c96442; font-size: 12px; line-height: 1.4; font-weight: 700;
+        color: #805c20; font-size: 12px; line-height: 1.4; font-weight: 600;
         text-transform: uppercase; letter-spacing: .08em;
       }
       .sr-title {
-        color: #ebe7df; font-family: "Noto Serif SC", Georgia, serif;
+        color: #282824;
         font-size: 22px; line-height: 1.32; font-weight: 600; letter-spacing: 0;
       }
-      .sr-text { color: #c8c2b7; font-size: 15px; line-height: 1.72; letter-spacing: 0; }
-      .sr-muted { color: #968f85; font-size: 13px; line-height: 1.65; letter-spacing: 0; }
-      .sr-panel { background: #1a1817; border: 1px solid #36322d; border-radius: 8px; }
+      .sr-text { color: #50514d; font-size: 15px; line-height: 1.72; letter-spacing: 0; }
+      .sr-muted { color: #6b6d66; font-size: 13px; line-height: 1.65; letter-spacing: 0; }
+      .sr-panel { background: #f2eee4; border-radius: 8px; }
       .sr-code {
-        color: #ebe7df; font-family: "JetBrains Mono", SFMono-Regular, Menlo, Consolas, monospace;
-        font-size: 34px; line-height: 1.2; font-weight: 600; letter-spacing: .32em; text-align: center;
+        color: #302719; font-family: SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 40px; line-height: 1.3; font-weight: 600; letter-spacing: .22em;
+        white-space: nowrap; text-align: center; font-variant-numeric: tabular-nums;
       }
       .sr-button {
-        display: inline-block; background: #c96442; color: #fff7f1 !important; border-radius: 6px;
+        display: inline-block; background: #e9be62; color: #302719 !important; border-radius: 6px;
         padding: 12px 18px; font-size: 14px; line-height: 1; font-weight: 700; text-decoration: none;
       }
-      .sr-link { color: #d97955 !important; text-decoration: none; font-weight: 700; }
-      .sr-rule { height: 1px; line-height: 1px; background: #36322d; }
+      .sr-link { color: #805c20 !important; text-decoration: underline; font-weight: 600; }
+      .sr-rule { height: 1px; line-height: 1px; background: #deded8; }
       @media screen and (max-width: 600px) {
         .sr-shell { padding: 16px 8px !important; }
         .sr-card { border-radius: 8px !important; }
-        .sr-pad { padding: 22px 18px !important; }
+        .sr-pad { padding: 28px 22px !important; }
         .sr-brand { font-size: 22px !important; }
         .sr-title { font-size: 20px !important; }
-        .sr-code { font-size: 30px !important; letter-spacing: .24em !important; }
+        .sr-code { font-size: 34px !important; letter-spacing: .18em !important; }
+      }
+      @media (prefers-color-scheme: dark) {
+        body, .sr-body, .sr-shell { background: #0b0b0a !important; color: #e9e9e3 !important; }
+        .sr-card { background: #151515 !important; }
+        .sr-brand, .sr-title, .sr-text strong { color: #e9e9e3 !important; }
+        .sr-text { color: #d0d0c8 !important; }
+        .sr-muted { color: #aaa99f !important; }
+        .sr-panel { background: #20201e !important; border-color: #383833 !important; }
+        .sr-code, .sr-eyebrow, .sr-link { color: #edc46d !important; }
+        .sr-rule { background: #383833 !important; }
       }
     </style>
     """
@@ -97,52 +100,55 @@ def _render_email(
     main_html: str,
     secondary_html: str = "",
     footer_html: str = "",
+    lang: str = "zh-CN",
 ) -> str:
-    support_url = f"{_public_base_url()}/Login.html"
+    support_url = escape(f"{_public_base_url()}/play", quote=True)
+    is_zh = lang.lower().startswith("zh")
+    default_footer = (
+        "如果这不是你本人的操作，请忽略此邮件。"
+        if is_zh else "If you did not request this email, you can safely ignore it."
+    )
     return f"""<!doctype html>
-<html>
+<html lang="{escape(lang, quote=True)}">
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="dark">
-  <meta name="supported-color-schemes" content="dark">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
   {_email_css()}
 </head>
-<body class="sr-body" style="margin:0;padding:0;background:#131211;color:#ebe7df;">
+<body class="sr-body" style="margin:0;padding:0;background:#f5f5f3;color:#282824;font-family:'Microsoft YaHei UI','PingFang SC',Arial,sans-serif;">
 {_preheader(preheader)}
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="sr-shell" style="width:100%;background:#131211;padding:28px 12px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="sr-shell" style="width:100%;background:#f5f5f3;padding:40px 16px;">
   <tr>
     <td align="center">
-      <table role="presentation" width="560" cellpadding="0" cellspacing="0" class="sr-card" style="width:100%;max-width:560px;background:#211f1d;border:1px solid #36322d;border-radius:8px;">
+      <table role="presentation" width="560" cellpadding="0" cellspacing="0" class="sr-card" style="width:100%;max-width:560px;background:#fcfcfb;border-radius:8px;">
         <tr>
-          <td class="sr-pad" style="padding:28px 28px 24px;">
+          <td class="sr-pad" style="padding:36px;">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
               <tr>
-                <td width="54" valign="top">
-                  <div class="sr-mark" style="width:42px;height:42px;border-radius:8px;background:#282623;border:1px solid #36322d;color:#c96442;text-align:center;font:700 18px/42px Georgia,serif;">R</div>
-                </td>
                 <td valign="top">
-                  <div class="sr-brand" style="color:#ebe7df;font-family:Georgia,serif;font-size:25px;line-height:1.2;font-weight:600;">RPG Roleplay</div>
-                  <div class="sr-muted" style="color:#968f85;font-size:13px;line-height:1.65;">Stellatrix Labs</div>
+                  <div class="sr-brand" style="color:#282824;font-size:24px;line-height:1.4;font-weight:600;letter-spacing:.12em;">故事之间</div>
+                  <div class="sr-muted" style="color:#6b6d66;font-size:11px;line-height:1.8;letter-spacing:.16em;">STORY BETWEEN</div>
                 </td>
               </tr>
             </table>
 
-            <div style="height:26px;line-height:26px;">&nbsp;</div>
-            <div class="sr-eyebrow" style="color:#c96442;font-size:12px;line-height:1.4;font-weight:700;text-transform:uppercase;letter-spacing:.08em;">{escape(eyebrow)}</div>
+            <div style="height:32px;line-height:32px;">&nbsp;</div>
+            <div class="sr-eyebrow" style="color:#805c20;font-size:12px;line-height:1.4;font-weight:600;text-transform:uppercase;letter-spacing:.08em;">{escape(eyebrow)}</div>
             <div style="height:7px;line-height:7px;">&nbsp;</div>
-            <div class="sr-title" style="color:#ebe7df;font-family:Georgia,serif;font-size:22px;line-height:1.32;font-weight:600;">{escape(title)}</div>
+            <div class="sr-title" style="color:#282824;font-size:22px;line-height:1.4;font-weight:600;">{escape(title)}</div>
             <div style="height:12px;line-height:12px;">&nbsp;</div>
-            <div class="sr-text" style="color:#c8c2b7;font-size:15px;line-height:1.72;">{lead_html}</div>
+            <div class="sr-text" style="color:#50514d;font-size:15px;line-height:1.72;">{lead_html}</div>
             <div style="height:20px;line-height:20px;">&nbsp;</div>
             {main_html}
             {secondary_html}
             <div style="height:24px;line-height:24px;">&nbsp;</div>
-            <div class="sr-rule" style="height:1px;line-height:1px;background:#36322d;">&nbsp;</div>
+            <div class="sr-rule" style="height:1px;line-height:1px;background:#deded8;">&nbsp;</div>
             <div style="height:14px;line-height:14px;">&nbsp;</div>
-            <div class="sr-muted" style="color:#968f85;font-size:13px;line-height:1.65;">
-              {footer_html or '如果你没有请求此邮件，可以安全忽略。<br>If you did not request this email, you can safely ignore it.'}
-              <br><a class="sr-link" style="color:#d97955;text-decoration:none;font-weight:700;" href="{support_url}">rpg-roleplay.stellatrix.icu</a>
+            <div class="sr-muted" style="color:#6b6d66;font-size:13px;line-height:1.65;">
+              {footer_html or default_footer}
+              <br><a class="sr-link" style="color:#805c20;text-decoration:underline;font-weight:600;" href="{support_url}">{'打开故事之间' if is_zh else 'Open Story Between'}</a>
             </div>
           </td>
         </tr>
@@ -179,45 +185,40 @@ def _send_resend(to: str, subject: str, text: str, html: str) -> None:
 
 def build_verification_email(code: str, lang: str = "zh-CN") -> tuple[str, str, str]:
     is_zh = lang.lower().startswith("zh")
-    subject = (
-        "你的注册验证码 / Your verification code"
-        if is_zh
-        else "Your verification code — Stellatrix RPG"
-    )
+    subject = "故事之间 · 注册验证码" if is_zh else "Your Story Between verification code"
     text = (
-        f"你的 Stellatrix RPG 验证码是：{code}\n\n"
-        "10 分钟内有效。\n"
-        "如非你本人操作，请忽略此邮件。\n\n"
-        "---\n"
-        f"Your Stellatrix RPG verification code: {code}\n\n"
-        "Valid for 10 minutes. Ignore if you did not request this."
+        f"你的故事之间注册验证码是：{code}\n\n10 分钟内有效，请勿向他人透露。\n"
+        "如果这不是你本人的操作，请忽略此邮件。"
+        if is_zh else
+        f"Your Story Between verification code: {code}\n\n"
+        "Valid for 10 minutes. Never share this code. Ignore if you did not request this."
     )
     lead = (
-        "请输入以下 6 位验证码完成注册。验证码会在 <strong style=\"color:#ebe7df;\">10 分钟</strong>后失效。"
+        "在注册页面输入以下 6 位验证码，完成邮箱验证。"
         if is_zh
-        else "Enter this 6-digit code to finish registration. It expires in <strong style=\"color:#ebe7df;\">10 minutes</strong>."
+        else "Enter this 6-digit code on the registration page to verify your email."
     )
     main = f"""
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="sr-panel" style="width:100%;background:#1a1817;border:1px solid #36322d;border-radius:8px;">
-        <tr><td style="padding:22px 14px;">
-          <div class="sr-code" style="color:#ebe7df;font-family:SFMono-Regular,Menlo,Consolas,monospace;font-size:34px;line-height:1.2;font-weight:600;letter-spacing:.32em;text-align:center;">{escape(code)}</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="sr-panel" style="width:100%;background:#f2eee4;border-radius:8px;">
+        <tr><td style="padding:24px 12px;">
+          <div class="sr-code" style="color:#302719;font-family:SFMono-Regular,Menlo,Consolas,monospace;font-size:40px;line-height:1.3;font-weight:600;letter-spacing:.22em;white-space:nowrap;text-align:center;">{escape(code)}</div>
         </td></tr>
       </table>
     """
-    secondary = """
+    secondary = f"""
       <div style="height:18px;line-height:18px;">&nbsp;</div>
-      <div class="sr-muted" style="color:#968f85;font-size:13px;line-height:1.65;">
-        为了保护账号安全，请不要把验证码转发给任何人。<br>
-        For your security, never forward this code to anyone.
+      <div class="sr-muted" style="color:#6b6d66;font-size:13px;line-height:1.65;">
+        {'10 分钟内有效，仅可使用一次。请勿向他人透露。' if is_zh else 'Valid for 10 minutes and one use only. Never share this code.'}
       </div>
     """
     html = _render_email(
-        preheader=f"验证码 {code}，10 分钟内有效",
-        eyebrow="Verification Code",
-        title="你的注册验证码" if is_zh else "Your verification code",
+        preheader="故事之间注册验证码，10 分钟内有效" if is_zh else "Verify your Story Between email within 10 minutes",
+        eyebrow="邮箱验证" if is_zh else "Email verification",
+        title="完成注册" if is_zh else "Verify your email",
         lead_html=lead,
         main_html=main,
         secondary_html=secondary,
+        lang=lang,
     )
     return subject, text, html
 
@@ -230,45 +231,40 @@ def send_verification_email(to: str, code: str, lang: str = "zh-CN") -> None:
 
 def build_login_code_email(code: str, lang: str = "zh-CN") -> tuple[str, str, str]:
     is_zh = lang.lower().startswith("zh")
-    subject = (
-        "你的登录验证码 / Your login code"
-        if is_zh
-        else "Your login code — Stellatrix RPG"
-    )
+    subject = "故事之间 · 登录验证码" if is_zh else "Your Story Between login code"
     text = (
-        f"你的 Stellatrix RPG 登录验证码是：{code}\n\n"
-        "10 分钟内有效。\n"
-        "如非你本人操作，请忽略此邮件。\n\n"
-        "---\n"
-        f"Your Stellatrix RPG login code: {code}\n\n"
-        "Valid for 10 minutes. Ignore if you did not request this."
+        f"你的故事之间登录验证码是：{code}\n\n10 分钟内有效，请勿向他人透露。\n"
+        "如果这不是你本人的操作，请忽略此邮件。"
+        if is_zh else
+        f"Your Story Between login code: {code}\n\n"
+        "Valid for 10 minutes. Never share this code. Ignore if you did not request this."
     )
     lead = (
-        "请输入以下 6 位验证码完成登录。验证码会在 <strong style=\"color:#ebe7df;\">10 分钟</strong>后失效。"
+        "在登录页面输入以下 6 位验证码，继续你的故事。"
         if is_zh
-        else "Enter this 6-digit code to sign in. It expires in <strong style=\"color:#ebe7df;\">10 minutes</strong>."
+        else "Enter this 6-digit code on the sign-in page to continue your story."
     )
     main = f"""
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="sr-panel" style="width:100%;background:#1a1817;border:1px solid #36322d;border-radius:8px;">
-        <tr><td style="padding:22px 14px;">
-          <div class="sr-code" style="color:#ebe7df;font-family:SFMono-Regular,Menlo,Consolas,monospace;font-size:34px;line-height:1.2;font-weight:600;letter-spacing:.32em;text-align:center;">{escape(code)}</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="sr-panel" style="width:100%;background:#f2eee4;border-radius:8px;">
+        <tr><td style="padding:24px 12px;">
+          <div class="sr-code" style="color:#302719;font-family:SFMono-Regular,Menlo,Consolas,monospace;font-size:40px;line-height:1.3;font-weight:600;letter-spacing:.22em;white-space:nowrap;text-align:center;">{escape(code)}</div>
         </td></tr>
       </table>
     """
-    secondary = """
+    secondary = f"""
       <div style="height:18px;line-height:18px;">&nbsp;</div>
-      <div class="sr-muted" style="color:#968f85;font-size:13px;line-height:1.65;">
-        该验证码只能用于登录 RPG Roleplay，请不要转发给任何人。<br>
-        This code only signs in to RPG Roleplay. Never forward it to anyone.
+      <div class="sr-muted" style="color:#6b6d66;font-size:13px;line-height:1.65;">
+        {'10 分钟内有效，仅可使用一次。请勿向他人透露。' if is_zh else 'Valid for 10 minutes and one use only. Never share this code.'}
       </div>
     """
     html = _render_email(
-        preheader=f"登录验证码 {code}，10 分钟内有效",
-        eyebrow="Login Code",
-        title="你的登录验证码" if is_zh else "Your login code",
+        preheader="故事之间登录验证码，10 分钟内有效" if is_zh else "Your Story Between sign-in code, valid for 10 minutes",
+        eyebrow="身份验证" if is_zh else "Account verification",
+        title="登录故事之间" if is_zh else "Sign in to Story Between",
         lead_html=lead,
         main_html=main,
         secondary_html=secondary,
+        lang=lang,
     )
     return subject, text, html
 
@@ -289,38 +285,39 @@ def send_recovery_code_email(to: str, code: str) -> None:
 def build_password_reset_email(to: str, token: str, lang: str = "zh-CN") -> tuple[str, str, str]:
     is_zh = lang.lower().startswith("zh")
     link = f"{_public_base_url()}/Login.html#reset?token={token}"
-    subject = "重置你的密码 / Reset your password" if is_zh else "Reset your password — Stellatrix RPG"
+    subject = "故事之间 · 重置密码" if is_zh else "Reset your Story Between password"
     text = (
-        f"点击以下链接重置你的 Stellatrix RPG 密码（30 分钟内有效）：\n{link}\n\n"
+        f"点击以下链接重置你的故事之间密码（30 分钟内有效）：\n{link}\n\n"
         "如果这不是你本人的操作，请忽略此邮件。你的密码不会被更改。\n\n"
         "---\n"
-        f"Click the link below to reset your Stellatrix RPG password (valid for 30 minutes):\n{link}\n\n"
+        f"Click the link below to reset your Story Between password (valid for 30 minutes):\n{link}\n\n"
         "If you did not request this, ignore this email. Your password will not be changed."
     )
     lead = (
-        "我们收到了重置密码请求。这个链接会在 <strong style=\"color:#ebe7df;\">30 分钟</strong>后失效。"
+        "我们收到了重置密码请求。这个链接会在 <strong style=\"color:#282824;\">30 分钟</strong>后失效。"
         if is_zh
-        else "We received a password reset request. This link expires in <strong style=\"color:#ebe7df;\">30 minutes</strong>."
+        else "We received a password reset request. This link expires in <strong style=\"color:#282824;\">30 minutes</strong>."
     )
     main = f"""
       <table role="presentation" cellpadding="0" cellspacing="0">
         <tr><td>
-          <a class="sr-button" style="display:inline-block;background:#c96442;color:#fff7f1;border-radius:6px;padding:12px 18px;font-size:14px;line-height:1;font-weight:700;text-decoration:none;" href="{escape(link)}">
+          <a class="sr-button" style="display:inline-block;background:#e9be62;color:#302719;border-radius:6px;padding:12px 18px;font-size:14px;line-height:1;font-weight:700;text-decoration:none;" href="{escape(link)}">
             {'重置密码' if is_zh else 'Reset password'}
           </a>
         </td></tr>
       </table>
       <div style="height:16px;line-height:16px;">&nbsp;</div>
-      <div class="sr-muted" style="color:#968f85;font-size:13px;line-height:1.65;word-break:break-all;">
+      <div class="sr-muted" style="color:#6b6d66;font-size:13px;line-height:1.65;word-break:break-all;">
         {escape(link)}
       </div>
     """
     html = _render_email(
-        preheader="Stellatrix RPG 密码重置链接" if is_zh else "Stellatrix RPG password reset link",
+        preheader="故事之间密码重置链接" if is_zh else "Story Between password reset link",
         eyebrow="Password Reset",
         title="重置你的密码" if is_zh else "Reset your password",
         lead_html=lead,
         main_html=main,
+        lang=lang,
     )
     return subject, text, html
 
@@ -342,55 +339,55 @@ def build_policy_notice_email(
     is_zh: bool,
 ) -> tuple[str, str, str]:
     subject = (
-        f"[Stellatrix RPG] {name_zh}变更通知（{new_version}）"
+        f"[故事之间] {name_zh}变更通知（{new_version}）"
         if is_zh
-        else f"[Stellatrix RPG] {name_en} Update ({new_version})"
+        else f"[Story Between] {name_en} Update ({new_version})"
     )
     if is_zh:
         text = (
             f"你好,\n\n"
-            f"Stellatrix RPG 即将更新{name_zh}({new_version})。\n\n"
+            f"故事之间即将更新{name_zh}({new_version})。\n\n"
             f"变更摘要:\n{summary}\n\n"
             f"生效时间: {effective_display}\n\n"
             f"查看完整政策: {url}\n\n"
-            f"如有疑问,请联系 support@stellatrix.icu\n\n"
+            f"如需帮助,请访问 {_public_base_url()}/play\n\n"
             f"---\n"
-            f"[EN] Stellatrix RPG is updating its {name_en} ({new_version}).\n"
+            f"[EN] Story Between is updating its {name_en} ({new_version}).\n"
             f"Summary: {summary}\n"
             f"Effective: {effective_display}\n"
             f"Full policy: {url}"
         )
         title = f"{name_zh}变更通知"
-        lead = f"Stellatrix RPG 即将更新 <strong style=\"color:#ebe7df;\">{escape(name_zh)}</strong>。"
+        lead = f"故事之间即将更新 <strong style=\"color:#282824;\">{escape(name_zh)}</strong>。"
     else:
         text = (
             f"Hello,\n\n"
-            f"Stellatrix RPG is updating its {name_en} ({new_version}).\n\n"
+            f"Story Between is updating its {name_en} ({new_version}).\n\n"
             f"Summary of changes:\n{summary}\n\n"
             f"Effective date: {effective_display}\n\n"
             f"Read the full policy: {url}\n\n"
-            f"For questions, contact support@stellatrix.icu\n\n"
+            f"For help, visit {_public_base_url()}/play\n\n"
             f"---\n"
-            f"[ZH] Stellatrix RPG 即将更新{name_zh}({new_version})。\n"
+            f"[ZH] 故事之间即将更新{name_zh}({new_version})。\n"
             f"变更摘要: {summary}\n"
             f"生效时间: {effective_display}\n"
             f"完整政策: {url}"
         )
         title = f"{name_en} Update"
-        lead = f"Stellatrix RPG is updating its <strong style=\"color:#ebe7df;\">{escape(name_en)}</strong>."
+        lead = f"Story Between is updating its <strong style=\"color:#282824;\">{escape(name_en)}</strong>."
 
     main = f"""
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="sr-panel" style="width:100%;background:#1a1817;border:1px solid #36322d;border-radius:8px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="sr-panel" style="width:100%;background:#f2eee4;border:1px solid #deded8;border-radius:8px;">
         <tr><td style="padding:18px;">
-          <div class="sr-eyebrow" style="color:#c96442;font-size:12px;line-height:1.4;font-weight:700;text-transform:uppercase;letter-spacing:.08em;">Version {escape(new_version)}</div>
+          <div class="sr-eyebrow" style="color:#805c20;font-size:12px;line-height:1.4;font-weight:700;text-transform:uppercase;letter-spacing:.08em;">Version {escape(new_version)}</div>
           <div style="height:8px;line-height:8px;">&nbsp;</div>
-          <div class="sr-text" style="color:#c8c2b7;font-size:15px;line-height:1.72;">{escape(summary).replace(chr(10), '<br>')}</div>
+          <div class="sr-text" style="color:#50514d;font-size:15px;line-height:1.72;">{escape(summary).replace(chr(10), '<br>')}</div>
           <div style="height:12px;line-height:12px;">&nbsp;</div>
-          <div class="sr-muted" style="color:#968f85;font-size:13px;line-height:1.65;">Effective: {escape(effective_display)}</div>
+          <div class="sr-muted" style="color:#6b6d66;font-size:13px;line-height:1.65;">Effective: {escape(effective_display)}</div>
         </td></tr>
       </table>
       <div style="height:18px;line-height:18px;">&nbsp;</div>
-      <a class="sr-button" style="display:inline-block;background:#c96442;color:#fff7f1;border-radius:6px;padding:12px 18px;font-size:14px;line-height:1;font-weight:700;text-decoration:none;" href="{escape(url)}">
+      <a class="sr-button" style="display:inline-block;background:#e9be62;color:#302719;border-radius:6px;padding:12px 18px;font-size:14px;line-height:1;font-weight:700;text-decoration:none;" href="{escape(url)}">
         {'查看完整政策' if is_zh else 'Read full policy'}
       </a>
     """
@@ -400,7 +397,8 @@ def build_policy_notice_email(
         title=title,
         lead_html=lead,
         main_html=main,
-        footer_html="如有疑问，请联系 support@stellatrix.icu。<br>For questions, contact support@stellatrix.icu.",
+        footer_html="请在网站查看完整政策。" if is_zh else "Visit the website to read the full policy.",
+        lang="zh-CN" if is_zh else "en",
     )
     return subject, text, html
 
@@ -413,7 +411,7 @@ def build_feedback_reply_email(
     subject = (
         "你的反馈有回复了 / We replied to your feedback"
         if is_zh
-        else "We replied to your feedback — Stellatrix RPG"
+        else "Story Between replied to your feedback"
     )
     preview = (feedback_preview or "").strip()
     preview_short = preview[:160] + ("…" if len(preview) > 160 else "")
@@ -434,16 +432,16 @@ def build_feedback_reply_email(
         )
         lead = "We've reviewed the feedback you submitted and replied below."
     main = f"""
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="sr-panel" style="width:100%;background:#1a1817;border:1px solid #36322d;border-radius:8px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="sr-panel" style="width:100%;background:#f2eee4;border:1px solid #deded8;border-radius:8px;">
         <tr><td style="padding:18px;">
-          <div class="sr-text" style="color:#c8c2b7;font-size:15px;line-height:1.72;">{escape(reply_text).replace(chr(10), '<br>')}</div>
+          <div class="sr-text" style="color:#50514d;font-size:15px;line-height:1.72;">{escape(reply_text).replace(chr(10), '<br>')}</div>
         </td></tr>
       </table>
     """
     secondary = (
         f"""
       <div style="height:16px;line-height:16px;">&nbsp;</div>
-      <div class="sr-muted" style="color:#968f85;font-size:13px;line-height:1.65;">
+      <div class="sr-muted" style="color:#6b6d66;font-size:13px;line-height:1.65;">
         你的反馈:{escape(preview_short)}
       </div>
     """
@@ -458,6 +456,7 @@ def build_feedback_reply_email(
         main_html=main,
         secondary_html=secondary,
         footer_html="这封邮件因你在反馈时留下了邮箱而发送。<br>You received this because you left an email with your feedback.",
+        lang=lang,
     )
     return subject, text, html
 
