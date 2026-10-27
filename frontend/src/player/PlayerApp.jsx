@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import {
   BookOpen,
   Coins,
@@ -38,11 +38,14 @@ export function PlayerApp() {
   const [saveSearch, setSaveSearch] = useState("");
   const [helpOpen, setHelpOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const latestReload = useRef(0);
+  const previousPath = useRef(path);
   const login = () => navigate(`/play/login?next=${encodeURIComponent(location.pathname + location.search + location.hash)}`);
   const logout = async () => {
     setSigningOut(true);
     try {
       await window.api.auth.logout();
+      latestReload.current++;
       setData(null);
       location.replace("/play");
     } catch (e) {
@@ -71,6 +74,7 @@ export function PlayerApp() {
     window.scrollTo(0, 0);
   }, []);
   const reload = useCallback(async () => {
+    const request = ++latestReload.current;
     try {
       const session = await window.api.player.session();
       const result = session.authenticated
@@ -78,9 +82,11 @@ export function PlayerApp() {
         : { ...(await window.api.player.catalog()), user: null, saves: [], wallet: null };
       if (!Array.isArray(result?.stories))
         throw new Error("玩家服务尚未启动，请刷新或重启后端服务。");
+      if (request !== latestReload.current) return;
       setData(result);
       setError("");
     } catch (e) {
+      if (request !== latestReload.current) return;
       setError(e.message);
     }
   }, []);
@@ -90,6 +96,10 @@ export function PlayerApp() {
     window.addEventListener("popstate", pop);
     return () => window.removeEventListener("popstate", pop);
   }, [reload, authPage]);
+  useEffect(() => {
+    if (previousPath.current !== path && (path === "/play" || path === "/play/saves")) reload();
+    previousPath.current = path;
+  }, [path, reload]);
   useEffect(() => {
     lsSetJSON("player-reading", prefs);
     document.documentElement.dataset.reading = prefs.night ? "night" : "day";

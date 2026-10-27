@@ -1,6 +1,6 @@
 import React from "react";
 import { beforeEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { PlayerApp } from "../player/PlayerApp.jsx";
 
 const story = { id: 538, title: "怪奇物语：万圣夜，别松手", introduction: "1984 年，Hawkins 的万圣节。", cover: "", identities: [{ id: "friend", name: "同龄伙伴" }] };
@@ -32,7 +32,34 @@ it("opens all personal saves and searches by character name without changing the
   expect(screen.queryByRole("button", { name: /Robin/ })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "清除搜索" }));
   expect(screen.getByRole("button", { name: /Robin · 待开场/ })).toBeTruthy();
-  expect(window.api.player.bootstrap).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(window.api.player.bootstrap).toHaveBeenCalledTimes(2));
+});
+
+it("refreshes the catalog and saves when returning to the lobby", async () => {
+  history.replaceState({}, "", "/play/saves");
+  render(<PlayerApp />);
+  await screen.findByRole("heading", { name: "我的存档" });
+  const published = { ...story, id: 999, title: "新上架故事" };
+  window.api.player.bootstrap.mockResolvedValue({ ...account, stories: [published], saves: [] });
+  fireEvent.click(screen.getByLabelText("故事大厅"));
+  expect(await screen.findByRole("heading", { name: "新上架故事" })).toBeTruthy();
+  expect(screen.queryByText("Alex")).toBeNull();
+  expect(window.api.player.bootstrap).toHaveBeenCalledTimes(2);
+});
+
+it("does not let an older navigation refresh overwrite a newer catalog", async () => {
+  render(<PlayerApp />);
+  await screen.findByRole("heading", { name: "故事大厅" });
+  let resolveOld;
+  const oldResponse = new Promise(resolve => { resolveOld = resolve; });
+  const published = { ...story, id: 999, title: "新上架故事" };
+  window.api.player.bootstrap.mockReturnValueOnce(oldResponse).mockResolvedValueOnce({ ...account, stories: [published] });
+  fireEvent.click(screen.getByRole("button", { name: "我的存档", exact: true }));
+  await waitFor(() => expect(window.api.player.bootstrap).toHaveBeenCalledTimes(2));
+  fireEvent.click(screen.getByLabelText("故事大厅"));
+  expect(await screen.findByRole("heading", { name: "新上架故事" })).toBeTruthy();
+  await act(async () => { resolveOld(account); await oldResponse; });
+  expect(screen.getByRole("heading", { name: "新上架故事" })).toBeTruthy();
 });
 
 it("keeps the archive private when a guest opens its URL", async () => {
