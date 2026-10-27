@@ -81,7 +81,7 @@ def start_server():
     application.mount("/", platform)
     sock = socket.socket()
     sock.bind(("127.0.0.1", 17864))
-    server = uvicorn.Server(uvicorn.Config(application, log_level="warning"))
+    server = uvicorn.Server(uvicorn.Config(application, log_level="warning", timeout_graceful_shutdown=3))
     thread = threading.Thread(target=lambda: server.run(sockets=[sock]), daemon=True)
     thread.start()
     for _ in range(400):
@@ -93,6 +93,7 @@ def start_server():
     server.should_exit = True
     thread.join(10)
     sock.close()
+    assert not thread.is_alive(), "Full application lifespan did not stop"
 
 
 @pytest.mark.parametrize("mode", ["auto", "legacy"])

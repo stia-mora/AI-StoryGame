@@ -378,6 +378,9 @@ async def lifespan(app: FastAPI):
         pass
 
     # ── shutdown ──────────────────────────────────────────────────────────
+    # Pending imports remain durable for restart; release idle workers before the
+    # shared executor registry is cleared below.
+    _authoring_service.EXECUTOR.shutdown(wait=False, cancel_futures=True)
     _bg_tasks = [t for t in (_redis_listener_task, _rath_ticker_task) if t is not None]
     for _t in _bg_tasks:
         try:

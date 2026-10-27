@@ -119,7 +119,14 @@ def test_installed_codex_oauth_discovery_and_tool_call(live_server, creator, tmp
         result = rpc(process, "mcpServer/tool/call", dict(threadId=tid, server="authoring", tool="authoring_get_contract", arguments={}), 4)
         assert not result.get("isError") and result["structuredContent"]["version"] == 1
     finally:
-        process.kill()
+        process.stdin.close()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True)
+            else:
+                process.kill()
         process.wait()
 
 
