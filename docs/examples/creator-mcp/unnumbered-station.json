@@ -1,0 +1,206 @@
+{
+  "manifest.json": {
+    "format_version": 2
+  },
+  "script.json": {
+    "title": "无号星站",
+    "description": "原创验收样例"
+  },
+  "authoring.json": {
+    "version": 1,
+    "sources": [
+      {
+        "key": "novel",
+        "title": "无号星站",
+        "sha256": "3d71637cc4231a0c84ad93a62213203e1b937a79ada5dd98aadfe6d8e9fe633f",
+        "chapters": [
+          {
+            "key": "chapter-1",
+            "index": 1,
+            "sha256": "be669e43af6256ee70313aa1f016f4e26d1adce6827e4c92eaef9845950617bc",
+            "line_count": 1
+          },
+          {
+            "key": "airlock-log",
+            "index": 2,
+            "sha256": "e70ad1b52f603bc907d2ea1b48b822e7fb002fc440bea1a0ac26b6cfa4492d9e",
+            "line_count": 2
+          }
+        ]
+      }
+    ],
+    "scope": [
+      "chapter-1",
+      "airlock-log"
+    ],
+    "play": {
+      "version": 1,
+      "title": "无号星站",
+      "introduction": "一段可以改变结局的原创故事。",
+      "identities": [
+        {
+          "id": "keeper",
+          "name": "青禾",
+          "subject": "keeper",
+          "character_name": "青禾",
+          "opening": "opening"
+        },
+        {
+          "id": "visitor",
+          "name": "旅人",
+          "opening": "airlock"
+        }
+      ],
+      "openings": [
+        {
+          "key": "opening",
+          "moment": "start",
+          "chapter": "chapter-1",
+          "location": "气闸"
+        },
+        {
+          "key": "airlock",
+          "moment": "airlock",
+          "chapter": "airlock-log",
+          "location": "气闸控制室"
+        }
+      ]
+    },
+    "completeness": {
+      "chapter_notes": [
+        "chapter-1",
+        "airlock-log"
+      ],
+      "main_subjects": [
+        "keeper"
+      ]
+    }
+  },
+  "overrides.json": {
+    "guide_world": {
+      "version": 1,
+      "edition": "first",
+      "continuity_policy": "causal",
+      "moments": [
+        {
+          "key": "start",
+          "order": 0,
+          "label": "第一日",
+          "chapter_min": 1,
+          "chapter_max": 1
+        },
+        {
+          "key": "airlock",
+          "order": 1,
+          "label": "气闸记录",
+          "chapter_min": 2,
+          "chapter_max": 2
+        }
+      ],
+      "subjects": [
+        {
+          "key": "keeper",
+          "name": "青禾",
+          "kind": "character"
+        }
+      ],
+      "facts": [
+        {
+          "id": "at-start",
+          "subject": "keeper",
+          "kind": "state",
+          "field": "location",
+          "value": "气闸",
+          "starts_at": "start",
+          "basis": "novel",
+          "evidence": [
+            {
+              "source": "novel",
+              "locator": "chapter-1",
+              "chapter_index": 1,
+              "chapter_sha256": "be669e43af6256ee70313aa1f016f4e26d1adce6827e4c92eaef9845950617bc",
+              "line_start": 1,
+              "line_end": 1
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "chapters.jsonl": [
+    {
+      "id": 1,
+      "chapter_index": 1,
+      "title": "日志·第一日",
+      "content": "星站日志·第一日：维修员青禾在气闸旁发现一枚没有编号的钥匙。",
+      "word_count": 30
+    },
+    {
+      "id": 2,
+      "chapter_index": 2,
+      "title": "设备记录·气闸",
+      "volume_title": "无号日志",
+      "content": "设备记录·气闸：青禾转动无号钥匙，旧通讯灯闪了两次。\n她决定先检查供氧表，再回应门后的敲击声。",
+      "word_count": 47
+    }
+  ],
+  "chapter_facts.jsonl": [
+    {
+      "chapter": 1,
+      "chapter_id": 1,
+      "title": "开篇",
+      "summary": "星站日志·第一日：维修员青禾在气闸旁发现一枚没有编号的钥匙。"
+    },
+    {
+      "chapter": 2,
+      "chapter_id": 2,
+      "summary": "设备记录·气闸：青禾转动无号钥匙，旧通讯灯闪了两次。\n她决定先检查供氧表，再回应门后的敲击声。"
+    }
+  ],
+  "character_cards.jsonl": [
+    {
+      "name": "青禾",
+      "speech_style": "措辞简短，先确认眼前事实，再讨论选择。",
+      "personality": "谨慎而愿意帮助陌生人。",
+      "metadata": {
+        "authoring_subject": "keeper"
+      }
+    }
+  ],
+  "worldbook.jsonl": [
+    {
+      "title": "无号星站的世界",
+      "content": "这是一个允许人物行动改变后续结果的原创世界。",
+      "keys": [
+        "青禾"
+      ]
+    }
+  ],
+  "kb_canon_entities.jsonl": [
+    {
+      "type": "character",
+      "logical_key": "keeper",
+      "name": "青禾",
+      "summary": "守护此地的人",
+      "aliases": []
+    }
+  ],
+  "timeline_anchors.jsonl": [
+    {
+      "story_phase": "开篇",
+      "story_time_label": "start",
+      "chapter_min": 1,
+      "chapter_max": 1,
+      "chapter_count": 1,
+      "sample_summary": "星站日志·第一日：维修员青禾在气闸旁发现一枚没有编号的钥匙。"
+    },
+    {
+      "story_phase": "气闸记录",
+      "story_time_label": "airlock",
+      "chapter_min": 2,
+      "chapter_max": 2,
+      "chapter_count": 1,
+      "sample_summary": "设备记录·气闸：青禾转动无号钥匙，旧通讯灯闪了两次。\n她决定先检查供氧表，再回应门后的敲击声。"
+    }
+  ]
+}

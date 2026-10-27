@@ -1,0 +1,1341 @@
+{
+  "authoring": {
+    "$defs": {
+      "Completeness": {
+        "additionalProperties": false,
+        "properties": {
+          "chapter_notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Chapter Notes",
+            "type": "array"
+          },
+          "main_subjects": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Main Subjects",
+            "type": "array"
+          },
+          "unresolved": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unresolved",
+            "type": "array"
+          },
+          "excluded": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Excluded",
+            "type": "array"
+          }
+        },
+        "required": [
+          "chapter_notes",
+          "main_subjects"
+        ],
+        "title": "Completeness",
+        "type": "object"
+      },
+      "Identity": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Subject"
+          },
+          "character_name": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Character Name"
+          },
+          "opening": {
+            "title": "Opening",
+            "type": "string"
+          },
+          "role": {
+            "default": "",
+            "maxLength": 180,
+            "title": "Role",
+            "type": "string"
+          },
+          "background": {
+            "default": "",
+            "maxLength": 1200,
+            "title": "Background",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "opening"
+        ],
+        "title": "Identity",
+        "type": "object"
+      },
+      "Media": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "purpose": {
+            "const": "cover",
+            "default": "cover",
+            "title": "Purpose",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "sha256"
+        ],
+        "title": "Media",
+        "type": "object"
+      },
+      "Opening": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "moment": {
+            "title": "Moment",
+            "type": "string"
+          },
+          "chapter": {
+            "title": "Chapter",
+            "type": "string"
+          },
+          "location": {
+            "maxLength": 180,
+            "minLength": 1,
+            "title": "Location",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "moment",
+          "chapter",
+          "location"
+        ],
+        "title": "Opening",
+        "type": "object"
+      },
+      "PlayConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "const": 1,
+            "default": 1,
+            "title": "Version",
+            "type": "integer"
+          },
+          "title": {
+            "maxLength": 180,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "introduction": {
+            "maxLength": 1200,
+            "minLength": 1,
+            "title": "Introduction",
+            "type": "string"
+          },
+          "identities": {
+            "items": {
+              "$ref": "#/$defs/Identity"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Identities",
+            "type": "array"
+          },
+          "openings": {
+            "items": {
+              "$ref": "#/$defs/Opening"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Openings",
+            "type": "array"
+          },
+          "story_intent": {
+            "default": "",
+            "maxLength": 6000,
+            "title": "Story Intent",
+            "type": "string"
+          },
+          "player_origin": {
+            "default": "native",
+            "enum": [
+              "native",
+              "transmigrator"
+            ],
+            "title": "Player Origin",
+            "type": "string"
+          },
+          "identity_known": {
+            "default": true,
+            "title": "Identity Known",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "title",
+          "introduction",
+          "identities",
+          "openings"
+        ],
+        "title": "PlayConfig",
+        "type": "object"
+      },
+      "Source": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 180,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "chapters": {
+            "items": {
+              "$ref": "#/$defs/SourceChapter"
+            },
+            "maxItems": 10000,
+            "minItems": 1,
+            "title": "Chapters",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "sha256",
+          "chapters"
+        ],
+        "title": "Source",
+        "type": "object"
+      },
+      "SourceChapter": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "index": {
+            "minimum": 1,
+            "title": "Index",
+            "type": "integer"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "line_count": {
+            "minimum": 1,
+            "title": "Line Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "index",
+          "sha256",
+          "line_count"
+        ],
+        "title": "SourceChapter",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "version": {
+        "const": 1,
+        "title": "Version",
+        "type": "integer"
+      },
+      "sources": {
+        "items": {
+          "$ref": "#/$defs/Source"
+        },
+        "maxItems": 20,
+        "minItems": 1,
+        "title": "Sources",
+        "type": "array"
+      },
+      "scope": {
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 10000,
+        "minItems": 1,
+        "title": "Scope",
+        "type": "array"
+      },
+      "play": {
+        "$ref": "#/$defs/PlayConfig"
+      },
+      "media": {
+        "items": {
+          "$ref": "#/$defs/Media"
+        },
+        "maxItems": 1,
+        "title": "Media",
+        "type": "array"
+      },
+      "completeness": {
+        "$ref": "#/$defs/Completeness"
+      }
+    },
+    "required": [
+      "version",
+      "sources",
+      "scope",
+      "play",
+      "completeness"
+    ],
+    "title": "AuthoringPackage",
+    "type": "object"
+  },
+  "guide_world": {
+    "$defs": {
+      "BeatCondition": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "fact_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 2,
+            "title": "Fact Ids",
+            "type": "array"
+          },
+          "recheck": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Recheck",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "recheck"
+        ],
+        "title": "BeatCondition",
+        "type": "object"
+      },
+      "Evidence": {
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "maxLength": 180,
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          },
+          "locator": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Locator",
+            "type": "string"
+          },
+          "quote": {
+            "default": "",
+            "maxLength": 240,
+            "title": "Quote",
+            "type": "string"
+          },
+          "url": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Url",
+            "type": "string"
+          },
+          "chapter_index": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Chapter Index"
+          },
+          "line_start": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Line Start"
+          },
+          "line_end": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Line End"
+          },
+          "chapter_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Chapter Sha256"
+          }
+        },
+        "required": [
+          "source",
+          "locator"
+        ],
+        "title": "Evidence",
+        "type": "object"
+      },
+      "Fact": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "subject": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Subject",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "state",
+              "event",
+              "history"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "field": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Field",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 1200,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          },
+          "starts_at": {
+            "title": "Starts At",
+            "type": "string"
+          },
+          "ends_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Ends At"
+          },
+          "basis": {
+            "enum": [
+              "novel",
+              "history"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "certainty": {
+            "default": "confirmed",
+            "enum": [
+              "confirmed",
+              "reported",
+              "inferred",
+              "disputed"
+            ],
+            "title": "Certainty",
+            "type": "string"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/$defs/Evidence"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "Evidence",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "subject",
+          "kind",
+          "field",
+          "value",
+          "starts_at",
+          "basis",
+          "evidence"
+        ],
+        "title": "Fact",
+        "type": "object"
+      },
+      "Moment": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "order": {
+            "minimum": 0,
+            "title": "Order",
+            "type": "integer"
+          },
+          "label": {
+            "maxLength": 180,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "chapter_min": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Chapter Min"
+          },
+          "chapter_max": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Chapter Max"
+          },
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Aliases",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "order",
+          "label"
+        ],
+        "title": "Moment",
+        "type": "object"
+      },
+      "SceneBeat": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "starts_at": {
+            "title": "Starts At",
+            "type": "string"
+          },
+          "ends_at": {
+            "title": "Ends At",
+            "type": "string"
+          },
+          "subjects": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 12,
+            "minItems": 1,
+            "title": "Subjects",
+            "type": "array"
+          },
+          "pressure": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Pressure",
+            "type": "string"
+          },
+          "conditions": {
+            "items": {
+              "$ref": "#/$defs/BeatCondition"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "Conditions",
+            "type": "array"
+          },
+          "choices": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Choices",
+            "type": "array"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/$defs/Evidence"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "Evidence",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "starts_at",
+          "ends_at",
+          "subjects",
+          "pressure",
+          "conditions",
+          "choices",
+          "evidence"
+        ],
+        "title": "SceneBeat",
+        "type": "object"
+      },
+      "Subject": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "character",
+              "place",
+              "faction",
+              "world"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Aliases",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "kind"
+        ],
+        "title": "Subject",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "version": {
+        "const": 1,
+        "title": "Version",
+        "type": "integer"
+      },
+      "edition": {
+        "maxLength": 100,
+        "minLength": 1,
+        "title": "Edition",
+        "type": "string"
+      },
+      "continuity_policy": {
+        "default": "convergent",
+        "enum": [
+          "convergent",
+          "causal"
+        ],
+        "title": "Continuity Policy",
+        "type": "string"
+      },
+      "moments": {
+        "items": {
+          "$ref": "#/$defs/Moment"
+        },
+        "maxItems": 2000,
+        "minItems": 1,
+        "title": "Moments",
+        "type": "array"
+      },
+      "subjects": {
+        "items": {
+          "$ref": "#/$defs/Subject"
+        },
+        "maxItems": 5000,
+        "title": "Subjects",
+        "type": "array"
+      },
+      "facts": {
+        "items": {
+          "$ref": "#/$defs/Fact"
+        },
+        "maxItems": 50000,
+        "title": "Facts",
+        "type": "array"
+      },
+      "beats": {
+        "items": {
+          "$ref": "#/$defs/SceneBeat"
+        },
+        "maxItems": 2000,
+        "title": "Beats",
+        "type": "array"
+      }
+    },
+    "required": [
+      "version",
+      "edition",
+      "moments",
+      "subjects",
+      "facts"
+    ],
+    "title": "GuideWorld",
+    "type": "object"
+  },
+  "content_files": {
+    "chapters.jsonl": {
+      "$defs": {
+        "Chapter": {
+          "additionalProperties": true,
+          "properties": {
+            "id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Id"
+            },
+            "chapter_index": {
+              "minimum": 1,
+              "title": "Chapter Index",
+              "type": "integer"
+            },
+            "title": {
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "content": {
+              "minLength": 1,
+              "title": "Content",
+              "type": "string"
+            },
+            "word_count": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Word Count",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "chapter_index",
+            "title",
+            "content"
+          ],
+          "title": "Chapter",
+          "type": "object"
+        }
+      },
+      "items": {
+        "$ref": "#/$defs/Chapter"
+      },
+      "type": "array"
+    },
+    "chapter_facts.jsonl": {
+      "$defs": {
+        "ChapterFact": {
+          "additionalProperties": true,
+          "properties": {
+            "chapter": {
+              "minimum": 1,
+              "title": "Chapter",
+              "type": "integer"
+            },
+            "chapter_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Chapter Id"
+            },
+            "summary": {
+              "minLength": 1,
+              "title": "Summary",
+              "type": "string"
+            }
+          },
+          "required": [
+            "chapter",
+            "summary"
+          ],
+          "title": "ChapterFact",
+          "type": "object"
+        }
+      },
+      "items": {
+        "$ref": "#/$defs/ChapterFact"
+      },
+      "type": "array"
+    },
+    "character_cards.jsonl": {
+      "$defs": {
+        "CharacterCard": {
+          "additionalProperties": true,
+          "properties": {
+            "name": {
+              "minLength": 1,
+              "title": "Name",
+              "type": "string"
+            },
+            "aliases": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Aliases",
+              "type": "array"
+            },
+            "speech_style": {
+              "default": "",
+              "title": "Speech Style",
+              "type": "string"
+            },
+            "first_revealed_chapter": {
+              "default": 0,
+              "minimum": 0,
+              "title": "First Revealed Chapter",
+              "type": "integer"
+            },
+            "enabled": {
+              "default": true,
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "metadata": {
+              "additionalProperties": true,
+              "title": "Metadata",
+              "type": "object"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "title": "CharacterCard",
+          "type": "object"
+        }
+      },
+      "items": {
+        "$ref": "#/$defs/CharacterCard"
+      },
+      "type": "array"
+    },
+    "worldbook.jsonl": {
+      "$defs": {
+        "Worldbook": {
+          "additionalProperties": true,
+          "properties": {
+            "title": {
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "content": {
+              "minLength": 1,
+              "title": "Content",
+              "type": "string"
+            },
+            "keys": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Keys",
+              "type": "array"
+            },
+            "insertion_position": {
+              "default": "worldbook",
+              "enum": [
+                "worldbook",
+                "constant",
+                "before_context",
+                "after_context"
+              ],
+              "title": "Insertion Position",
+              "type": "string"
+            }
+          },
+          "required": [
+            "title",
+            "content"
+          ],
+          "title": "Worldbook",
+          "type": "object"
+        }
+      },
+      "items": {
+        "$ref": "#/$defs/Worldbook"
+      },
+      "type": "array"
+    },
+    "kb_canon_entities.jsonl": {
+      "$defs": {
+        "Entity": {
+          "additionalProperties": true,
+          "properties": {
+            "logical_key": {
+              "minLength": 1,
+              "title": "Logical Key",
+              "type": "string"
+            },
+            "name": {
+              "minLength": 1,
+              "title": "Name",
+              "type": "string"
+            },
+            "type": {
+              "minLength": 1,
+              "title": "Type",
+              "type": "string"
+            },
+            "summary": {
+              "minLength": 1,
+              "title": "Summary",
+              "type": "string"
+            },
+            "aliases": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Aliases",
+              "type": "array"
+            },
+            "parent_logical_key": {
+              "default": "",
+              "title": "Parent Logical Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "logical_key",
+            "name",
+            "type",
+            "summary"
+          ],
+          "title": "Entity",
+          "type": "object"
+        }
+      },
+      "items": {
+        "$ref": "#/$defs/Entity"
+      },
+      "type": "array"
+    },
+    "timeline_anchors.jsonl": {
+      "$defs": {
+        "Anchor": {
+          "additionalProperties": true,
+          "properties": {
+            "story_phase": {
+              "minLength": 1,
+              "title": "Story Phase",
+              "type": "string"
+            },
+            "story_time_label": {
+              "minLength": 1,
+              "title": "Story Time Label",
+              "type": "string"
+            },
+            "chapter_min": {
+              "minimum": 1,
+              "title": "Chapter Min",
+              "type": "integer"
+            },
+            "chapter_max": {
+              "minimum": 1,
+              "title": "Chapter Max",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "story_phase",
+            "story_time_label",
+            "chapter_min",
+            "chapter_max"
+          ],
+          "title": "Anchor",
+          "type": "object"
+        }
+      },
+      "items": {
+        "$ref": "#/$defs/Anchor"
+      },
+      "type": "array"
+    },
+    "documents.jsonl": {
+      "$defs": {
+        "Document": {
+          "additionalProperties": true,
+          "properties": {
+            "source_kind": {
+              "default": "chapter",
+              "title": "Source Kind",
+              "type": "string"
+            },
+            "source_ref": {
+              "title": "Source Ref",
+              "type": "string"
+            },
+            "content": {
+              "minLength": 1,
+              "title": "Content",
+              "type": "string"
+            },
+            "chapter_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Chapter Id"
+            }
+          },
+          "required": [
+            "source_ref",
+            "content"
+          ],
+          "title": "Document",
+          "type": "object"
+        }
+      },
+      "items": {
+        "$ref": "#/$defs/Document"
+      },
+      "type": "array"
+    },
+    "chunks.jsonl": {
+      "$defs": {
+        "Chunk": {
+          "additionalProperties": true,
+          "properties": {
+            "source_kind": {
+              "default": "chapter",
+              "title": "Source Kind",
+              "type": "string"
+            },
+            "source_ref": {
+              "title": "Source Ref",
+              "type": "string"
+            },
+            "content": {
+              "minLength": 1,
+              "title": "Content",
+              "type": "string"
+            },
+            "chapter_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Chapter Id"
+            },
+            "chapter_index": {
+              "minimum": 1,
+              "title": "Chapter Index",
+              "type": "integer"
+            },
+            "chunk_index": {
+              "minimum": 0,
+              "title": "Chunk Index",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "source_ref",
+            "content",
+            "chapter_index",
+            "chunk_index"
+          ],
+          "title": "Chunk",
+          "type": "object"
+        }
+      },
+      "items": {
+        "$ref": "#/$defs/Chunk"
+      },
+      "type": "array"
+    },
+    "worldlines.jsonl": {
+      "$defs": {
+        "Worldline": {
+          "additionalProperties": true,
+          "properties": {
+            "wl_key": {
+              "minLength": 1,
+              "title": "Wl Key",
+              "type": "string"
+            },
+            "label": {
+              "minLength": 1,
+              "title": "Label",
+              "type": "string"
+            },
+            "parent_wl": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Parent Wl"
+            }
+          },
+          "required": [
+            "wl_key",
+            "label"
+          ],
+          "title": "Worldline",
+          "type": "object"
+        }
+      },
+      "items": {
+        "$ref": "#/$defs/Worldline"
+      },
+      "type": "array"
+    },
+    "worldline_nodes.jsonl": {
+      "$defs": {
+        "Node": {
+          "additionalProperties": true,
+          "properties": {
+            "wl_key": {
+              "minLength": 1,
+              "title": "Wl Key",
+              "type": "string"
+            },
+            "node_key": {
+              "minLength": 1,
+              "title": "Node Key",
+              "type": "string"
+            },
+            "seq": {
+              "minimum": 0,
+              "title": "Seq",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "wl_key",
+            "node_key",
+            "seq"
+          ],
+          "title": "Node",
+          "type": "object"
+        }
+      },
+      "items": {
+        "$ref": "#/$defs/Node"
+      },
+      "type": "array"
+    },
+    "phase_digests.jsonl": {
+      "$defs": {
+        "Digest": {
+          "additionalProperties": true,
+          "properties": {
+            "phase_label": {
+              "minLength": 1,
+              "title": "Phase Label",
+              "type": "string"
+            },
+            "chapter_min": {
+              "minimum": 1,
+              "title": "Chapter Min",
+              "type": "integer"
+            },
+            "chapter_max": {
+              "minimum": 1,
+              "title": "Chapter Max",
+              "type": "integer"
+            },
+            "summary": {
+              "minLength": 1,
+              "title": "Summary",
+              "type": "string"
+            }
+          },
+          "required": [
+            "phase_label",
+            "chapter_min",
+            "chapter_max",
+            "summary"
+          ],
+          "title": "Digest",
+          "type": "object"
+        }
+      },
+      "items": {
+        "$ref": "#/$defs/Digest"
+      },
+      "type": "array"
+    }
+  }
+}

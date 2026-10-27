@@ -6,7 +6,7 @@
 
 面向玩家与创作者的 AI 文字角色扮演平台。
 
-[项目仓库](https://github.com/stia-mora/AI-StoryGame) · [问题反馈](https://github.com/stia-mora/AI-StoryGame/issues) · [部署说明](deploy/PRODUCTION.md) · [MCP 开发交接](docs/creator-mcp-handoff.md)
+[项目仓库](https://github.com/stia-mora/AI-StoryGame) · [问题反馈](https://github.com/stia-mora/AI-StoryGame/issues) · [部署说明](deploy/PRODUCTION.md) · [创作者 MCP 接入](docs/creator-mcp.md)
 
 </div>
 
@@ -62,20 +62,21 @@
 
 <br clear="all" />
 
-## 创作者 MCP：开发计划
+## 创作者 MCP
 
-目标是让用户接入自己的 Agent，提供一本小说，由 Agent 按平台规范制作故事并上传为自己的作品：
+用户可以接入自己的 Agent，提供一本小说，由 Agent 按平台规范制作故事并上传为自己的作品：
 
 ```text
 提供小说与要求 → 分章阅读与编制 → 校验缺项 → 上传私人草稿 → 试玩修订 → 提交上架
 ```
 
-**创作者 MCP 服务端尚未实现。** 当前已有剧本包、外部访问令牌和导入接口作为基础。接下来需要补齐创作契约、包校验、进度恢复、游玩配置和外部 Agent 接入。
+创作者 MCP 提供 `/mcp/authoring`，支持浏览器 OAuth 与 PAT。Agent 可获取契约、分片上传和校验内容包、导入不可变私人版本、试玩并提交上架审批。每位创作者一次性获得 10,000 专用试玩积分，与普通游玩余额分开核算。
 
-平台现有的 MCP 设置用于调用外部工具，创作者 MCP 将提供平台自身的创作工具。动态场景背景切换也仍处于方案阶段。
+创作者页面为 `/play/authoring`，管理员审批页面为 `/play/authoring-admin`。现有 MCP 设置仍用于平台调用外部工具。动态场景背景切换仍处于方案阶段。
 
 - [创作者 MCP 方案](docs/creator-mcp-proposal.md)
-- [下一轮开发交接](docs/creator-mcp-handoff.md)
+- [接入、原创样例与实际验收](docs/creator-mcp.md)
+- [原始开发交接](docs/creator-mcp-handoff.md)
 - [场景背景方案](docs/player-scene-backgrounds.md)
 
 ## 本地开发

@@ -1,0 +1,164 @@
+{
+  "manifest.json": {
+    "format_version": 2
+  },
+  "script.json": {
+    "title": "渡口灯火",
+    "description": "原创验收样例"
+  },
+  "authoring.json": {
+    "version": 1,
+    "sources": [
+      {
+        "key": "novel",
+        "title": "渡口灯火",
+        "sha256": "8f297b946d87edcf8e8b1c03ddb9169c8591a41405f8e904d43e550e04051294",
+        "chapters": [
+          {
+            "key": "chapter-1",
+            "index": 1,
+            "sha256": "8f297b946d87edcf8e8b1c03ddb9169c8591a41405f8e904d43e550e04051294",
+            "line_count": 1
+          }
+        ]
+      }
+    ],
+    "scope": [
+      "chapter-1"
+    ],
+    "play": {
+      "version": 1,
+      "title": "渡口灯火",
+      "introduction": "一段可以改变结局的原创故事。",
+      "identities": [
+        {
+          "id": "keeper",
+          "name": "林舟",
+          "subject": "keeper",
+          "character_name": "林舟",
+          "opening": "opening"
+        },
+        {
+          "id": "visitor",
+          "name": "旅人",
+          "opening": "opening"
+        }
+      ],
+      "openings": [
+        {
+          "key": "opening",
+          "moment": "start",
+          "chapter": "chapter-1",
+          "location": "渡口"
+        }
+      ]
+    },
+    "completeness": {
+      "chapter_notes": [
+        "chapter-1"
+      ],
+      "main_subjects": [
+        "keeper"
+      ]
+    }
+  },
+  "overrides.json": {
+    "guide_world": {
+      "version": 1,
+      "edition": "first",
+      "continuity_policy": "causal",
+      "moments": [
+        {
+          "key": "start",
+          "order": 0,
+          "label": "第一日",
+          "chapter_min": 1,
+          "chapter_max": 1
+        }
+      ],
+      "subjects": [
+        {
+          "key": "keeper",
+          "name": "林舟",
+          "kind": "character"
+        }
+      ],
+      "facts": [
+        {
+          "id": "at-start",
+          "subject": "keeper",
+          "kind": "state",
+          "field": "location",
+          "value": "渡口",
+          "starts_at": "start",
+          "basis": "novel",
+          "evidence": [
+            {
+              "source": "novel",
+              "locator": "chapter-1",
+              "chapter_index": 1,
+              "chapter_sha256": "8f297b946d87edcf8e8b1c03ddb9169c8591a41405f8e904d43e550e04051294",
+              "line_start": 1,
+              "line_end": 1
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "chapters.jsonl": [
+    {
+      "id": 1,
+      "chapter_index": 1,
+      "title": "第一章 灯火",
+      "content": "渡口的灯熄了。守灯人林舟提起备用油壶，听见对岸传来三声钟响。",
+      "word_count": 30
+    }
+  ],
+  "chapter_facts.jsonl": [
+    {
+      "chapter": 1,
+      "chapter_id": 1,
+      "title": "开篇",
+      "summary": "渡口的灯熄了。守灯人林舟提起备用油壶，听见对岸传来三声钟响。"
+    }
+  ],
+  "character_cards.jsonl": [
+    {
+      "name": "林舟",
+      "speech_style": "措辞简短，先确认眼前事实，再讨论选择。",
+      "personality": "谨慎而愿意帮助陌生人。",
+      "metadata": {
+        "authoring_subject": "keeper"
+      }
+    }
+  ],
+  "worldbook.jsonl": [
+    {
+      "title": "渡口灯火的世界",
+      "content": "这是一个允许人物行动改变后续结果的原创世界。",
+      "keys": [
+        "林舟"
+      ]
+    }
+  ],
+  "kb_canon_entities.jsonl": [
+    {
+      "type": "character",
+      "logical_key": "keeper",
+      "name": "林舟",
+      "summary": "守护此地的人",
+      "aliases": []
+    }
+  ],
+  "timeline_anchors.jsonl": [
+    {
+      "story_phase": "开篇",
+      "story_time_label": "start",
+      "chapter_min": 1,
+      "chapter_max": 1,
+      "chapter_count": 1,
+      "sample_summary": "渡口的灯熄了。守灯人林舟提起备用油壶，听见对岸传来三声钟响。"
+    }
+  ]
+}
