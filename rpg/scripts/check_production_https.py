@@ -5,7 +5,10 @@ Requires Docker, openssl and local postgres:17-alpine/nginx:stable-alpine images
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
+import re
 import secrets
 import socket
 import ssl
@@ -16,7 +19,8 @@ import time
 import uuid
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
 
 ROOT = Path(__file__).resolve().parents[2]
 FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -42,9 +46,13 @@ def location(source, declaration):
 
 
 def request(url, context, method="GET", data=None, headers=None):
+    class NoRedirect(HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, response_headers, newurl):
+            return None
+
     try:
-        response = urlopen(Request(url, data=data, method=method, headers=headers or {}),
-                           timeout=3, context=context)
+        response = build_opener(HTTPSHandler(context=context), NoRedirect()).open(
+            Request(url, data=data, method=method, headers=headers or {}), timeout=3)
     except HTTPError as exc:
         response = exc
     with response:
@@ -128,13 +136,58 @@ def main():
             registration = json.dumps({"client_name": "Smoke client", "redirect_uris": ["http://127.0.0.1:48321/callback"]}).encode()
             status, _, raw = request(base + "/oauth/authoring/register", context, "POST", registration,
                                      {"Content-Type": "application/json"})
-            assert status == 201 and json.loads(raw)["client_id"].startswith("authoring_")
+            client_id = json.loads(raw)["client_id"]
+            assert status == 201 and client_id.startswith("authoring_")
             print("OAuth dynamic client registration: 201")
             status, headers, _ = request(base + "/mcp/authoring", context, "POST",
                                          b'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}',
                                          {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"})
             assert status == 401 and "bearer" in headers.get("WWW-Authenticate", "").lower()
             print("Unauthenticated MCP initialize: 401 Bearer challenge")
+            # Seed only the disposable database and use a real account session.
+            seed = ("from platform_app.db import connect; from platform_app.auth import _issue_session; "
+                    "db=connect(); c=db.__enter__(); "
+                    "u=c.execute(\"insert into users(username,password_hash,display_name,account_mode,email_verified) "
+                    "values('smoke_creator','test','Smoke','creator',true) returning id\").fetchone(); "
+                    "print(_issue_session(c,u['id'])); db.__exit__(None,None,None)")
+            session = run("docker", "exec", backend, "python", "-c", seed).stdout.strip().splitlines()[-1]
+            verifier = secrets.token_urlsafe(48)
+            challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
+            redirect = "http://127.0.0.1:48321/callback"
+            params = dict(client_id=client_id, redirect_uri=redirect, scope="authoring:read",
+                          response_type="code", code_challenge_method="S256", code_challenge=challenge,
+                          resource=base + "/mcp/authoring", state="smoke")
+            cookie = {"Cookie": "rpg_session=" + session}
+            status, _, raw = request(base + "/oauth/authoring/authorize?" + urlencode(params), context, headers=cookie)
+            assert status == 200
+            page = raw.decode()
+            request_id = re.search(r"name='request_id' value='([^']+)'", page).group(1)
+            csrf = re.search(r"name='csrf' value='([^']+)'", page).group(1)
+            form = urlencode(dict(request_id=request_id, csrf=csrf, decision="allow")).encode()
+            status, headers, _ = request(base + "/oauth/authoring/authorize", context, "POST", form,
+                                         {**cookie, "Content-Type": "application/x-www-form-urlencoded"})
+            assert status == 303
+            query = parse_qs(urlsplit(headers["Location"]).query)
+            assert query["state"] == ["smoke"]
+            form = urlencode(dict(grant_type="authorization_code", client_id=client_id, code=query["code"][0],
+                                  code_verifier=verifier, redirect_uri=redirect, resource=params["resource"])).encode()
+            status, _, raw = request(base + "/oauth/authoring/token", context, "POST", form,
+                                     {"Content-Type": "application/x-www-form-urlencoded"})
+            assert status == 200
+            token = json.loads(raw)["access_token"]
+            mcp_headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json",
+                           "Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2025-06-18"}
+            payload = dict(jsonrpc="2.0", id=2, method="tools/call",
+                           params=dict(name="authoring_get_contract", arguments={}))
+            status, headers, raw = request(base + "/mcp/authoring", context, "POST", json.dumps(payload).encode(), mcp_headers)
+            if headers.get_content_type() == "text/event-stream":
+                data = next(line[5:].strip() for line in raw.decode().splitlines() if line.startswith("data:"))
+                result = json.loads(data)
+            else:
+                result = json.loads(raw)
+            assert status == 200 and not result["result"].get("isError")
+            assert result["result"]["structuredContent"]["version"] == 1
+            print("Authenticated OAuth authorization and MCP contract call: passed")
             print("Production-mode HTTPS smoke passed with disposable PostgreSQL and nginx")
         finally:
             for name in (nginx, backend, pg):
