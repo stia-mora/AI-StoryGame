@@ -20,6 +20,7 @@ export function Wallet({ refresh, navigate }) {
   const [draft, setDraft] = useState(emptyFilters), [filters, setFilters] = useState(emptyFilters);
   const [page, setPage] = useState(1), [revision, setRevision] = useState(0);
   const [result, setResult] = useState({ items: [], total: 0, pages: 1, page: 1 });
+  const redeemBlocked = wallet && wallet.free_micro + wallet.permanent_micro + wallet.held_micro > 5000 * 1e6;
   const load = async () => {
     const value = await window.api.player.wallet();
     setWallet(value);
@@ -51,6 +52,7 @@ export function Wallet({ refresh, navigate }) {
   );
   const redeem = async (e) => {
     e.preventDefault();
+    if (redeemBlocked) return;
     setBusy(true);
     setError("");
     setMessage("");
@@ -114,10 +116,11 @@ export function Wallet({ refresh, navigate }) {
             maxLength={120}
             required
           />
-          <Button disabled={busy || !code.trim()}>
+          <Button disabled={busy || redeemBlocked || !code.trim()}>
             兑换 <ArrowRight size={17} />
           </Button>
         </form>
+        {redeemBlocked && <Notice>当前游玩积分（含预留）已超过 5000，请先使用已有积分后再兑换。</Notice>}
         {error && <Notice error>{error}</Notice>}
         {message && <Notice>{message}</Notice>}
       </section>

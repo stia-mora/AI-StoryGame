@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ArrowRight, BookOpen, Clock, FolderOpen, MagnifyingGlass, Play, X } from "@phosphor-icons/react";
+import { ArrowRight, BookOpen, Clock, FolderOpen, Info, MagnifyingGlass, Play, X } from "@phosphor-icons/react";
 import { BookCover, Button, Empty, StoryCard } from "./shared.jsx";
 
 function SaveList({ saves, navigate }) {
@@ -49,6 +49,14 @@ export function Lobby({ data, navigate, search, setSearch, onHelp, archive = fal
   const latestStory = latest && data.stories.find((story) => story.id === latest.story_id);
   return (
     <main id="player-main" className="player-shell player-lobby" tabIndex={-1}>
+      {!archive && <aside className="lobby-beta-notice" role="status" aria-label="内测公告">
+        <Info size={22} aria-hidden="true" />
+        <div>
+          <strong>内测中，放心聊。</strong>
+          <p>目前项目处于内测阶段，对话不限次数。积分用完后，可联系群主领取兑换码，接着聊。</p>
+          <span>QQ群：筹备中，群号准备好后会在这里公布。</span>
+        </div>
+      </aside>}
       <div className="lobby-toolbar">
         <h1>{archive ? "我的存档" : "故事大厅"}</h1>
         <div className="lobby-search" role="search">

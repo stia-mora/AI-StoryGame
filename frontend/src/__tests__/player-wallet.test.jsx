@@ -13,6 +13,35 @@ beforeEach(() => {
 });
 const show = () => render(<Wallet refresh={vi.fn()} navigate={vi.fn()} />);
 
+it.each([
+  { free_micro: 100000000, permanent_micro: 4900000001, held_micro: 0 },
+  { free_micro: 0, permanent_micro: 0, held_micro: 5000000001 },
+])("blocks ordinary redemption above 5000 points including reservations: %o", async (balance) => {
+  window.api.player.wallet.mockResolvedValue({ ...balance, rates: { input: 1, output: 2 } });
+  show();
+  await screen.findByText(/当前游玩积分（含预留）已超过 5000/);
+  fireEvent.change(screen.getByLabelText("兑换码"), { target: { value: "KEEP-THIS-CODE" } });
+  const button = screen.getByRole("button", { name: "兑换" });
+  expect(button.disabled).toBe(true);
+  fireEvent.submit(button.closest("form"));
+  expect(window.api.player.redeem).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("兑换码").value).toBe("KEEP-THIS-CODE");
+});
+
+it("allows redemption at exactly 5000 and preserves the code on a server rejection", async () => {
+  window.api.player.wallet.mockResolvedValue({ free_micro: 100000000, permanent_micro: 4900000000, held_micro: 0, rates: { input: 1, output: 2 } });
+  window.api.player.redeem.mockRejectedValue(new Error("当前游玩积分（含预留）已超过 5000，请先使用已有积分后再兑换。"));
+  show();
+  await screen.findByText("第1页记录");
+  fireEvent.change(screen.getByLabelText("兑换码"), { target: { value: "KEEP-THIS-CODE" } });
+  const button = screen.getByRole("button", { name: "兑换" });
+  expect(button.disabled).toBe(false);
+  fireEvent.click(button);
+  expect(await screen.findByRole("alert")).toHaveTextContent("请先使用已有积分后再兑换");
+  expect(window.api.player.redeem).toHaveBeenCalledWith("KEEP-THIS-CODE");
+  expect(screen.getByLabelText("兑换码").value).toBe("KEEP-THIS-CODE");
+});
+
 it("replaces the current page instead of appending records", async () => {
   show();
   await screen.findByText("第1页记录");

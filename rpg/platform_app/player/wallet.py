@@ -424,7 +424,7 @@ def reap(uid=None):
 def redeem(uid, code):
     digest = hashlib.sha256(code.strip().upper().encode()).hexdigest()
     with connect() as db:
-        lock_wallet(db, uid)
+        balance = lock_wallet(db, uid)
         row = db.execute(
             "select *, (expires_at is null or expires_at>now()) as valid from player_codes where code_hash=%s for update",
             (digest,),
@@ -442,6 +442,8 @@ def redeem(uid, code):
             raise HTTPException(409, "你已经兑换过此码")
         if row.get("purpose") == "preview":
             _preview_wallet(db, uid)
+        elif balance["free_micro"] + balance["permanent_micro"] + balance["held_micro"] > 5000 * MICRO:
+            raise HTTPException(409, "当前游玩积分（含预留）已超过 5000，请先使用已有积分后再兑换。")
         db.execute(
             "insert into player_redemptions(code_id,user_id) values(%s,%s)", (row["id"], uid)
         )

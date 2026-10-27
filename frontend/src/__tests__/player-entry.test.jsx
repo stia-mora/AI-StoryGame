@@ -21,6 +21,23 @@ beforeEach(() => {
   } };
 });
 
+it.each([false, true])("shows the beta notice in the lobby with authentication=%s", async (authenticated) => {
+  window.api.player.session.mockResolvedValue({ authenticated });
+  render(<PlayerApp />);
+  const notice = await screen.findByRole("status", { name: "内测公告" });
+  expect(notice).toHaveTextContent("对话不限次数");
+  expect(notice).toHaveTextContent("联系群主领取兑换码");
+  expect(notice).toHaveTextContent("QQ群：筹备中");
+  if (!authenticated) expect(window.api.player.bootstrap).not.toHaveBeenCalled();
+});
+
+it("keeps the lobby beta notice out of the personal archive", async () => {
+  history.replaceState({}, "", "/play/saves");
+  render(<PlayerApp />);
+  await screen.findByRole("heading", { name: "我的存档" });
+  expect(screen.queryByRole("status", { name: "内测公告" })).toBeNull();
+});
+
 it("opens all personal saves and searches by character name without changing the catalog", async () => {
   render(<PlayerApp />);
   await screen.findByRole("heading", { name: "故事大厅" });
