@@ -2433,6 +2433,14 @@ _assert_migrations_monotonic()
 from platform_app.authoring.schema import STATEMENTS as _AUTHORING_STATEMENTS
 
 MIGRATIONS.append((109, "creator_authoring_mcp", _AUTHORING_STATEMENTS))
+MIGRATIONS.append((110, "authoring_oauth_cleanup_indexes", [
+    "create index authoring_oauth_clients_created on authoring_oauth_clients(created_at)",
+    "create index authoring_oauth_requests_expiry on authoring_oauth_requests(expires_at)",
+    "create index authoring_oauth_requests_client on authoring_oauth_requests(client_id)",
+    "create index authoring_oauth_grants_client on authoring_oauth_grants(client_id)",
+    "create index authoring_oauth_grants_user on authoring_oauth_grants(user_id)",
+    "create index authoring_oauth_refresh_grant on authoring_oauth_refresh_history(grant_id)",
+]))
 
 
 @contextmanager

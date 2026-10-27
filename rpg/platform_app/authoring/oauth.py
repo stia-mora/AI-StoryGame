@@ -21,6 +21,13 @@ from .service import creator
 
 router = APIRouter()
 
+# Inactive client IDs may be saved in clients; they must re-register after cleanup.
+MAX_OAUTH_CLIENTS = 50000
+MAX_PENDING_CONSENTS = 20
+MAX_ACTIVE_GRANTS = 100
+MAX_REFRESH_HISTORY = 4096
+OAUTH_CLEANUP_BATCH = 100
+
 
 def resource():
     return federation.official_base() + "/mcp/authoring"
@@ -36,9 +43,46 @@ def digest(value):
 
 
 def _limited(request, name, maximum=30):
-    key = f"authoring-oauth:{name}:{request.client.host if request.client else 'unknown'}"
-    if not federation.rate_ok(key, maximum, 60):
+    from core.request_limits import rate_allowed
+    from platform_app.api._deps import _client_ip
+
+    key = f"authoring-oauth:{name}:{_client_ip(request) or 'unknown'}"
+    if not rate_allowed(key, maximum, 60):
         raise HTTPException(429, "请求过于频繁", headers={"Retry-After": "60"})
+
+
+def _global_limit(name, maximum):
+    from core.request_limits import rate_allowed
+
+    if not rate_allowed(f"authoring-oauth:global:{name}", maximum, 60):
+        raise HTTPException(429, "授权服务繁忙，请稍后重试", headers={"Retry-After": "60"})
+
+
+def _cleanup_expired(db, keep_client_id=None):
+    """Delete unusable records and old unreferenced client IDs in bounded batches."""
+    from core.request_limits import rate_allowed
+
+    if not rate_allowed("authoring-oauth:cleanup", 1, 60):
+        return
+    db.execute("""delete from authoring_oauth_requests where id in (
+        select id from authoring_oauth_requests where expires_at<=now() limit %s)""", (OAUTH_CLEANUP_BATCH,))
+    db.execute("""delete from authoring_oauth_grants where id in (
+        select id from authoring_oauth_grants where
+          (code_hash is null or code_expires<=now()) and
+          (access_hash is null or access_expires<=now()) and
+          (refresh_hash is null or refresh_expires<=now()) limit %s)""", (OAUTH_CLEANUP_BATCH,))
+    # FOR UPDATE conflicts with authorization's FOR KEY SHARE. SKIP LOCKED keeps
+    # cleanup from waiting behind live authorization requests or deleting their client.
+    db.execute("""delete from authoring_oauth_clients where id in (
+        select c.id from authoring_oauth_clients c where c.created_at<now()-interval '90 days'
+        and c.id is distinct from %s
+        and not exists (select 1 from authoring_oauth_requests r where r.client_id=c.id)
+        and not exists (select 1 from authoring_oauth_grants g where g.client_id=c.id)
+        order by c.created_at limit %s for update skip locked)""", (keep_client_id, OAUTH_CLEANUP_BATCH))
+
+
+def _lock_user(db, user_id):
+    db.execute("select pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"authoring-oauth-user:{user_id}",))
 
 
 def session_user(request):
@@ -146,6 +190,7 @@ async def body(request):
 async def register(request: Request):
     enabled()
     _limited(request, "register", 10)
+    _global_limit("register", 100)
     data = await body(request)
     redirects = data.get("redirect_uris", [])
     if (not isinstance(redirects, list) or not 1 <= len(redirects) <= 10 or
@@ -154,6 +199,11 @@ async def register(request: Request):
         return JSONResponse(dict(error="invalid_client_metadata"), 400)
     cid = "authoring_" + secrets.token_urlsafe(24)
     with connect() as db:
+        # Serialize the admission check across web workers without altering clients.
+        db.execute("select pg_advisory_xact_lock(hashtextextended('authoring-oauth-client-cap', 0))")
+        _cleanup_expired(db)
+        if db.execute("select 1 from authoring_oauth_clients offset %s limit 1", (MAX_OAUTH_CLIENTS - 1,)).fetchone():
+            raise HTTPException(503, "客户端注册容量已满，请联系管理员")
         db.execute("insert into authoring_oauth_clients(id,name,redirect_uris) values(%s,%s,%s)",
                    (cid, str(data.get("client_name") or "MCP Client")[:120], Jsonb(redirects)))
     return JSONResponse(dict(client_id=cid, client_name=str(data.get("client_name") or "MCP Client")[:120],
@@ -165,21 +215,30 @@ async def register(request: Request):
 def authorize(request: Request):
     enabled()
     _limited(request, "authorize")
-    data = dict(request.query_params)
+    data = {key: request.query_params[key] for key in
+            ("client_id", "redirect_uri", "scope", "response_type", "code_challenge_method",
+             "code_challenge", "resource", "state") if key in request.query_params}
     with connect() as db:
-        client = db.execute("select * from authoring_oauth_clients where id=%s", (data.get("client_id", ""),)).fetchone()
+        client = db.execute("select * from authoring_oauth_clients where id=%s for key share", (data.get("client_id", ""),)).fetchone()
         if not client or data.get("redirect_uri") not in client["redirect_uris"]:
             raise HTTPException(400, "客户端或回调地址无效")
         scopes = data.get("scope", "authoring:read").split()
         if (data.get("response_type") != "code" or data.get("code_challenge_method") != "S256"
                 or not re.fullmatch(r"[A-Za-z0-9_-]{43}", data.get("code_challenge", ""))
-                or not scopes or not set(scopes) <= set(SCOPES)
+                or not scopes or len(scopes) > len(SCOPES) or not set(scopes) <= set(SCOPES)
                 or data.get("resource") != resource() or len(data.get("state", "")) > 2000):
             raise HTTPException(400, "授权范围、资源或 PKCE 参数无效")
         user = auth.user_from_token(request.cookies.get("rpg_session"))
         if not user:
             return RedirectResponse("/play/login?" + urlencode(dict(next=str(request.url.path)+"?"+request.url.query)), 303)
         creator(db, user["id"])
+        _global_limit("authorize", 300)
+        _lock_user(db, user["id"])
+        _cleanup_expired(db, client["id"])
+        pending = db.execute("select count(*) as n from authoring_oauth_requests "
+                             "where expires_at>now() and data->>'uid'=%s", (str(user["id"]),)).fetchone()
+        if pending["n"] >= MAX_PENDING_CONSENTS:
+            raise HTTPException(429, "未完成的授权请求过多，请稍后重试")
         rid, csrf = uuid.uuid4(), secrets.token_urlsafe(32)
         data.update(scopes=scopes, uid=user["id"], csrf=digest(csrf))
         db.execute("insert into authoring_oauth_requests(id,client_id,data) values(%s,%s,%s)", (rid, client["id"], Jsonb(data)))
@@ -200,12 +259,19 @@ async def consent(request: Request):
     user = session_user(request)
     fields = await body(request)
     with connect() as db:
+        _lock_user(db, user["id"])
         row = db.execute("delete from authoring_oauth_requests where id=%s and expires_at>now() returning *", (uuid.UUID(fields.get("request_id", "")),)).fetchone()
         if not row or row["data"]["uid"] != user["id"] or not secrets.compare_digest(row["data"]["csrf"], digest(fields.get("csrf", ""))):
             raise HTTPException(403, "授权请求已失效")
         data = row["data"]
         result = dict(state=data.get("state", ""), iss=federation.official_base())
         if fields.get("decision") == "allow":
+            active = db.execute("""select count(*) as n from authoring_oauth_grants where user_id=%s
+                and revoked_at is null and ((code_hash is not null and code_expires>now()) or
+                (access_hash is not null and access_expires>now()) or
+                (refresh_hash is not null and refresh_expires>now()))""", (user["id"],)).fetchone()
+            if active["n"] >= MAX_ACTIVE_GRANTS:
+                raise HTTPException(429, "有效授权数量已达上限，请先撤销不再使用的授权")
             code = secrets.token_urlsafe(32)
             db.execute("""insert into authoring_oauth_grants(id,user_id,client_id,scopes,redirect_uri,challenge,resource,code_hash)
               values(%s,%s,%s,%s,%s,%s,%s,%s)""", (uuid.uuid4(), user["id"], row["client_id"], Jsonb(data["scopes"]),
@@ -221,6 +287,7 @@ async def consent(request: Request):
 async def exchange(request: Request):
     enabled()
     _limited(request, "token", 60)
+    _global_limit("token", 3000)
     data = await body(request)
     grant = None
     with connect() as db:
@@ -244,6 +311,10 @@ async def exchange(request: Request):
             return JSONResponse(dict(error="invalid_grant"), 400)
         creator(db, grant["user_id"])
         if data.get("grant_type") == "refresh_token":
+            if db.execute("select 1 from authoring_oauth_refresh_history where grant_id=%s offset %s limit 1",
+                          (grant["id"], MAX_REFRESH_HISTORY - 1)).fetchone():
+                return JSONResponse(dict(error="invalid_grant", error_description="刷新次数已达上限，请重新授权"), 400,
+                                    headers={"Cache-Control": "no-store", "Pragma": "no-cache"})
             db.execute("insert into authoring_oauth_refresh_history values(%s,%s)", (token_hash, grant["id"]))
         access, refresh = secrets.token_urlsafe(32), secrets.token_urlsafe(48)
         db.execute("update authoring_oauth_grants set code_hash=null,access_hash=%s,access_expires=now()+interval '1 hour',"
@@ -257,6 +328,8 @@ async def exchange(request: Request):
 @router.post("/oauth/authoring/revoke")
 async def revoke(request: Request):
     enabled()
+    _limited(request, "revoke", 60)
+    _global_limit("revoke", 3000)
     data = await body(request)
     hashed = digest(data.get("token", ""))
     with connect() as db:
