@@ -1,6 +1,46 @@
 import React, { useEffect, useState } from "react";
-import { ArrowRight, BookOpen, Clock, FolderOpen, Info, MagnifyingGlass, Play, X } from "@phosphor-icons/react";
+import { ArrowRight, BookOpen, Check, Clock, Copy, FolderOpen, Info, MagnifyingGlass, Play, X } from "@phosphor-icons/react";
 import { BookCover, Button, Empty, StoryCard } from "./shared.jsx";
+
+function BetaNotice() {
+  const [dismissed, setDismissed] = useState(() => {
+    try { return sessionStorage.getItem("player.beta-notice.dismissed") === "1"; }
+    catch { return false; }
+  });
+  const [copyStatus, setCopyStatus] = useState("");
+  const copyGroup = async () => {
+    try {
+      await navigator.clipboard.writeText("1132435140");
+      setCopyStatus("已复制群号");
+    } catch {
+      setCopyStatus("复制失败，请长按群号复制。");
+    }
+  };
+  const dismiss = () => {
+    setDismissed(true);
+    try { sessionStorage.setItem("player.beta-notice.dismissed", "1"); } catch { /* 本次页面仍可关闭 */ }
+    document.getElementById("player-main")?.focus();
+  };
+  if (dismissed) return null;
+  return (
+    <aside className="lobby-beta-notice" role="status" aria-label="内测公告">
+      <Info size={22} aria-hidden="true" />
+      <div>
+        <strong>内测中，放心聊。</strong>
+        <p>目前项目处于内测阶段，对话不限次数。积分用完后，可联系群主领取兑换码，接着聊。</p>
+        <div className="lobby-beta-actions">
+          <Button quiet type="button" aria-label="复制QQ群号 1132435140" onClick={copyGroup}>
+            {copyStatus === "已复制群号" ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
+            QQ群 1132435140
+          </Button>
+          <a href="https://qm.qq.com/q/MDjwl91IwE" target="_blank" rel="noopener noreferrer">加入内测群 <ArrowRight size={16} aria-hidden="true" /></a>
+          <span aria-live="polite">{copyStatus || "点击群号即可复制"}</span>
+        </div>
+      </div>
+      <button type="button" className="icon-button lobby-beta-close" aria-label="关闭内测公告" onClick={dismiss}><X size={18} aria-hidden="true" /></button>
+    </aside>
+  );
+}
 
 function SaveList({ saves, navigate }) {
   return (
@@ -49,14 +89,7 @@ export function Lobby({ data, navigate, search, setSearch, onHelp, archive = fal
   const latestStory = latest && data.stories.find((story) => story.id === latest.story_id);
   return (
     <main id="player-main" className="player-shell player-lobby" tabIndex={-1}>
-      {!archive && <aside className="lobby-beta-notice" role="status" aria-label="内测公告">
-        <Info size={22} aria-hidden="true" />
-        <div>
-          <strong>内测中，放心聊。</strong>
-          <p>目前项目处于内测阶段，对话不限次数。积分用完后，可联系群主领取兑换码，接着聊。</p>
-          <span>QQ群：筹备中，群号准备好后会在这里公布。</span>
-        </div>
-      </aside>}
+      {!archive && <BetaNotice />}
       <div className="lobby-toolbar">
         <h1>{archive ? "我的存档" : "故事大厅"}</h1>
         <div className="lobby-search" role="search">

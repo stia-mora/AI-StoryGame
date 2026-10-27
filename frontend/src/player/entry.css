@@ -61,12 +61,16 @@
 .has-workspace .header-help span, .has-workspace .player-account > summary span, .has-workspace .player-account > summary > svg:last-child { display: none; }
 
 .player-lobby { width: min(100% - 64px, 1240px); padding-top: 36px; padding-bottom: max(32px, env(safe-area-inset-bottom)); }
-.lobby-beta-notice { display: flex; align-items: flex-start; gap: 12px; padding: 16px 20px; margin-bottom: 28px; border-radius: 8px; background: color-mix(in srgb, var(--primary) 14%, var(--surface)); }
+.lobby-beta-notice { position: relative; display: flex; align-items: flex-start; gap: 12px; padding: 16px 20px; margin-bottom: 28px; border-radius: 8px; background: color-mix(in srgb, var(--primary) 14%, var(--surface)); }
 .lobby-beta-notice > svg { margin-top: 2px; color: var(--accent); flex-shrink: 0; }
 .lobby-beta-notice > div { min-width: 0; }
-.lobby-beta-notice strong { display: block; font-size: .9375rem; line-height: 1.6; }
+.lobby-beta-notice strong { display: block; padding-right: 28px; font-size: .9375rem; line-height: 1.6; }
 .lobby-beta-notice p { margin: 4px 0; font-size: .875rem; line-height: 1.8; }
 .lobby-beta-notice span { color: var(--muted); font-size: .8125rem; line-height: 1.8; }
+.lobby-beta-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.lobby-beta-actions .player-button { min-height: 44px; padding: 8px 10px; user-select: text; }
+.lobby-beta-actions a { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; color: var(--accent); text-underline-offset: 3px; }
+.lobby-beta-notice .lobby-beta-close { position: absolute; top: 4px; right: 4px; width: 44px; height: 44px; }
 .lobby-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 28px; }
 .lobby-toolbar h1 { margin: 0; font-size: 1.5rem; font-weight: var(--weight-semibold); letter-spacing: -.025em; }
 .lobby-search {

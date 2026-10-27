@@ -12,6 +12,8 @@ const account = {
   ],
 };
 beforeEach(() => {
+  sessionStorage.clear();
+  vi.restoreAllMocks();
   history.replaceState({}, "", "/play");
   window.scrollTo = vi.fn();
   window.api = { player: {
@@ -27,8 +29,46 @@ it.each([false, true])("shows the beta notice in the lobby with authentication=%
   const notice = await screen.findByRole("status", { name: "内测公告" });
   expect(notice).toHaveTextContent("对话不限次数");
   expect(notice).toHaveTextContent("联系群主领取兑换码");
-  expect(notice).toHaveTextContent("QQ群：筹备中");
+  expect(notice).toHaveTextContent("1132435140");
+  expect(screen.getByRole("link", { name: "加入内测群" })).toHaveAttribute("href", "https://qm.qq.com/q/MDjwl91IwE");
   if (!authenticated) expect(window.api.player.bootstrap).not.toHaveBeenCalled();
+});
+
+it("copies the QQ group number and confirms success", async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  render(<PlayerApp />);
+  fireEvent.click(await screen.findByRole("button", { name: "复制QQ群号 1132435140" }));
+  await screen.findByText("已复制群号");
+  expect(writeText).toHaveBeenCalledWith("1132435140");
+});
+
+it("keeps the group number and join link available if clipboard permission is denied", async () => {
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockRejectedValue(new Error("Denied")) } });
+  render(<PlayerApp />);
+  fireEvent.click(await screen.findByRole("button", { name: "复制QQ群号 1132435140" }));
+  await screen.findByText("复制失败，请长按群号复制。");
+  expect(screen.getByRole("link", { name: "加入内测群" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "复制QQ群号 1132435140" })).toBeTruthy();
+});
+
+it("dismisses the notice for this browser session and returns focus to the lobby", async () => {
+  const view = render(<PlayerApp />);
+  fireEvent.click(await screen.findByRole("button", { name: "关闭内测公告" }));
+  expect(screen.queryByRole("status", { name: "内测公告" })).toBeNull();
+  expect(document.activeElement).toBe(screen.getByRole("main"));
+  view.unmount();
+  render(<PlayerApp />);
+  await screen.findByRole("heading", { name: "故事大厅" });
+  expect(screen.queryByRole("status", { name: "内测公告" })).toBeNull();
+});
+
+it("can close the notice when browser storage is unavailable", async () => {
+  vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("Disabled"); });
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("Disabled"); });
+  render(<PlayerApp />);
+  fireEvent.click(await screen.findByRole("button", { name: "关闭内测公告" }));
+  expect(screen.queryByRole("status", { name: "内测公告" })).toBeNull();
 });
 
 it("keeps the lobby beta notice out of the personal archive", async () => {
