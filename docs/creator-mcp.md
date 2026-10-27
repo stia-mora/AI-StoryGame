@@ -4,7 +4,7 @@
 
 ## 服务端准备
 
-1. 安装 `rpg/requirements.txt` 或 `rpg/pyproject.toml` 依赖，固定使用官方 Python SDK `mcp==2.3.0`。数据库迁移 **109–110** 建立创作、OAuth、版本及专用试玩账本和清理索引；沿用现有迁移和备份流程。
+1. 安装 `rpg/requirements.txt` 或 `rpg/pyproject.toml` 依赖，固定使用官方 Python SDK `mcp==2.3.0`。数据库迁移 **109–111** 建立创作、OAuth、版本及专用试玩账本和后台索引；沿用现有迁移和备份流程。
 2. 配置 `PUBLIC_BASE_URL` 为外部客户端实际访问的 HTTPS 根地址，开启 `RPG_FEDERATION_PROVIDER=1`，保留真实登录及现有 Origin 白名单。反向代理需转发 `/mcp/authoring`、`/.well-known/*`、`/oauth/authoring/*` 及 `/api/authoring/*`。
 3. 管理员沿用 `/play/manage` 建立服务模型及其凭据，再在 `/play/authoring-admin` 选择试玩模型。未配置或停用时返回明确的服务不可用错误。
 4. 账号须已取得创作者权限，或为管理员。新玩家不能通过授权、上传包或兑换试玩码获得创作者权限。

@@ -2441,6 +2441,10 @@ MIGRATIONS.append((110, "authoring_oauth_cleanup_indexes", [
     "create index authoring_oauth_grants_user on authoring_oauth_grants(user_id)",
     "create index authoring_oauth_refresh_grant on authoring_oauth_refresh_history(grant_id)",
 ]))
+MIGRATIONS.append((111, "authoring_import_recovery_index", [
+    "create index authoring_import_recovery on authoring_jobs(created_at,id) "
+    "where kind='import' and status in ('pending','running')",
+]))
 
 
 @contextmanager

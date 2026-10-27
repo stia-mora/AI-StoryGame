@@ -21,6 +21,7 @@ from .contract import CHUNK_BYTES, inspect_package
 
 log = logging.getLogger(__name__)
 EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="authoring")
+MAX_SCHEDULED_IMPORTS = 32
 _scheduled_lock = threading.Lock()
 _scheduled_imports = set()
 _executor_stopped = False
@@ -47,7 +48,7 @@ def _schedule_import(job_id):
     """Queue a job once per process; PostgreSQL provides cross-process exclusion."""
     job_id = str(job_id)
     with _scheduled_lock:
-        if job_id in _scheduled_imports:
+        if job_id in _scheduled_imports or len(_scheduled_imports) >= MAX_SCHEDULED_IMPORTS:
             return False
         _scheduled_imports.add(job_id)
     try:
@@ -359,6 +360,7 @@ def recover():
     if not federation.provider_enabled():
         return
     with connect() as db:
-        jobs = db.execute("select id from authoring_jobs where kind='import' and status in ('pending','running')").fetchall()
+        jobs = db.execute("select id from authoring_jobs where kind='import' and status in ('pending','running') "
+                          "order by created_at,id limit %s", (MAX_SCHEDULED_IMPORTS,)).fetchall()
     for job in jobs:
         _schedule_import(job["id"])
