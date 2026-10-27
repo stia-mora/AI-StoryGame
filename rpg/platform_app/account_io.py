@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import time
 import zipfile
 from datetime import UTC
@@ -31,6 +32,7 @@ from psycopg.types.json import Jsonb
 
 from . import save_io, user_cards, user_models
 from .api._card_dto import card_to_dto
+from .authoring.budget import PackageBusy
 from .db import connect, init_db
 from .knowledge import script_pack
 
@@ -249,6 +251,13 @@ def import_account(user_id: int, zip_bytes: bytes, progress=None) -> dict[str, A
 
     progress(stage:str, done:int, total:int):可选回调,用于异步作业上报真实进度。
     """
+    from platform_app.authoring.budget import acquire
+    with connect() as budget_db:
+        acquire(budget_db)
+        return _import_account(user_id, zip_bytes, progress, budget_db=budget_db)
+
+
+def _import_account(user_id: int, zip_bytes: bytes, progress=None, *, budget_db) -> dict[str, Any]:
     def _p(stage, done, total):
         if progress:
             try:
@@ -258,6 +267,12 @@ def import_account(user_id: int, zip_bytes: bytes, progress=None) -> dict[str, A
     init_db()
     if len(zip_bytes) > MAX_ACCOUNT_ZIP_BYTES:
         raise ValueError(f"账号包过大(max {MAX_ACCOUNT_ZIP_BYTES // 1024 // 1024}MB)")
+    # Keep the historical 1 GiB account-envelope default. A configured script
+    # package cap also bounds this outer archive on memory-constrained hosts.
+    expanded_limit = MAX_ACCOUNT_EXPANDED_BYTES
+    if "RPG_SCRIPT_PACK_MAX_EXPANDED_BYTES" in os.environ:
+        expanded_limit = min(expanded_limit, script_pack.expanded_bytes_limit())
+    member_limit = min(script_pack.MAX_MEMBER_BYTES, expanded_limit)
 
     try:
         zf_handle = zipfile.ZipFile(io.BytesIO(zip_bytes), "r")
@@ -279,12 +294,15 @@ def import_account(user_id: int, zip_bytes: bytes, progress=None) -> dict[str, A
             if info.filename.startswith("/") or ".." in parts:
                 raise ValueError(f"检测到 zip-slip:{info.filename!r}")
             declared_total += info.file_size
-        if declared_total > MAX_ACCOUNT_EXPANDED_BYTES:
-            raise ValueError(f"解压后过大(max {MAX_ACCOUNT_EXPANDED_BYTES // 1024 // 1024}MB)")
+        if declared_total > expanded_limit:
+            raise ValueError(f"解压后过大(max {expanded_limit} bytes)")
+        for name in ("cards.jsonl", "profile.json"):
+            if name in names and zf.getinfo(name).file_size > member_limit:
+                raise ValueError(f"成员解压后过大:{name}")
 
         try:
             # SEC(H-8): 有界解压,防单成员谎报/炸弹 OOM。
-            manifest = json.loads(script_pack._safe_member_read(zf, "account-manifest.json").decode("utf-8"))
+            manifest = json.loads(script_pack._safe_member_read(zf, "account-manifest.json", member_limit).decode("utf-8"))
         except KeyError as exc:
             raise ValueError("缺少 account-manifest.json — 不是账号数据包") from exc
         av = int(manifest.get("account_export_version") or 0)
@@ -306,8 +324,9 @@ def import_account(user_id: int, zip_bytes: bytes, progress=None) -> dict[str, A
                 # #64:把单个剧本内部的章节/事实进度作为 scripts 阶段细粒度进度回报,
                 # 让「导入剧本」进度条对大文件持续走动,而非卡在 0/1 像死了。
                 res = script_pack.import_script_pack(
-                    script_pack._safe_member_read(zf, member), user_id,  # SEC(H-8): 有界解压
+                    script_pack._safe_member_read(zf, member, member_limit), user_id,  # SEC(H-8): 有界解压
                     progress_cb=lambda done, total: _p("scripts", done, total),
+                    _budget_db=budget_db,
                 )
                 new_sid = int(res.get("script_id"))
                 if origin is not None:
@@ -315,6 +334,8 @@ def import_account(user_id: int, zip_bytes: bytes, progress=None) -> dict[str, A
                 n_scripts += 1
                 for w in (res.get("warnings") or []):
                     warnings.append(f"剧本 {origin}: {w}")
+            except PackageBusy:
+                raise
             except Exception as exc:
                 warnings.append(f"剧本 {origin} 导入失败:{exc}")
 
@@ -331,7 +352,7 @@ def import_account(user_id: int, zip_bytes: bytes, progress=None) -> dict[str, A
                 warnings.append(f"存档成员缺失:{member}")
                 continue
             try:
-                payload = json.loads(script_pack._safe_member_read(zf, member).decode("utf-8"))  # SEC(H-8): 有界解压
+                payload = json.loads(script_pack._safe_member_read(zf, member, member_limit).decode("utf-8"))  # SEC(H-8): 有界解压
                 save_obj = payload.get("save") or {}
                 # 把原 script_id 重映射到新导入的剧本;映射不到则置空,
                 # import_save 会兜底挂到用户第一个剧本并 warning。
@@ -349,25 +370,32 @@ def import_account(user_id: int, zip_bytes: bytes, progress=None) -> dict[str, A
         _p("saves", total_saves, total_saves)
         _p("cards", 0, 1)
         if "cards.jsonl" in names:
-            for line in zf.read("cards.jsonl").decode("utf-8").splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    dto = json.loads(line)
-                    dto.pop("id", None)  # 让 DB 重新分配 / 按 slug upsert
-                    if (dto.get("card_type") or "pc") == "persona":
-                        user_cards.upsert_persona(user_id, dto)
-                    else:
-                        user_cards.upsert_user_card(user_id, dto)
-                    n_cards += 1
-                except Exception as exc:
-                    warnings.append(f"角色卡导入失败:{exc}")
+            total = count = 0
+            with zf.open("cards.jsonl") as source:
+                while line := source.readline(member_limit + 1):
+                    total += len(line)
+                    if total > member_limit:
+                        raise ValueError("成员解压超限:cards.jsonl")
+                    if not line.strip():
+                        continue
+                    count += 1
+                    if count > script_pack.MAX_JSONL_ROWS:
+                        raise ValueError("角色卡数量超限")
+                    try:
+                        dto = json.loads(line.decode("utf-8"))
+                        dto.pop("id", None)  # 让 DB 重新分配 / 按 slug upsert
+                        if (dto.get("card_type") or "pc") == "persona":
+                            user_cards.upsert_persona(user_id, dto)
+                        else:
+                            user_cards.upsert_user_card(user_id, dto)
+                        n_cards += 1
+                    except Exception as exc:
+                        warnings.append(f"角色卡导入失败:{exc}")
 
         # 4. profile(偏好 + 模型 overlay)
         if "profile.json" in names:
             try:
-                profile = json.loads(zf.read("profile.json").decode("utf-8"))
+                profile = json.loads(script_pack._safe_member_read(zf, "profile.json", member_limit).decode("utf-8"))
                 _import_preferences(user_id, profile.get("preferences") or {})
                 overlay = profile.get("model_overlay") or {}
                 for api_id, models in overlay.items():

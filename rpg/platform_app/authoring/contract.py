@@ -4,7 +4,10 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import zipfile
+import zlib
+from functools import lru_cache
 from pathlib import PurePosixPath
 from typing import Literal
 
@@ -84,44 +87,109 @@ class AuthoringPackage(Record):
     completeness: Completeness
 
 
-def _json(data):
-    return json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+def max_expanded_bytes():
+    from platform_app.knowledge import script_pack
+    value = int(os.getenv("RPG_AUTHORING_MAX_EXPANDED_BYTES", str(script_pack.MAX_EXPANDED_BYTES)))
+    if not 0 < value <= script_pack.MAX_EXPANDED_BYTES:
+        raise ValueError("创作包解压上限必须在 1 字节至 500 MiB 之间")
+    return value
+
+
+def json_limits():
+    from platform_app.knowledge import script_pack
+    member = int(os.getenv("RPG_AUTHORING_MAX_JSON_MEMBER_BYTES", str(script_pack.MAX_MEMBER_BYTES)))
+    line = int(os.getenv("RPG_AUTHORING_MAX_JSONL_LINE_BYTES", str(script_pack.MAX_MEMBER_BYTES)))
+    nodes = int(os.getenv("RPG_AUTHORING_MAX_JSON_NODES", "10000000"))
+    if not 0 < member <= script_pack.MAX_MEMBER_BYTES or not 0 < line <= script_pack.MAX_MEMBER_BYTES or nodes <= 0:
+        raise ValueError("创作包 JSON 资源上限无效")
+    return member, line, nodes
 
 
 def inspect_package(data: bytes):
     from platform_app.knowledge import script_pack
     errors, warnings = [], []
+    total_errors = 0
+    missing = []
 
     def error(path, code, message):
-        errors.append(dict(path=path, code=code, message=message))
+        nonlocal total_errors
+        total_errors += 1
+        item = dict(path=path, code=code, message=message)
+        if len(errors) < 100:
+            errors.append(item)
+        if code == "coverage" and len(missing) < 100:
+            missing.append(item)
 
     files = {}
     parsed = {}
     contract = None
+    binaries = []
     try:
+        max_json, max_line, remaining_nodes = json_limits()
+
+        def count_nodes(value):
+            nonlocal remaining_nodes
+            pending = [(value, 0)]
+            while pending:
+                item, depth = pending.pop()
+                remaining_nodes -= 1
+                if remaining_nodes < 0 or depth > 64:
+                    raise ValueError("JSON 结构复杂度或嵌套深度超过服务上限")
+                if isinstance(item, dict):
+                    remaining_nodes -= len(item)
+                    if remaining_nodes < len(item):
+                        raise ValueError("JSON 结构复杂度超过服务上限")
+                    pending.extend((child, depth + 1) for child in item.values())
+                elif isinstance(item, list):
+                    if remaining_nodes < len(item):
+                        raise ValueError("JSON 结构复杂度超过服务上限")
+                    pending.extend((child, depth + 1) for child in item)
+
         if len(data) > script_pack.MAX_ZIP_BYTES:
             raise ValueError("压缩包超过 50 MiB")
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             members = archive.infolist()
-            if len(members) > 100 or sum(m.file_size for m in members) > script_pack.MAX_EXPANDED_BYTES:
-                raise ValueError("成员过多或解压总量超过 500 MiB")
+            if len(members) > 100 or sum(m.file_size for m in members) > max_expanded_bytes():
+                raise ValueError("成员过多或解压总量超过服务上限")
+            seen = set()
+            total_lines = 0
             for member in members:
                 name = member.filename
                 if ("\\" in name or PurePosixPath(name).is_absolute() or
-                        ".." in PurePosixPath(name).parts or ":" in name or name in files or
+                        ".." in PurePosixPath(name).parts or ":" in name or name in seen or
                         (member.external_attr >> 16) & 0o170000 == 0o120000):
                     raise ValueError("不安全或重复的成员路径")
+                seen.add(name)
                 if member.is_dir():
                     continue
-                files[name] = script_pack._safe_member_read(archive, name)
-        for name, value in files.items():
-            if name.endswith(".json"):
-                parsed[name] = json.loads(value)
-            elif name.endswith(".jsonl"):
-                rows = value.decode("utf-8").splitlines()
-                if len(rows) > script_pack.MAX_JSONL_ROWS:
-                    raise ValueError("JSONL 行数超限")
-                parsed[name] = [json.loads(row) for row in rows if row.strip()]
+                if member.file_size > script_pack.MAX_MEMBER_BYTES:
+                    raise ValueError("成员解压超过大小上限")
+                if name.endswith(".json"):
+                    if member.file_size > max_json:
+                        raise ValueError("JSON 成员超过服务上限")
+                    with archive.open(member) as source:
+                        value = json.load(source)
+                        count_nodes(value)
+                        parsed[name] = value
+                elif name.endswith(".jsonl"):
+                    rows = []
+                    with archive.open(member) as source:
+                        while line := source.readline(max_line + 1):
+                            if len(line) > max_line:
+                                raise ValueError("JSONL 单行超过服务上限")
+                            total_lines += 1
+                            if total_lines > script_pack.MAX_JSONL_ROWS:
+                                raise ValueError("JSONL 总行数超过服务上限")
+                            if line.strip():
+                                value = json.loads(line)
+                                count_nodes(value)
+                                rows.append(value)
+                    parsed[name] = rows
+                else:
+                    binaries.append(name)
+                    # A declared cover is at most 5 MiB; retain only possible covers.
+                    if member.file_size <= 5 * 1024 * 1024:
+                        files[name] = script_pack._safe_member_read(archive, name)
         if parsed.get("manifest.json", {}).get("format_version") != 2:
             raise ValueError("创作包必须使用内容格式 v2")
         if not isinstance(parsed.get("script.json"), dict):
@@ -152,7 +220,9 @@ def inspect_package(data: bytes):
         for _, chapter in chapters.values():
             by_index.setdefault(chapter.index, []).append(chapter)
         imported_by_index = {c.get("chapter_index"): c for c in imported}
-        source_lines = {index: str(c.get("content", "")).splitlines() for index, c in imported_by_index.items()}
+        @lru_cache(maxsize=1)
+        def source_lines(index):
+            return str(imported_by_index.get(index, {}).get("content", "")).splitlines()
         indices = [c.get("chapter_index") for c in imported]
         if (not imported or len(set(indices)) != len(indices) or
                 set(indices) != {chapters[k][1].index for k in contract.scope if k in chapters}):
@@ -200,10 +270,11 @@ def inspect_package(data: bytes):
                         error("overrides.guide_world.evidence", "fingerprint", "出处的章节指纹不符")
                     if evidence.chapter_index is not None and evidence.chapter_index != entry[1].index:
                         error("overrides.guide_world.evidence", "reference", "出处章节编号不符")
-                    lines = source_lines.get(entry[1].index, [])
-                    excerpt = "\n".join(lines[(evidence.line_start or 1)-1:evidence.line_end or len(lines)])
-                    if evidence.quote and evidence.quote not in excerpt:
-                        error("overrides.guide_world.evidence", "quote", "引用文字不在指定出处范围内")
+                    if evidence.quote:
+                        lines = source_lines(entry[1].index)
+                        excerpt = "\n".join(lines[(evidence.line_start or 1)-1:evidence.line_end or len(lines)])
+                        if evidence.quote not in excerpt:
+                            error("overrides.guide_world.evidence", "quote", "引用文字不在指定出处范围内")
         moments = {m.key: m for m in world.moments}
         openings = {o.key: o for o in contract.play.openings}
         if len(openings) != len(contract.play.openings):
@@ -273,18 +344,30 @@ def inspect_package(data: bytes):
     except ValidationError as exc:
         for item in exc.errors():
             error(".".join(map(str, item["loc"])), item["type"], item["msg"])
-    except (ValueError, KeyError, TypeError, AttributeError, zipfile.BadZipFile, UnicodeError) as exc:
+    except (ValueError, KeyError, TypeError, AttributeError, zipfile.BadZipFile, UnicodeError, OSError, RuntimeError, EOFError, zlib.error, RecursionError) as exc:
         error("package", "invalid_package", str(exc)[:300])
     # ZIP metadata and export timestamps do not define a new content revision.
     normalized = {k: v for k, v in parsed.items() if k != "manifest.json"}
     manifest = parsed.get("manifest.json") if isinstance(parsed.get("manifest.json"), dict) else {}
     normalized["manifest.json"] = {k: v for k, v in manifest.items()
                                   if k in ("format_version", "chunks_included", "chunks_version")}
-    fingerprint = hashlib.sha256(_json(normalized).encode() + b"".join(
-        files[k] for k in sorted(files) if not k.endswith((".json", ".jsonl")))).hexdigest()
-    report = dict(valid=not errors, fingerprint=fingerprint, errors=errors[:100], total_errors=len(errors), warnings=warnings,
-                  checks=dict(structure="passed" if not errors else "failed", semantics="not_verified",
-                              playtest="not_run"), missing=[e for e in errors if e["code"] == "coverage"][:100])
+    fingerprint = hashlib.sha256()
+    encoder = json.JSONEncoder(ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    for part in encoder.iterencode(normalized):
+        for start in range(0, len(part), 1024 * 1024):
+            fingerprint.update(part[start:start + 1024 * 1024].encode())
+    if binaries:
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                for name in sorted(binaries):
+                    with archive.open(name) as source:
+                        while chunk := source.read(1024 * 1024):
+                            fingerprint.update(chunk)
+        except (ValueError, zipfile.BadZipFile, OSError, RuntimeError, EOFError, zlib.error) as exc:
+            error("package", "invalid_package", str(exc)[:300])
+    report = dict(valid=total_errors == 0, fingerprint=fingerprint.hexdigest(), errors=errors, total_errors=total_errors, warnings=warnings,
+                  checks=dict(structure="passed" if total_errors == 0 else "failed", semantics="not_verified",
+                              playtest="not_run"), missing=missing)
     return report, contract, parsed, files
 
 
@@ -296,8 +379,11 @@ def get_contract(section="summary"):
     if section == "example":
         from .examples import example_files
         return example_files()
+    max_json, max_line, max_nodes = json_limits()
     return dict(version=1, content_format=2, sections=["summary", "schemas", "example"],
-                limits=dict(zip_bytes=script_pack.MAX_ZIP_BYTES, expanded_bytes=script_pack.MAX_EXPANDED_BYTES,
+                limits=dict(zip_bytes=script_pack.MAX_ZIP_BYTES, expanded_bytes=max_expanded_bytes(),
+                            total_jsonl_rows=script_pack.MAX_JSONL_ROWS,
+                            json_member_bytes=max_json, jsonl_line_bytes=max_line, json_nodes=max_nodes,
                             upload_chunk_bytes=CHUNK_BYTES),
                 workflow=["create_project", "begin_upload", "upload_chunk", "complete_upload", "validate_package",
                           "import_draft", "get_job", "preview", "review_in_browser", "submit"],

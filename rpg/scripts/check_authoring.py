@@ -49,7 +49,12 @@ def main():
                 command = [sys.executable, "-m", "pytest", *arguments] if arguments else [
                     sys.executable, "-m", "pytest", "tests/unit/test_authoring_contract.py",
                     "tests/integration/test_authoring.py", "tests/integration/test_authoring_http.py",
-                    "tests/integration/test_authoring_regressions.py", "tests/integration/test_authoring_clients.py", "-q"]
+                    "tests/integration/test_authoring_regressions.py", "tests/integration/test_authoring_clients.py",
+                    "tests/integration/test_authoring_budget.py", "tests/integration/test_script_pack_limits.py",
+                    "tests/integration/test_storage_privacy.py", "tests/integration/test_media_backfill.py",
+                    "tests/integration/test_authoring_oauth_limits.py", "tests/integration/test_authoring_oauth_storage.py",
+                    "tests/integration/test_deploy_nginx.py",
+                    "tests/unit/test_launch_request_guards.py", "-q"]
                 initialized = subprocess.call([sys.executable, "-c", "from platform_app.db import init_db; init_db()"], cwd=root, env=env)
                 if initialized:
                     return initialized

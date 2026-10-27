@@ -1,7 +1,9 @@
 """Browser and upload entry points; business logic is shared with MCP."""
 from __future__ import annotations
 
+import asyncio
 import base64
+import os
 import uuid
 from pathlib import Path
 
@@ -78,19 +80,28 @@ async def upload_content(upload_id: uuid.UUID, request: Request):
     user = oauth.request_user(request, "authoring:write")
     with connect() as db:
         total = service.upload(db, user["id"], upload_id)["size"]
+    cap = int(os.getenv("RPG_UPLOAD_BODY_LIMIT_BYTES", "52428800"))
     buffer, part, received = bytearray(), 0, 0
-    async for chunk in request.stream():
-        received += len(chunk)
-        if received > total:
-            raise HTTPException(413, "超过上传大小")
-        buffer.extend(chunk)
-        while len(buffer) >= CHUNK_BYTES:
-            service.upload_chunk(user["id"], upload_id, part, base64.b64encode(buffer[:CHUNK_BYTES]).decode())
-            del buffer[:CHUNK_BYTES]
-            part += 1
-    if buffer:
-        service.upload_chunk(user["id"], upload_id, part, base64.b64encode(buffer).decode())
-    return service.complete_upload(user["id"], upload_id)
+    try:
+        async with asyncio.timeout(float(os.getenv("RPG_REQUEST_TIMEOUT_SECS", "30"))):
+            async for chunk in request.stream():
+                received += len(chunk)
+                if received > min(total, cap):
+                    raise HTTPException(413, "超过上传大小")
+                view = memoryview(chunk)
+                while view:
+                    size = min(CHUNK_BYTES - len(buffer), len(view))
+                    buffer.extend(view[:size])
+                    view = view[size:]
+                    if len(buffer) == CHUNK_BYTES:
+                        await asyncio.to_thread(service.upload_chunk, user["id"], upload_id, part, base64.b64encode(buffer).decode())
+                        buffer.clear()
+                        part += 1
+            if buffer:
+                await asyncio.to_thread(service.upload_chunk, user["id"], upload_id, part, base64.b64encode(buffer).decode())
+    except TimeoutError:
+        raise HTTPException(408, "请求超时，请重试") from None
+    return await asyncio.to_thread(service.complete_upload, user["id"], upload_id)
 
 
 @router.get("/api/storage/authoring/{uid}/{filename}")

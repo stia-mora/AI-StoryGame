@@ -3,6 +3,7 @@ import asyncio
 import base64
 import hashlib
 import os
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -27,6 +28,19 @@ def configured(creator, files=None):
         profile = db.execute("insert into player_model_profiles(name,credential_owner_id,api_id,model,max_output) values('preview',%s,'test','text',1024) returning *", (creator["admin"]["id"],)).fetchone()
         db.execute("insert into app_config(key,value) values('authoring',%s) on conflict(key) do update set value=excluded.value", (Jsonb(dict(preview_profile_id=profile["id"])),))
     return project, revision, profile
+
+
+def test_import_workers_can_restart_after_shutdown(monkeypatch):
+    completed = threading.Event()
+    monkeypatch.setattr(service, "run_import", lambda _job_id: completed.set())
+    for _ in range(2):
+        completed.clear()
+        service.start_executor()
+        try:
+            assert service._schedule_import(uuid.uuid4())
+            assert completed.wait(3)
+        finally:
+            service.stop_executor()
 
 
 def test_frozen_content_blocks_legacy_writers_but_allows_author_review(creator):
@@ -274,6 +288,96 @@ def test_failed_import_rolls_back_content_and_recovery_is_idempotent(creator, mo
     with ThreadPoolExecutor(2) as pool:
         list(pool.map(service.run_import, [job["job_id"]]*2))
     assert service.get_job(creator["uid"], job["job_id"])["status"] == "succeeded"
+    assert len(service.get_draft(creator["uid"], project["id"])["revisions"]) == 1
+
+
+def test_import_recovery_retries_after_other_worker_loses_lock(creator, monkeypatch):
+    from tests.integration.test_authoring import upload
+
+    project, upload_id = upload(creator)
+    report = service.validate_package(creator["uid"], upload_id)
+    jid = str(uuid.uuid4())
+    with connect() as db:
+        db.execute("insert into authoring_jobs(id,project_id,owner_id,kind,input) values(%s,%s,%s,'import',%s)",
+                   (jid, project["id"], creator["uid"], Jsonb(dict(upload_id=upload_id, expected_version=0,
+                                                                    fingerprint=report["fingerprint"], credential=None))))
+
+    started, proceed = threading.Event(), threading.Event()
+    original = service.run_import
+    calls = []
+
+    def controlled(job_id):
+        calls.append(job_id)
+        started.set()
+        assert proceed.wait(10)
+        original(job_id)
+
+    monkeypatch.setattr(service, "run_import", controlled)
+    # Model a different process holding the transaction lock. Its crash rolls it back.
+    with connect() as other_worker:
+        other_worker.execute("select pg_advisory_xact_lock(hashtextextended(%s,0))", (jid,))
+        service.recover()
+        assert started.wait(10)
+        service.recover()
+        assert calls == [jid]  # repeated scans do not enqueue the same local job
+        proceed.set()
+        for _ in range(200):
+            with service._scheduled_lock:
+                if jid not in service._scheduled_imports:
+                    break
+            time.sleep(.01)
+        else:
+            pytest.fail("first recovery attempt did not finish")
+        assert service.get_job(creator["uid"], jid)["status"] == "pending"
+
+    # A later scan on the surviving process claims the now-released database lock.
+    service.recover()
+    for _ in range(400):
+        if service.get_job(creator["uid"], jid)["status"] == "succeeded":
+            break
+        time.sleep(.025)
+    else:
+        pytest.fail("import was not recovered")
+    assert calls == [jid, jid]
+    assert len(service.get_draft(creator["uid"], project["id"])["revisions"]) == 1
+
+
+def test_import_failure_does_not_overwrite_another_workers_success(creator, monkeypatch):
+    from platform_app.knowledge import script_pack
+    from tests.integration.test_authoring import upload
+
+    project, upload_id = upload(creator)
+    report = service.validate_package(creator["uid"], upload_id)
+    jid = str(uuid.uuid4())
+    with connect() as db:
+        db.execute("insert into authoring_jobs(id,project_id,owner_id,kind,input) values(%s,%s,%s,'import',%s)",
+                   (jid, project["id"], creator["uid"], Jsonb(dict(upload_id=upload_id, expected_version=0,
+                                                                    fingerprint=report["fingerprint"], credential=None))))
+    original = script_pack.import_script_pack
+    failed, finish_failure = threading.Event(), threading.Event()
+    calls = []
+
+    def fail_once(*args, **kwargs):
+        calls.append(True)
+        if len(calls) == 1:
+            raise RuntimeError("first worker interrupted")
+        return original(*args, **kwargs)
+
+    def pause_after_rollback(*args, **kwargs):
+        failed.set()
+        assert finish_failure.wait(10)
+
+    monkeypatch.setattr(script_pack, "import_script_pack", fail_once)
+    monkeypatch.setattr(service.log, "exception", pause_after_rollback)
+    with ThreadPoolExecutor(2) as pool:
+        first = pool.submit(service.run_import, jid)
+        try:
+            assert failed.wait(10)
+            pool.submit(service.run_import, jid).result(timeout=10)
+        finally:
+            finish_failure.set()
+        first.result(timeout=10)
+    assert service.get_job(creator["uid"], jid)["status"] == "succeeded"
     assert len(service.get_draft(creator["uid"], project["id"])["revisions"]) == 1
 
 

@@ -67,6 +67,46 @@ def test_generic_rate_body_and_timeout_limits(monkeypatch):
     asyncio.run(run())
 
 
+def test_authoring_upload_is_not_buffered_before_authentication(monkeypatch):
+    monkeypatch.setattr("redis_bus.rate_incr", lambda *args: None)
+    request_limits._windows.clear()
+    async def receive():
+        raise AssertionError("middleware consumed the unauthenticated upload")
+    request = Request({"type": "http", "method": "PUT",
+                       "path": "/api/authoring/uploads/123/content",
+                       "client": ("198.51.100.42", 1), "headers": []}, receive)
+    asyncio.run(request_limits.check(request))
+
+
+def test_buffered_uploads_are_bounded_and_release_slot_on_failure(monkeypatch):
+    from core import startup
+    from starlette.responses import Response
+
+    async def run():
+        entered, resume = asyncio.Event(), asyncio.Event()
+        async def handler(_request, _call_next):
+            entered.set()
+            await resume.wait()
+            raise RuntimeError("upload failed")
+        monkeypatch.setattr(startup, "_api_contract_middleware", handler)
+        def request():
+            return Request({"type": "http", "method": "POST", "path": "/api/account/import",
+                            "headers": [(b"content-type", b"application/zip")]})
+        first = asyncio.create_task(startup.api_contract_middleware(request(), None))
+        await entered.wait()
+        denied = await startup.api_contract_middleware(request(), None)
+        assert denied.status_code == 429
+        assert denied.headers["retry-after"] == "30"
+        resume.set()
+        with pytest.raises(RuntimeError):
+            await first
+        async def success(_request, _call_next):
+            return Response(status_code=204)
+        monkeypatch.setattr(startup, "_api_contract_middleware", success)
+        assert (await startup.api_contract_middleware(request(), None)).status_code == 204
+    asyncio.run(run())
+
+
 def test_response_header_timeout_does_not_cut_started_stream(monkeypatch):
     from core.startup import api_contract_middleware
     from fastapi.responses import StreamingResponse
@@ -88,3 +128,22 @@ def test_response_header_timeout_does_not_cut_started_stream(monkeypatch):
         assert response.status_code == 200
         assert [chunk async for chunk in response.body_iterator] == ["start", "finish"]
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("path", ["/mcp/authoring", "/oauth/authoring/token"])
+def test_mcp_and_oauth_apply_body_budget_to_chunked_requests(path, monkeypatch):
+    from core.startup import api_contract_middleware
+
+    monkeypatch.setenv("RPG_BODY_LIMIT_BYTES", "1024")
+    monkeypatch.setattr("redis_bus.rate_incr", lambda *args: None)
+    request_limits._windows.clear()
+    chunks = iter([b"x" * 600, b"x" * 600])
+    async def receive():
+        chunk = next(chunks, b"")
+        return {"type": "http.request", "body": chunk, "more_body": bool(chunk)}
+    request = Request({"type": "http", "method": "POST", "path": path,
+                       "client": ("198.51.100.44", 42), "headers": [(b"content-type", b"application/json")]}, receive)
+    async def reached(_):
+        raise AssertionError("oversized request reached the application")
+    response = asyncio.run(api_contract_middleware(request, reached))
+    assert response.status_code == 413

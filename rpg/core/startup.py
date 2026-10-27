@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import uuid
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
@@ -358,6 +359,8 @@ async def lifespan(app: FastAPI):
                 await asyncio.to_thread(reap)
                 from platform_app.authoring.preview import reconcile
                 await asyncio.to_thread(reconcile)
+                from platform_app.authoring.service import recover
+                await asyncio.to_thread(recover)
             except Exception:
                 log.exception('Player reservation reconciliation failed')
             await asyncio.sleep(60)
@@ -365,6 +368,7 @@ async def lifespan(app: FastAPI):
     _player_reaper_task = _player_asyncio.create_task(_player_reaper())
     from platform_app.authoring import service as _authoring_service
     from platform_app.authoring.mcp_server import http_app as _authoring_http
+    _authoring_service.start_executor()
     try:
         await _player_asyncio.to_thread(_authoring_service.recover)
     except Exception:
@@ -380,7 +384,7 @@ async def lifespan(app: FastAPI):
     # ── shutdown ──────────────────────────────────────────────────────────
     # Pending imports remain durable for restart; release idle workers before the
     # shared executor registry is cleared below.
-    _authoring_service.EXECUTOR.shutdown(wait=False, cancel_futures=True)
+    _authoring_service.stop_executor()
     _bg_tasks = [t for t in (_redis_listener_task, _rath_ticker_task) if t is not None]
     for _t in _bg_tasks:
         try:
@@ -598,7 +602,32 @@ def _harden_set_cookie(header_value: str, is_https: bool) -> str:
     return "; ".join(result)
 
 
+_buffered_upload_slot = threading.BoundedSemaphore(1)
+
+
 async def api_contract_middleware(request: Request, call_next):
+    from core.request_limits import is_streaming_authoring_upload
+    from platform_app.api._deps import json_response
+
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    buffered_upload = (request.scope.get("path", "").startswith("/api/")
+                       and request.method in {"POST", "PUT", "PATCH", "DELETE"}
+                       and content_type in {"multipart/form-data", "application/zip", "application/octet-stream"}
+                       and not is_streaming_authoring_upload(request))
+    if not buffered_upload:
+        return await _api_contract_middleware(request, call_next)
+    # Large legacy uploads are buffered before their handlers run. Bound them
+    # per worker and hold the slot until the handler has consumed its body.
+    if not _buffered_upload_slot.acquire(blocking=False):
+        return json_response({"ok": False, "error": "上传服务繁忙，请稍后重试"},
+                             status_code=429, headers={"Retry-After": "30"})
+    try:
+        return await _api_contract_middleware(request, call_next)
+    finally:
+        _buffered_upload_slot.release()
+
+
+async def _api_contract_middleware(request: Request, call_next):
     request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
     request.state.request_id = request_id  # 让 _internal_error_handler 能拿到
     _request_id_var.set(request_id)  # 可观测性: SSE stream + to_thread 子线程均可读取
@@ -623,10 +652,13 @@ async def api_contract_middleware(request: Request, call_next):
                 headers={"X-API-Version": API_VERSION, "X-Request-ID": request_id, "Cache-Control": "no-store"},
             )
     path = request.scope.get('path', '')
-    if path.startswith('/api/') and path != '/api/health':
+    protected_transport = path.startswith(('/mcp/', '/oauth/authoring/', '/.well-known/oauth-'))
+    if (path.startswith('/api/') and path != '/api/health') or protected_transport:
         import asyncio
-        from core.request_limits import check
+
         from fastapi import HTTPException
+
+        from core.request_limits import check
         from platform_app.api._deps import _client_ip, json_response
         from platform_app.security_policy import blocked, read
         try:
@@ -639,7 +671,7 @@ async def api_contract_middleware(request: Request, call_next):
         except TimeoutError:
             return json_response({"ok": False, "error": "请求超时，请重试"}, status_code=408)
         from platform_app.api._deps import current_user, json_response
-        user = current_user(request)
+        user = current_user(request) if path.startswith('/api/') else None
         if user and user.get('account_mode','creator') == 'player' and user.get('role') != 'admin':
             allowed = path.startswith(('/api/player/', '/api/auth/', '/api/account/', '/api/policy/', '/api/splash', '/api/feedback'))
             if not allowed:

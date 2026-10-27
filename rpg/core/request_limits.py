@@ -1,6 +1,7 @@
 """API request budgets. Redis shares counters; bounded local fallback covers outages."""
 import asyncio
 import os
+import re
 import threading
 import time
 
@@ -8,6 +9,11 @@ from fastapi import HTTPException
 
 _lock = threading.Lock()
 _windows = {}
+
+
+def is_streaming_authoring_upload(request):
+    return (request.method == "PUT" and
+            re.fullmatch(r"/api/authoring/uploads/[^/]+/content", request.scope.get("path", "")) is not None)
 
 
 def rate_allowed(key, limit, seconds=60):
@@ -39,7 +45,8 @@ async def check(request):
     if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
         return
     content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-    upload = content_type in {"multipart/form-data", "application/zip", "application/octet-stream"}
+    stream_upload = is_streaming_authoring_upload(request)
+    upload = stream_upload or content_type in {"multipart/form-data", "application/zip", "application/octet-stream"}
     cap = int(os.getenv("RPG_UPLOAD_BODY_LIMIT_BYTES" if upload else "RPG_BODY_LIMIT_BYTES",
                         "52428800" if upload else "2097152"))
     try:
@@ -48,6 +55,11 @@ async def check(request):
         raise HTTPException(400, "无效的 Content-Length") from None
     if length > cap:
         raise HTTPException(413, "请求内容过大")
+    # This endpoint authenticates before consuming the stream and enforces its
+    # declared and actual byte limits while writing bounded chunks to storage.
+    # Buffering here would multiply a 50 MiB body by every concurrent request.
+    if stream_upload:
+        return
     chunks, size = [], 0
     async with asyncio.timeout(float(os.getenv("RPG_REQUEST_TIMEOUT_SECS", "30"))):
         async for chunk in request.stream():

@@ -1,5 +1,7 @@
 import copy
+import hashlib
 import io
+import json
 import zipfile
 
 import pytest
@@ -56,3 +58,49 @@ def test_future_canonical_name_cannot_bypass_identity_period():
     report, *_ = inspect_package(package_bytes(files))
     assert not report["valid"]
     assert any(e["code"] == "period" for e in report["errors"])
+
+
+def test_streaming_fingerprint_preserves_existing_canonical_digest():
+    files = example_files()
+    files["unused.bin"] = b"original-test-data"
+    raw = package_bytes(files)
+    normalized = {k: v for k, v in files.items() if k not in ("manifest.json", "unused.bin")}
+    normalized["manifest.json"] = {"format_version": 2}
+    expected = hashlib.sha256(json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+                              + files["unused.bin"]).hexdigest()
+    report, _, _, retained = inspect_package(raw)
+    assert report["valid"] and report["fingerprint"] == expected
+    assert "chapters.jsonl" not in retained
+
+
+def test_jsonl_row_budget_is_global_and_expansion_is_configurable(monkeypatch):
+    from platform_app.knowledge import script_pack
+    monkeypatch.setattr(script_pack, "MAX_JSONL_ROWS", 2)
+    assert not inspect_package(package_bytes())[0]["valid"]
+    monkeypatch.setenv("RPG_AUTHORING_MAX_EXPANDED_BYTES", "16")
+    report, *_ = inspect_package(package_bytes())
+    assert not report["valid"] and "解压总量" in report["errors"][0]["message"]
+
+
+@pytest.mark.parametrize("variable,limit,message", [
+    ("RPG_AUTHORING_MAX_JSON_MEMBER_BYTES", "16", "JSON 成员"),
+    ("RPG_AUTHORING_MAX_JSONL_LINE_BYTES", "16", "JSONL 单行"),
+    ("RPG_AUTHORING_MAX_JSON_NODES", "20", "JSON 结构复杂度"),
+])
+def test_configured_json_structure_budgets_reject_oversized_content(monkeypatch, variable, limit, message):
+    from platform_app.authoring.contract import get_contract
+
+    monkeypatch.setenv(variable, limit)
+    report, *_ = inspect_package(package_bytes())
+    assert not report["valid"] and message in report["errors"][0]["message"]
+    assert int(limit) in get_contract()["limits"].values()
+
+
+def test_excessive_json_nesting_is_reported_as_invalid():
+    files = example_files()
+    nested = "leaf"
+    for _ in range(65):
+        nested = [nested]
+    files["script.json"]["untrusted"] = nested
+    report, *_ = inspect_package(package_bytes(files))
+    assert not report["valid"] and "嵌套深度" in report["errors"][0]["message"]

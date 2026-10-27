@@ -5,6 +5,7 @@ import base64
 import hashlib
 import logging
 import re
+import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
@@ -14,10 +15,54 @@ from psycopg.types.json import Jsonb
 from platform_app import federation
 from platform_app.db import connect, expose
 
+from .budget import PackageBusy, package_budget
+from .budget import acquire as acquire_budget
 from .contract import CHUNK_BYTES, inspect_package
 
 log = logging.getLogger(__name__)
 EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="authoring")
+_scheduled_lock = threading.Lock()
+_scheduled_imports = set()
+_executor_stopped = False
+
+
+def start_executor():
+    global EXECUTOR, _executor_stopped
+    with _scheduled_lock:
+        if _executor_stopped:
+            EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="authoring")
+            _executor_stopped = False
+
+
+def stop_executor():
+    global _executor_stopped
+    with _scheduled_lock:
+        _executor_stopped = True
+        executor = EXECUTOR
+    # Completion callbacks use _scheduled_lock, so do not hold it here.
+    executor.shutdown(wait=False, cancel_futures=True)
+
+
+def _schedule_import(job_id):
+    """Queue a job once per process; PostgreSQL provides cross-process exclusion."""
+    job_id = str(job_id)
+    with _scheduled_lock:
+        if job_id in _scheduled_imports:
+            return False
+        _scheduled_imports.add(job_id)
+    try:
+        future = EXECUTOR.submit(run_import, job_id)
+    except Exception:
+        with _scheduled_lock:
+            _scheduled_imports.discard(job_id)
+        raise
+
+    def completed(_future):
+        with _scheduled_lock:
+            _scheduled_imports.discard(job_id)
+
+    future.add_done_callback(completed)
+    return True
 
 
 def creator(db, uid):
@@ -65,9 +110,12 @@ def begin_upload(uid, project_id, size, sha256):
                 http_url=f"/api/authoring/uploads/{row['id']}/content")
 
 
-def upload(db, uid, upload_id):
+def upload(db, uid, upload_id, *, include_data=False):
     creator(db, uid)
-    row = db.execute("select u.* from authoring_uploads u join authoring_projects p on p.id=u.project_id "
+    columns = "u.id,u.project_id,u.size,u.sha256,u.received,u.created_at,(u.data is not null) as complete"
+    if include_data:
+        columns += ",u.data"
+    row = db.execute("select " + columns + " from authoring_uploads u join authoring_projects p on p.id=u.project_id "
                      "where u.id=%s and p.owner_id=%s and u.created_at>now()-interval '24 hours' for update of u",
                      (uuid.UUID(str(upload_id)), uid)).fetchone()
     if not row:
@@ -90,7 +138,7 @@ def upload_chunk(uid, upload_id, part, data):
         if old:
             if bytes(old["data"]) != raw:
                 raise HTTPException(409, "分片已存在且内容不同")
-        elif row["data"] is not None:
+        elif row["complete"]:
             raise HTTPException(409, "上传已完成")
         else:
             if row["received"] + len(raw) > row["size"]:
@@ -102,8 +150,9 @@ def upload_chunk(uid, upload_id, part, data):
 
 def complete_upload(uid, upload_id):
     with connect() as db:
+        acquire_budget(db)
         row = upload(db, uid, upload_id)
-        if row["data"] is not None:
+        if row["complete"]:
             return dict(upload_id=str(upload_id), complete=True)
         parts = db.execute("select part,data from authoring_upload_parts where upload_id=%s order by part", (upload_id,)).fetchall()
         if [p["part"] for p in parts] != list(range(len(parts))):
@@ -118,22 +167,24 @@ def complete_upload(uid, upload_id):
 
 def package(uid, upload_id):
     with connect() as db:
-        row = upload(db, uid, upload_id)
+        row = upload(db, uid, upload_id, include_data=True)
         if row["data"] is None:
             raise HTTPException(409, "文件尚未上传完成")
         return row, bytes(row["data"])
 
 
 def validate_package(uid, upload_id):
-    _, data = package(uid, upload_id)
-    return inspect_package(data)[0]
+    with package_budget():
+        _, data = package(uid, upload_id)
+        return inspect_package(data)[0]
 
 
 def import_draft(uid, project_id, upload_id, expected_version, credential=None):
-    uploaded, data = package(uid, upload_id)
-    if str(uploaded["project_id"]) != str(project_id):
-        raise HTTPException(404, "上传不属于该项目")
-    report, _, _, _ = inspect_package(data)
+    with package_budget():
+        uploaded, data = package(uid, upload_id)
+        if str(uploaded["project_id"]) != str(project_id):
+            raise HTTPException(404, "上传不属于该项目")
+        report = inspect_package(data)[0]
     if not report["valid"]:
         return dict(accepted=False, report=report)
     with connect() as db:
@@ -154,7 +205,7 @@ def import_draft(uid, project_id, upload_id, expected_version, credential=None):
         db.execute("insert into authoring_jobs(id,project_id,owner_id,kind,input) values(%s,%s,%s,'import',%s)",
                    (jid, project_id, uid, Jsonb(dict(upload_id=str(upload_id), expected_version=expected_version,
                                                    fingerprint=report["fingerprint"], credential=credential))))
-    EXECUTOR.submit(run_import, str(jid))
+    _schedule_import(jid)
     return dict(job_id=str(jid), reused=False)
 
 
@@ -184,6 +235,11 @@ def run_import(job_id):
             job = db.execute("select * from authoring_jobs where id=%s", (job_id,)).fetchone()
             if not job or job["status"] not in ("pending", "running"):
                 return
+            try:
+                acquire_budget(db)
+            except PackageBusy:
+                # Leave the durable job eligible for the next recovery scan.
+                return
             # The advisory lock survives until content and the success record commit.
             # Progress updates use another connection without exposing partial content.
             with connect() as status_db:
@@ -198,6 +254,7 @@ def run_import(job_id):
             report, contract, parsed, files = inspect_package(bytes(uploaded["data"]))
             if not report["valid"]:
                 raise ValueError("内容校验失败")
+            del parsed
             from platform_app.knowledge.script_pack import import_script_pack
             def progress(done, total):
                 with connect() as status_db:
@@ -226,7 +283,11 @@ def run_import(job_id):
     except Exception as exc:
         log.exception("Authoring import failed: %s", job_id)
         with connect() as db:
-            db.execute("update authoring_jobs set status='failed',error=%s,heartbeat_at=now() where id=%s",
+            # Rollback released the original lock. Another worker may have already
+            # claimed this job, so wait for it and never overwrite its completion.
+            db.execute("select pg_advisory_xact_lock(hashtextextended(%s,0))", (job_id,))
+            db.execute("update authoring_jobs set status='failed',error=%s,heartbeat_at=now() "
+                       "where id=%s and status in ('pending','running')",
                        (str(exc.detail if isinstance(exc, HTTPException) else exc)[:500], job_id))
 
 
@@ -300,4 +361,4 @@ def recover():
     with connect() as db:
         jobs = db.execute("select id from authoring_jobs where kind='import' and status in ('pending','running')").fetchall()
     for job in jobs:
-        EXECUTOR.submit(run_import, str(job["id"]))
+        _schedule_import(job["id"])

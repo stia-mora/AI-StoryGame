@@ -96,6 +96,28 @@ def start_server():
     assert not thread.is_alive(), "Full application lifespan did not stop"
 
 
+def test_http_upload_streams_chunked_and_enforces_actual_size(live_server, creator, monkeypatch):
+    from platform_app.authoring import service
+
+    uid = creator["uid"]
+    token = federation.create_pat(uid, "stream", oauth.SCOPES)["token"]
+    project = service.create_project(uid, uuid.uuid4().hex, "流式上传")
+    raw = b"streamed-data" * 25000
+    upload = service.begin_upload(uid, project["id"], len(raw), hashlib.sha256(raw).hexdigest())
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/octet-stream"}
+    def chunks(data):
+        for start in range(0, len(data), 17000):
+            yield data[start:start + 17000]
+    with httpx.Client(timeout=30) as client:
+        response = client.put(live_server + upload["http_url"], headers=headers, content=chunks(raw))
+        assert response.status_code == 200, response.text
+        assert service.package(uid, upload["upload_id"])[1] == raw
+        monkeypatch.setenv("RPG_UPLOAD_BODY_LIMIT_BYTES", "128")
+        other = service.begin_upload(uid, project["id"], 200, hashlib.sha256(b"x" * 200).hexdigest())
+        denied = client.put(live_server + other["http_url"], headers=headers, content=chunks(b"x" * 200))
+        assert denied.status_code == 413, denied.text
+
+
 @pytest.mark.parametrize("mode", ["auto", "legacy"])
 def test_real_sdk_upload_import_retry_and_scope(live_server, creator, mode, monkeypatch):
     pat = federation.create_pat(creator["uid"], "SDK", oauth.SCOPES)["token"]

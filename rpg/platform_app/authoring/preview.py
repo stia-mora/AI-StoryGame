@@ -34,6 +34,9 @@ def story_values(row):
                                story_time_label=opening["moment"], location=opening["location"]),
         })
     defaults = {k: play[k] for k in ("story_intent", "player_origin", "identity_known") if k in play}
+    if defaults.get("player_origin") == "transmigrator":
+        # The existing runtime uses "soul" for the generic transmigrator mode.
+        defaults["player_origin"] = "soul"
     return dict(title=play["title"], introduction=play["introduction"], cover=play.get("cover", ""), identities=identities, defaults=defaults)
 
 

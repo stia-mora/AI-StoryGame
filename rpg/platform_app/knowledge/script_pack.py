@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import zipfile
 from contextlib import nullcontext
 from datetime import UTC, datetime
@@ -37,6 +38,18 @@ MAX_ZIP_BYTES = 50 * 1024 * 1024  # 50 MB(压缩态上限)
 MAX_EXPANDED_BYTES = 500 * 1024 * 1024  # 解压后总量上限,防 zip 炸弹(CWE-409)
 MAX_MEMBER_BYTES = 200 * 1024 * 1024  # 单成员解压上限
 MAX_JSONL_ROWS = 500_000  # 单个 JSONL 行数上限,防 materialize 打爆内存
+MAX_PACK_JSONL_ROWS = 500_000  # 全包行数上限，避免多个成员叠加耗尽资源
+
+
+class PackLimitError(ValueError):
+    """A resource limit, which optional chunk fallback must not suppress."""
+
+
+def expanded_bytes_limit():
+    value = int(os.getenv("RPG_SCRIPT_PACK_MAX_EXPANDED_BYTES", str(MAX_EXPANDED_BYTES)))
+    if not 0 < value <= MAX_EXPANDED_BYTES:
+        raise ValueError("RPG_SCRIPT_PACK_MAX_EXPANDED_BYTES must be between 1 and 524288000")
+    return value
 
 
 def _safe_member_read(zf: zipfile.ZipFile, name: str, max_bytes: int | None = None) -> bytes:
@@ -274,12 +287,27 @@ def export_script_pack(
 
 # ── Import ────────────────────────────────────────────────────────────────────
 
-def import_script_pack(zip_bytes: bytes, user_id: int, progress_cb=None, *, db=None) -> dict[str, Any]:
+def import_script_pack(zip_bytes: bytes, user_id: int, progress_cb=None, *, db=None, _budget_db=None) -> dict[str, Any]:
     """导入剧本 pack zip。返回 {ok, script_id, warnings}。
 
     progress_cb(done, total):可选。大文件导入时按「章节 + 事实」粒度回报进度
     (反馈 #64:大 zip 在「导入剧本」阶段逐章插入耗时数分钟但不报进度,前端进度条卡 0/1
     像卡死)。fire-and-forget——回调异常绝不影响导入本身。"""
+    # The creator importer may already hold this transaction-level lock; PostgreSQL
+    # permits reacquisition in the same transaction without waiting on itself.
+    from platform_app.authoring.budget import acquire
+    if _budget_db is not None:
+        # Account/save bundles keep the budget on a separate connection while
+        # committing each imported script independently, as they did before.
+        acquire(_budget_db)
+        with (nullcontext(db) if db is not None else connect()) as import_db:
+            return _import_script_pack(zip_bytes, user_id, progress_cb, db=import_db)
+    with (nullcontext(db) if db is not None else connect()) as budget_db:
+        acquire(budget_db)
+        return _import_script_pack(zip_bytes, user_id, progress_cb, db=budget_db)
+
+
+def _import_script_pack(zip_bytes: bytes, user_id: int, progress_cb=None, *, db) -> dict[str, Any]:
     # 1. 校验大小
     if len(zip_bytes) > MAX_ZIP_BYTES:
         raise ValueError(f"zip too large (max {MAX_ZIP_BYTES // 1024 // 1024}MB)")
@@ -299,9 +327,10 @@ def import_script_pack(zip_bytes: bytes, user_id: int, progress_cb=None, *, db=N
 
         # 解压前总量预检(CWE-409): 防小压缩包炸出超大内存占用
         declared_total = sum(i.file_size for i in zf.infolist())
-        if declared_total > MAX_EXPANDED_BYTES:
+        max_expanded = expanded_bytes_limit()
+        if declared_total > max_expanded:
             raise ValueError(
-                f"pack expands too large (max {MAX_EXPANDED_BYTES // 1024 // 1024}MB)"
+                f"pack expands too large (max {max_expanded} bytes)"
             )
 
         # 3. 读 manifest
@@ -324,18 +353,33 @@ def import_script_pack(zip_bytes: bytes, user_id: int, progress_cb=None, *, db=N
         except KeyError as exc:
             raise ValueError("missing script.json in pack") from exc
 
-        chapters = _read_jsonl(zf, "chapters.jsonl")
-        facts = _read_jsonl(zf, "chapter_facts.jsonl")
-        cards = _read_jsonl(zf, "character_cards.jsonl")
-        wb = _read_jsonl(zf, "worldbook.jsonl")
-        docs = _read_jsonl(zf, "documents.jsonl")
+        total_rows = 0
+        chapter_word_count = 0
+
+        def rows(name):
+            nonlocal total_rows, chapter_word_count
+            result = _JsonlRows(zip_bytes, name)
+            for item in _iter_jsonl(zf, name):
+                total_rows += 1
+                if total_rows > MAX_PACK_JSONL_ROWS:
+                    raise PackLimitError(f"pack JSONL 行数超限(max {MAX_PACK_JSONL_ROWS})")
+                result.count += 1
+                if name == "chapters.jsonl":
+                    chapter_word_count += int(item.get("word_count") or 0)
+            return result
+
+        chapters = rows("chapters.jsonl")
+        facts = rows("chapter_facts.jsonl")
+        cards = rows("character_cards.jsonl")
+        wb = rows("worldbook.jsonl")
+        docs = rows("documents.jsonl")
 
         # task 67: v2 新表 — v1 包这 5 个 jsonl 不存在,_read_jsonl KeyError 返 []
-        canon_entities = _read_jsonl(zf, "kb_canon_entities.jsonl")
-        timeline_anchors = _read_jsonl(zf, "timeline_anchors.jsonl")
-        phase_digests_rows = _read_jsonl(zf, "phase_digests.jsonl")
-        worldlines = _read_jsonl(zf, "worldlines.jsonl")
-        worldline_nodes = _read_jsonl(zf, "worldline_nodes.jsonl")
+        canon_entities = rows("kb_canon_entities.jsonl")
+        timeline_anchors = rows("timeline_anchors.jsonl")
+        phase_digests_rows = rows("phase_digests.jsonl")
+        worldlines = rows("worldlines.jsonl")
+        worldline_nodes = rows("worldline_nodes.jsonl")
 
         try:
             overrides: dict = json.loads(_safe_member_read(zf, "overrides.json").decode("utf-8"))
@@ -348,8 +392,10 @@ def import_script_pack(zip_bytes: bytes, user_id: int, progress_cb=None, *, db=N
         chunks: list[dict] = []
         if pack_chunks_included and pack_chunks_version == CHUNKS_VERSION:
             try:
-                chunks = _read_jsonl(zf, "chunks.jsonl")
-            except Exception:
+                chunks = rows("chunks.jsonl")
+            except PackLimitError:
+                raise
+            except (ValueError, UnicodeError, zipfile.BadZipFile):
                 chunks = []  # 损坏/缺失 → fallback 到无 chunks
 
     warnings: list[str] = []
@@ -361,7 +407,7 @@ def import_script_pack(zip_bytes: bytes, user_id: int, progress_cb=None, *, db=N
         title = str(script_data.get("title") or "Imported script")
         description = str(script_data.get("description") or "")
         chapter_count = len(chapters)
-        word_count = sum(int(c.get("word_count") or 0) for c in chapters)
+        word_count = chapter_word_count
 
         new_script = db.execute(
             """
@@ -470,19 +516,44 @@ def _dump_jsonl(rows: list[dict]) -> str:
     )
 
 
-def _read_jsonl(zf: zipfile.ZipFile, name: str) -> list[dict]:
+def _iter_jsonl(zf: zipfile.ZipFile, name: str):
     try:
-        text = _safe_member_read(zf, name).decode("utf-8")
+        info = zf.getinfo(name)
     except KeyError:
-        return []
-    rows: list[dict] = []
-    for line in text.split("\n"):
-        if not line.strip():
-            continue
-        if len(rows) >= MAX_JSONL_ROWS:  # 防超长 JSONL materialize 打爆内存(CWE-409)
-            raise ValueError(f"{name}: JSONL 行数超限(max {MAX_JSONL_ROWS})")
-        rows.append(json.loads(line))
-    return rows
+        return
+    if info.file_size > MAX_MEMBER_BYTES:
+        raise PackLimitError(f"成员解压后过大: {name}")
+    size = count = 0
+    with zf.open(info) as source:
+        while line := source.readline(MAX_MEMBER_BYTES + 1):
+            size += len(line)
+            if size > MAX_MEMBER_BYTES:
+                raise PackLimitError(f"成员解压超限: {name}")
+            if not line.strip():
+                continue
+            count += 1
+            if count > MAX_JSONL_ROWS:
+                raise PackLimitError(f"{name}: JSONL 行数超限(max {MAX_JSONL_ROWS})")
+            row = json.loads(line.decode("utf-8"))
+            if not isinstance(row, dict):
+                raise ValueError(f"{name}: JSONL 行必须是对象")
+            yield row
+
+
+class _JsonlRows:
+    """Counted, repeatable stream without retaining decompressed rows in memory."""
+
+    def __init__(self, zip_bytes, name):
+        self.zip_bytes = zip_bytes
+        self.name = name
+        self.count = 0
+
+    def __len__(self):
+        return self.count
+
+    def __iter__(self):
+        with zipfile.ZipFile(io.BytesIO(self.zip_bytes)) as zf:
+            yield from _iter_jsonl(zf, self.name)
 
 
 def _dump_script_row(row: dict) -> str:

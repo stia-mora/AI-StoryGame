@@ -113,11 +113,24 @@ def import_save_bundle(user_id: int, zip_bytes: bytes) -> dict[str, Any]:
 
     安全完全沿用 import_script_pack 的硬化(zip 大小 / zip-slip / 解压炸弹 / owner 强制覆写)。
     """
-    # 取 save.json(import_script_pack 只读具名条目、忽略它)
+    from platform_app.authoring.budget import acquire
+    with connect() as budget_db:
+        acquire(budget_db)
+        return _import_save_bundle(user_id, zip_bytes, budget_db=budget_db)
+
+
+def _import_save_bundle(user_id: int, zip_bytes: bytes, *, budget_db) -> dict[str, Any]:
+    if len(zip_bytes) > script_pack.MAX_ZIP_BYTES:
+        raise ValueError("存档包压缩大小超限")
+    # Check the complete envelope before reading save.json, including its
+    # uncompressed size; the nested script importer repeats its own checks.
     with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
         if "save.json" not in set(zf.namelist()):
             raise ValueError("不是自包含存档包(缺 save.json)")
-        raw = zf.read("save.json")
+        limit = script_pack.expanded_bytes_limit()
+        if sum(info.file_size for info in zf.infolist()) > limit:
+            raise ValueError(f"存档包解压后超过 {limit} 字节")
+        raw = script_pack._safe_member_read(zf, "save.json", min(limit, script_pack.MAX_MEMBER_BYTES))
     try:
         save_payload = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -126,7 +139,7 @@ def import_save_bundle(user_id: int, zip_bytes: bytes) -> dict[str, Any]:
         raise ValueError("save.json 不是对象")
 
     # 1. 重建剧本(自带硬化 + owner 强制覆写为导入者)
-    pack_res = script_pack.import_script_pack(zip_bytes, user_id)
+    pack_res = script_pack.import_script_pack(zip_bytes, user_id, _budget_db=budget_db)
     new_script_id = int(pack_res["script_id"])
 
     # 2. per-save payload 的 script_id 重映射到新剧本

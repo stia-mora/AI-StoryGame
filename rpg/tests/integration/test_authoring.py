@@ -50,6 +50,8 @@ def upload(creator, files=None, project=None):
 
 
 def imported(creator, files=None, project=None):
+    # Direct service tests do not enter the application lifespan.
+    service.start_executor()
     project, upload_id = upload(creator, files, project)
     result = service.import_draft(creator["uid"], project["id"], upload_id, project["version"])
     for _ in range(100):
