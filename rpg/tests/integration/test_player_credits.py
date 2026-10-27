@@ -551,6 +551,48 @@ def reservation(p, message="行动"):
     return req, quote, save
 
 
+def test_expired_reservations_are_released_in_bounded_batches(player, monkeypatch):
+    monkeypatch.setattr(wallet, "REAP_BATCH_SIZE", 2)
+    users, requests = [], []
+    with connect() as db:
+        script = db.execute("select script_id from game_saves where id=%s", (player["sid"],)).fetchone()["script_id"]
+        for index in range(3):
+            uid = db.execute("insert into users(username,password_hash,display_name) values(%s,'test','Batch') returning id",
+                             ("reap_" + uuid.uuid4().hex,)).fetchone()["id"]
+            users.append(uid)
+            save = db.execute("insert into game_saves(user_id,script_id,title,state_path,state_snapshot) "
+                              "values(%s,%s,'Batch','',%s) returning id", (uid, script, Jsonb({}))).fetchone()["id"]
+            db.execute("insert into player_wallets(user_id,free_day,free_micro,held_micro) "
+                       "values(%s,(now() at time zone 'Asia/Shanghai')::date,0,10)", (uid,))
+            qid, rid = uuid.uuid4(), uuid.uuid4()
+            requests.append(rid)
+            db.execute("insert into player_quotes(id,user_id,save_id,kind,message_hash,profile,rates,estimate_micro,cap_micro) "
+                       "values(%s,%s,%s,'turn','test',%s,%s,1,10)", (qid, uid, save, Jsonb({}), Jsonb({})))
+            db.execute("insert into player_requests(id,user_id,save_id,quote_id,action_id,kind,free_day,free_hold,"
+                       "permanent_hold,cap_micro,rates,profile,expires_at) values(%s,%s,%s,%s,'action','turn',"
+                       "(now() at time zone 'Asia/Shanghai')::date,10,0,10,%s,%s,"
+                       "'1900-01-01'::timestamptz + %s * interval '1 second')",
+                       (rid, uid, save, qid, Jsonb({}), Jsonb({}), index))
+    try:
+        wallet.reap()
+        with connect() as db:
+            rows = db.execute("select id,status from player_requests where id=any(%s)", (requests,)).fetchall()
+            states = {row["id"]: row["status"] for row in rows}
+            assert [states[rid] for rid in requests] == ["released", "released", "reserved"]
+        wallet.reap()
+        with connect() as db:
+            rows = db.execute("select free_micro,held_micro from player_wallets where user_id=any(%s)", (users,)).fetchall()
+            assert len(rows) == 3 and all(row["free_micro"] == 10 and row["held_micro"] == 0 for row in rows)
+    finally:
+        with connect() as db:
+            db.execute("delete from player_ledger where user_id=any(%s)", (users,))
+            db.execute("delete from player_requests where user_id=any(%s)", (users,))
+            db.execute("delete from player_quotes where user_id=any(%s)", (users,))
+            db.execute("delete from game_saves where user_id=any(%s)", (users,))
+            db.execute("delete from player_wallets where user_id=any(%s)", (users,))
+            db.execute("delete from users where id=any(%s)", (users,))
+
+
 def test_credit_history_pages_filters_literal_query_and_owner(player):
     from datetime import date
     from platform_app.player.ledger import history

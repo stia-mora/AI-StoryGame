@@ -13,6 +13,7 @@ from psycopg.types.json import Jsonb
 from platform_app.db import connect
 
 MICRO = 1_000_000
+REAP_BATCH_SIZE = 128
 DEFAULT_RATES = dict(
     version=1, input_micro_per_token=1000, output_micro_per_token=4000, daily_micro=100 * MICRO
 )
@@ -412,8 +413,9 @@ def reap(uid=None):
             order by q.expires_at limit 1000 for update of q skip locked)""")
         rows = db.execute(
             "select id,user_id from player_requests where status in ('reserved','running') and expires_at<=now()"
-            + (" and user_id=%s" if uid else ""),
-            (uid,) if uid else (),
+            + (" and user_id=%s" if uid is not None else "")
+            + " order by expires_at,id limit %s",
+            (uid, REAP_BATCH_SIZE) if uid is not None else (REAP_BATCH_SIZE,),
         ).fetchall()
     for row in rows:
         release(row["user_id"], str(row["id"]), "租约过期，未提交预留已释放", expired_only=True)

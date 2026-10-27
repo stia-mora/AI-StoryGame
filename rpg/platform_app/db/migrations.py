@@ -2445,6 +2445,10 @@ MIGRATIONS.append((111, "authoring_import_recovery_index", [
     "create index authoring_import_recovery on authoring_jobs(created_at,id) "
     "where kind='import' and status in ('pending','running')",
 ]))
+MIGRATIONS.append((112, "player_expired_request_index", [
+    "create index player_expired_requests on player_requests(expires_at,id) "
+    "where status in ('reserved','running')",
+]))
 
 
 @contextmanager

@@ -151,8 +151,9 @@ def main():
             upgraded = run("docker", "exec", pg, "psql", "-U", "rpg", "-d", "upgrade_smoke", "-Atc",
                            "select (select count(*) from authoring_jobs where status='pending') || ':' || "
                            "(select count(*) from authoring_oauth_clients where id='upgrade_client') || ':' || "
-                           "(select count(*) from pg_indexes where indexname='authoring_import_recovery')").stdout.strip()
-            assert upgraded == "1:1:1"
+                           "(select count(*) from pg_indexes where indexname in "
+                           "('authoring_import_recovery','player_expired_requests'))").stdout.strip()
+            assert upgraded == "1:1:2"
             print("Existing v109 database upgrade preserves queued work and clients: passed")
             run("docker", "run", "-d", "--name", backend, "--network", network, "--network-alias", "backend",
                 "--memory", "512m", "--memory-swap", "768m", *env_args, image)
