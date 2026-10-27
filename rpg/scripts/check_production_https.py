@@ -20,6 +20,7 @@ import tarfile
 import tempfile
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode, urlsplit
@@ -79,6 +80,7 @@ def main():
         "RPG_MASTER_KEY": master, "EMAIL_CODE_SECRET": email,
         "PUBLIC_BASE_URL": base, "RPG_CORS_ORIGINS": base,
         "RPG_DATA_ROOT": "/tmp/creator-smoke-data", "RPG_WORKERS": "1",
+        "RPG_DB_POOL_MIN": "1", "RPG_DB_POOL_MAX": "6",
         "RPG_TRUSTED_PROXIES": "172.16.0.0/12", "RPG_POSTPROC_MODE": "inline",
     }
     env_args = [argument for key, value in env.items() for argument in ("-e", f"{key}={value}")]
@@ -153,7 +155,7 @@ def main():
             assert upgraded == "1:1:1"
             print("Existing v109 database upgrade preserves queued work and clients: passed")
             run("docker", "run", "-d", "--name", backend, "--network", network, "--network-alias", "backend",
-                *env_args, image)
+                "--memory", "512m", "--memory-swap", "768m", *env_args, image)
             run("docker", "run", "-d", "--name", nginx, "--network", network,
                 "-p", f"127.0.0.1:{port}:443",
                 "--mount", f"type=bind,source={config},target=/etc/nginx/nginx.conf,readonly",
@@ -233,15 +235,19 @@ def main():
                            "Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2025-06-18"}
             payload = dict(jsonrpc="2.0", id=2, method="tools/call",
                            params=dict(name="authoring_get_contract", arguments={}))
-            status, headers, raw = request(base + "/mcp/authoring", context, "POST", json.dumps(payload).encode(), mcp_headers)
-            if headers.get_content_type() == "text/event-stream":
-                data = next(line[5:].strip() for line in raw.decode().splitlines() if line.startswith("data:"))
-                result = json.loads(data)
-            else:
-                result = json.loads(raw)
-            assert status == 200 and not result["result"].get("isError")
-            assert result["result"]["structuredContent"]["version"] == 1
+            def concurrent_call(_):
+                status, headers, raw = request(base + "/mcp/authoring", context, "POST", json.dumps(payload).encode(), mcp_headers)
+                if headers.get_content_type() == "text/event-stream":
+                    data = next(line[5:].strip() for line in raw.decode().splitlines() if line.startswith("data:"))
+                    result = json.loads(data)
+                else:
+                    result = json.loads(raw)
+                return status == 200 and not result["result"].get("isError") and result["result"]["structuredContent"]["version"] == 1
+            assert concurrent_call(0)
             print("Authenticated OAuth authorization and MCP contract call: passed")
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                assert all(executor.map(concurrent_call, range(24)))
+            print("24 authenticated calls at concurrency 8 with 512 MiB backend limit: passed")
             # Exercise actual dump/restore against a second disposable database.
             dump = subprocess.run(["docker", "exec", pg, "pg_dump", "-U", "rpg", "-Fc", "rpg"],
                                   capture_output=True, check=True, creationflags=FLAGS).stdout
