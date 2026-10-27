@@ -25,6 +25,14 @@ def story(story_id, new=False):
             raise HTTPException(404, "故事尚未上架")
         if row["status"] == "suspended":
             raise HTTPException(503, "这个故事暂时停止游玩，已保存内容仍可阅读")
+        if row.get("authoring_revision_id"):
+            edition = db.execute("select r.script_id,r.version,u.display_name,u.username from authoring_revisions r "
+                                 "join authoring_projects p on p.id=r.project_id join users u on u.id=p.owner_id where r.id=%s",
+                                 (row["authoring_revision_id"],)).fetchone()
+            if edition:
+                row["script_id"] = edition["script_id"]
+                row["author_name"] = edition["display_name"] or edition["username"]
+                row["authoring_version"] = edition["version"]
         profile = db.execute(
             "select * from player_model_profiles where id=%s and enabled", (row["profile_id"],)
         ).fetchone()
@@ -36,18 +44,46 @@ def story(story_id, new=False):
         return row
 
 
-def public_story(row):
+def public_story(row, *, save_id=None):
     from .character_creation import public_config
 
     public = {k: row[k] for k in ("id", "title", "introduction", "cover")}
     if public["cover"].startswith("/api/storage/"):
-        public["cover"] = f"/api/player/stories/{row['id']}/cover"
+        public["cover"] = f"/api/player/saves/{save_id}/cover" if save_id else f"/api/player/stories/{row['id']}/cover"
     public["identities"] = [
         {k: i[k] for k in ("id", "name", "role", "background", "description", "character_name") if k in i}
         for i in row["identities"]
     ]
     public["martial_soul_creation"] = public_config(row.get("defaults"))
+    if row.get("author_name"):
+        public["author"] = row["author_name"]
+        public["version"] = row.get("authoring_version")
     return public
+
+
+def listed_stories():
+    with connect() as db:
+        return db.execute("""select p.*,coalesce(u.display_name,u.username) as author_name,r.version as authoring_version
+          from player_stories p join player_model_profiles m on m.id=p.profile_id
+          left join authoring_revisions r on r.id=p.authoring_revision_id
+          left join authoring_projects a on a.id=r.project_id left join users u on u.id=a.owner_id
+          where p.status='published' and m.enabled order by p.sort_order,p.id limit 200""").fetchall()
+
+
+def for_save(save):
+    snapshot = save.get("player_story_snapshot")
+    if snapshot:
+        with connect() as db:
+            lifecycle = db.execute("select status from player_stories where id=%s", (save["player_story_id"],)).fetchone()
+            if not lifecycle or lifecycle["status"] == "suspended":
+                raise HTTPException(503, "这个故事暂时停止游玩，已保存内容仍可阅读")
+            profile = db.execute("select * from player_model_profiles where id=%s and enabled", (snapshot["profile_id"],)).fetchone()
+        if not profile:
+            raise HTTPException(503, "此版本的服务模型暂时不可用")
+        selected = dict(snapshot)
+        selected["profile"] = dict(profile, script_id=save["script_id"])
+        return selected
+    return story(save["player_story_id"])
 
 
 def named_values(values):
@@ -62,6 +98,7 @@ def named_values(values):
 
 
 def save_summary(save, title=""):
+    title = (save.get("player_story_snapshot") or {}).get("title", title)
     data = save.get("state_snapshot") or {}
     player = data.get("player") or {}
     return dict(
@@ -120,11 +157,8 @@ def view(uid, sid, before=None, limit=20):
     world = data.get("world") or {}
     pc = data.get("player_character") or {}
     with connect() as db:
-        selected = (
-            db.execute(
-                "select * from player_stories where id=%s", (save["player_story_id"],)
-            ).fetchone()
-            or {}
+        selected = save.get("player_story_snapshot") or (
+            db.execute("select * from player_stories where id=%s", (save["player_story_id"],)).fetchone() or {}
         )
         title = selected.get("title", "")
         # Only the active branch ancestors are readable; raw snapshots and future canon never leave this DTO.
@@ -184,7 +218,7 @@ def view(uid, sid, before=None, limit=20):
     pending = data.get("pending_action") or {}
     return dict(
         save=save_summary(save, title),
-        story=public_story(selected) if selected else None,
+        story=public_story(selected, save_id=sid) if selected else None,
         messages=messages,
         history_before=rows[0]["id"] if has_more and rows else None,
         status=status,

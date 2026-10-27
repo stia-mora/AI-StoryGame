@@ -23,11 +23,11 @@ def rates(db):
     return {**DEFAULT_RATES, **((row or {}).get("value") or {})}
 
 
-def ledger(db, uid, kind, free=0, permanent=0, held=0, request=None, reason=""):
+def ledger(db, uid, kind, free=0, permanent=0, held=0, request=None, reason="", *, preview=0, preview_held=0):
     db.execute(
-        """insert into player_ledger(user_id,kind,free_delta,permanent_delta,held_delta,request_id,reason)
-               values(%s,%s,%s,%s,%s,%s,%s)""",
-        (uid, kind, free, permanent, held, request, reason),
+        """insert into player_ledger(user_id,kind,free_delta,permanent_delta,held_delta,request_id,reason,preview_delta,preview_held_delta)
+               values(%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+        (uid, kind, free, permanent, held, request, reason, preview, preview_held),
     )
 
 
@@ -58,6 +58,8 @@ def public_wallet(w):
         free_day=str(w["free_day"]),
         rates={"input": 1, "output": 4},
         micro_per_point=MICRO,
+        preview_micro=w.get("preview_micro", 0),
+        preview_held_micro=w.get("preview_held_micro", 0),
     )
 
 
@@ -100,6 +102,35 @@ def fingerprint(kind, message, reveal_future=False):
     return hashlib.sha256((kind + "\0" + message + suffix).encode()).hexdigest()
 
 
+def _preview_wallet(db, uid):
+    from platform_app.authoring.service import creator
+    creator(db, uid)
+    w = lock_wallet(db, uid)
+    if not w.get("preview_granted_at"):
+        amount = 10_000 * MICRO
+        db.execute("update player_wallets set preview_micro=preview_micro+%s,preview_granted_at=now() where user_id=%s", (amount, uid))
+        ledger(db, uid, "creator_grant", reason="创作者一次性试玩额度", preview=amount)
+        w["preview_micro"] += amount
+    return w
+
+
+def preview_wallet(uid):
+    reap(uid)
+    with connect() as db:
+        return public_wallet(_preview_wallet(db, uid))
+
+
+def _preview_save(db, uid, save):
+    if not save.get("authoring_revision_id"):
+        return False
+    row = db.execute("select 1 from authoring_revisions r join authoring_projects p on p.id=r.project_id "
+                     "join game_saves g on g.authoring_revision_id=r.id where g.id=%s and g.user_id=%s "
+                     "and p.owner_id=%s and g.script_id=r.script_id", (save["id"], uid, uid)).fetchone()
+    if not row:
+        raise HTTPException(403, "试玩额度仅限自己的作品")
+    return True
+
+
 def make_quote(uid, save, profile, kind, message, estimate_tokens, estimate_output=None,
                *, reveal_future=False):
     profile = {
@@ -121,7 +152,8 @@ def make_quote(uid, save, profile, kind, message, estimate_tokens, estimate_outp
     if kind == "guide":
         profile["guide_options"] = {"reveal_future": reveal_future is True}
     with connect() as db:
-        w = lock_wallet(db, uid)
+        preview = _preview_save(db, uid, save)
+        w = _preview_wallet(db, uid) if preview else lock_wallet(db, uid)
         r = rates(db)
         estimate = cost(
             estimate_tokens,
@@ -131,8 +163,8 @@ def make_quote(uid, save, profile, kind, message, estimate_tokens, estimate_outp
         cap = max(5 * MICRO, estimate * 2)
         qid = str(uuid.uuid4())
         db.execute(
-            """insert into player_quotes(id,user_id,save_id,kind,message_hash,base_commit,profile,rates,estimate_micro,cap_micro)
-                   values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            """insert into player_quotes(id,user_id,save_id,kind,message_hash,base_commit,profile,rates,estimate_micro,cap_micro,funding)
+                   values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (
                 qid,
                 uid,
@@ -144,13 +176,15 @@ def make_quote(uid, save, profile, kind, message, estimate_tokens, estimate_outp
                 Jsonb(r),
                 estimate,
                 cap,
+                "preview" if preview else "player",
             ),
         )
         return dict(
             id=qid,
             estimate_micro=estimate,
             cap_micro=cap,
-            affordable=w["free_micro"] + w["permanent_micro"] >= cap,
+            affordable=(w["preview_micro"] if preview else w["free_micro"] + w["permanent_micro"]) >= cap,
+            funding="preview" if preview else "player",
             wallet=public_wallet(w),
             rate_version=r["version"],
         )
@@ -208,6 +242,21 @@ def reserve(uid, save, quote_id, request_id, action_id, kind, message, *, reveal
         ).fetchone():
             raise HTTPException(409, "还有一轮正在进行，请等待或停止")
         cap = q["cap_micro"]
+        if q.get("funding") == "preview":
+            if not _preview_save(db, uid, save):
+                raise HTTPException(403, "试玩报价不能用于普通游玩")
+            w = _preview_wallet(db, uid)
+            if w["preview_micro"] < cap:
+                raise HTTPException(402, "试玩积分不足，请兑换试玩码")
+            db.execute("update player_wallets set preview_micro=preview_micro-%s,preview_held_micro=preview_held_micro+%s where user_id=%s", (cap, cap, uid))
+            req = db.execute("""insert into player_requests(id,user_id,save_id,quote_id,action_id,kind,free_day,
+              free_hold,permanent_hold,cap_micro,rates,profile,funding,preview_hold)
+              values(%s,%s,%s,%s,%s,%s,%s,0,0,%s,%s,%s,'preview',%s) returning *""",
+              (request_id, uid, save["id"], quote_id, action_id, kind, w["free_day"], cap, Jsonb(q["rates"]), Jsonb(q["profile"]), cap)).fetchone()
+            ledger(db, uid, "reserve", request=request_id, reason="试玩预留", preview=-cap, preview_held=cap)
+            return req, False
+        if _preview_save(db, uid, save):
+            raise HTTPException(403, "试玩存档必须使用专用报价")
         if w["free_micro"] + w["permanent_micro"] < cap:
             raise HTTPException(402, "积分不足以预留本轮封顶费用")
         free = min(w["free_micro"], cap)
@@ -267,13 +316,18 @@ def settle(db, uid, request_id, commit_id, text, options, partial=False):
     actual = cost(inp, out, req["rates"])
     charged = min(actual, req["cap_micro"])
     free_used = min(req["free_hold"], charged)
-    permanent_used = charged - free_used
+    is_preview = req.get("funding") == "preview"
+    permanent_used = 0 if is_preview else charged - free_used
     free_back = req["free_hold"] - free_used if w["free_day"] == req["free_day"] else 0
     permanent_back = req["permanent_hold"] - permanent_used
-    db.execute(
-        "update player_wallets set free_micro=free_micro+%s,permanent_micro=permanent_micro+%s,held_micro=held_micro-%s where user_id=%s",
-        (free_back, permanent_back, req["cap_micro"], uid),
-    )
+    if is_preview:
+        db.execute("update player_wallets set preview_micro=preview_micro+%s,preview_held_micro=preview_held_micro-%s where user_id=%s",
+                   (req["preview_hold"]-charged, req["preview_hold"], uid))
+    else:
+        db.execute(
+            "update player_wallets set free_micro=free_micro+%s,permanent_micro=permanent_micro+%s,held_micro=held_micro-%s where user_id=%s",
+            (free_back, permanent_back, req["cap_micro"], uid),
+        )
     receipt = dict(
         request_id=str(req["id"]),
         charged_micro=charged,
@@ -286,6 +340,7 @@ def settle(db, uid, request_id, commit_id, text, options, partial=False):
         text=text,
         options=options or [],
         saved=True,
+        funding=req.get("funding", "player"),
     )
     db.execute(
         "update player_requests set status='settled',actual_micro=%s,charged_micro=%s,receipt=%s,commit_id=%s where id=%s",
@@ -297,9 +352,11 @@ def settle(db, uid, request_id, commit_id, text, options, partial=False):
         "settle",
         free_back,
         permanent_back,
-        -req["cap_micro"],
+        0 if is_preview else -req["cap_micro"],
         request_id,
         "已保存回复，实扣 " + str(Decimal(charged) / MICRO),
+        preview=req["preview_hold"]-charged if is_preview else 0,
+        preview_held=-req["preview_hold"] if is_preview else 0,
     )
     return receipt
 
@@ -314,6 +371,12 @@ def release(uid, request_id, reason="回合未保存", expired_only=False):
         if not req or req["status"] not in ("reserved", "running"):
             return
         if expired_only and not req["expired"]:
+            return
+        if req.get("funding") == "preview":
+            amount = req["preview_hold"]
+            db.execute("update player_wallets set preview_micro=preview_micro+%s,preview_held_micro=preview_held_micro-%s where user_id=%s", (amount, amount, uid))
+            db.execute("update player_requests set status='released',reason=%s where id=%s", (reason, request_id))
+            ledger(db, uid, "release", request=request_id, reason=reason, preview=amount, preview_held=-amount)
             return
         free = req["free_hold"] if w["free_day"] == req["free_day"] else 0
         db.execute(
@@ -375,13 +438,19 @@ def redeem(uid, code):
             "select 1 from player_redemptions where code_id=%s and user_id=%s", (row["id"], uid)
         ).fetchone():
             raise HTTPException(409, "你已经兑换过此码")
+        if row.get("purpose") == "preview":
+            _preview_wallet(db, uid)
         db.execute(
             "insert into player_redemptions(code_id,user_id) values(%s,%s)", (row["id"], uid)
         )
         db.execute("update player_codes set used_count=used_count+1 where id=%s", (row["id"],))
-        db.execute(
-            "update player_wallets set permanent_micro=permanent_micro+%s where user_id=%s",
-            (row["amount_micro"], uid),
-        )
-        ledger(db, uid, "redeem", permanent=row["amount_micro"], reason=row["label"])
+        if row.get("purpose") == "preview":
+            db.execute("update player_wallets set preview_micro=preview_micro+%s where user_id=%s", (row["amount_micro"], uid))
+            ledger(db, uid, "redeem", preview=row["amount_micro"], reason=row["label"])
+        else:
+            db.execute(
+                "update player_wallets set permanent_micro=permanent_micro+%s where user_id=%s",
+                (row["amount_micro"], uid),
+            )
+            ledger(db, uid, "redeem", permanent=row["amount_micro"], reason=row["label"])
     return wallet(uid)

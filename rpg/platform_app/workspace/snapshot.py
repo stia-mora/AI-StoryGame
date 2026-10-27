@@ -93,6 +93,7 @@ def _build_initial_snapshot(
                 _extra_card_fields[_f] = _v
 
     if isinstance(new_card, dict):
+        _absorb_card_secrets(new_card)
         name = str(new_card.get("name") or "").strip()
         role = str(new_card.get("role") or "").strip()
         # background 也 strip 一遍秘密段(玩家在向导里手填可能也写 ## 秘密)
@@ -161,6 +162,11 @@ def _build_initial_snapshot(
             state.setup_player(name or "无名者", role or "未指定", background or "（无背景）")
         except Exception:
             pass
+        if isinstance(new_card, dict) and new_card.get("authoring_subject"):
+            state.data.setdefault("player", {})["guide"] = {"subject": new_card["authoring_subject"]}
+            if new_card.get("bound_npc_card_id"):
+                state.data["player"]["bound_npc_card_id"] = new_card["bound_npc_card_id"]
+                state.data.setdefault("player_meta", {})["pov_replaces"] = [name]
         # #6 代入去重: script_card = 玩家代入原作已有角色。登记 player↔NPC 绑定
         # (player.aliases + player_meta.pov_replaces + bound_npc_card_id),让 GM 上下文
         # (_active_character_cards)把这张同名 NPC 卡视为玩家本人、不再当独立 NPC 注入,
@@ -240,6 +246,8 @@ def _build_initial_snapshot(
             chapter_min = birthpoint.get("chapter_min")
             chapter_max = birthpoint.get("chapter_max")
             world = state.data.setdefault("world", {})
+            if birthpoint.get("location"):
+                world["current_location"] = str(birthpoint["location"])
             timeline = world.setdefault("timeline", {})
             if phase_label:
                 timeline["current_phase"] = phase_label

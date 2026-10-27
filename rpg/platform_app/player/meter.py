@@ -557,11 +557,11 @@ def maintenance_context(uid, save_id):
     """Internal worker scope. Obtains managed credentials, never a player billing request."""
     from types import SimpleNamespace
 
-    from .catalog import player_save, story
+    from .catalog import for_save, player_save
 
     try:
         save = player_save(int(uid), int(save_id))
-        selected = story(save["player_story_id"])
+        selected = for_save(save)
     except HTTPException:
         yield None
         return

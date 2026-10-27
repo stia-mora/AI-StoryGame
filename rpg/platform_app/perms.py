@@ -30,12 +30,24 @@ class PermissionError(Exception):  # noqa: A001 — 故意遮蔽内建,统一鉴
     """
 
 
-def script_playable(db, script_id: int, user_id: int, story_id: int):
+def script_playable(db, script_id: int, user_id: int, story_id: int, *, preview_revision=None, preview_profile=None):
     """Curated play access does not grant source or knowledge-base read access."""
-    return db.execute("""select s.* from scripts s join player_stories p on p.script_id=s.id
+    if preview_revision is not None:
+        return db.execute("""select s.* from scripts s join authoring_revisions r on r.script_id=s.id
+          join authoring_projects a on a.id=r.project_id join users u on u.id=a.owner_id
+          join player_stories p on p.id=%s and p.authoring_project_id=a.id
+          join player_model_profiles m on m.id=%s and m.enabled
+          where s.id=%s and r.id=%s and a.owner_id=%s and s.authoring_locked
+          and u.deactivated_at is null and (u.account_mode='creator' or u.role='admin')""",
+                          (story_id, preview_profile, script_id, preview_revision, user_id)).fetchone()
+    return db.execute("""select s.* from scripts s join player_stories p on (
+                       p.script_id=s.id or exists(select 1 from authoring_revisions r where
+                       r.id=p.authoring_revision_id and r.script_id=s.id))
                        join player_model_profiles m on m.id=p.profile_id
-                       where s.id=%s and p.id=%s and p.status='published' and m.enabled
-                       and s.review_status='reviewed'""", (script_id, story_id)).fetchone()
+                       where s.id=%s and p.id=%s and m.enabled and (
+                       (p.status='published' and s.review_status='reviewed') or
+                       (p.status='unlisted' and s.owner_id=%s and p.authoring_revision_id is not null))""",
+                      (script_id, story_id, user_id)).fetchone()
 
 
 # ──────────────────────────────────────────────────────────────────────────────

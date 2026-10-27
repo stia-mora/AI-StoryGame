@@ -37,8 +37,8 @@ def settings(admin=Depends(_require_admin)):
             for key, sql in {
                 "profiles": "select * from player_model_profiles order by id",
                 "stories": "select * from player_stories order by sort_order,id",
-                "codes": "select id,label,amount_micro,expires_at,max_uses,used_count,enabled from player_codes order by id desc limit 100",
-                "bills": "select id,user_id,save_id,status,charged_micro,actual_micro,reason,created_at from player_requests order by created_at desc limit 100",
+                "codes": "select id,label,amount_micro,expires_at,max_uses,used_count,enabled,purpose from player_codes order by id desc limit 100",
+                "bills": "select id,user_id,save_id,status,charged_micro,actual_micro,reason,created_at,funding from player_requests order by created_at desc limit 100",
                 "accounts": "select id,username,display_name,account_mode,role from users order by id desc limit 200",
             }.items()
         }
@@ -243,16 +243,20 @@ async def code(request: Request, admin=Depends(_require_admin)):
         plain = secrets.token_hex(12).upper()
         amount = points(body.get("points"))
         maximum = int(body.get("max_uses", 1))
+        purpose = body.get("purpose", "player")
+        if purpose not in ("player", "preview"):
+            raise HTTPException(400, "兑换码用途无效")
         if not 1 <= maximum <= 1_000_000:
             raise HTTPException(400, "兑换人数上限无效")
         row = db.execute(
-            "insert into player_codes(code_hash,label,amount_micro,expires_at,max_uses) values(%s,%s,%s,%s,%s) returning id",
+            "insert into player_codes(code_hash,label,amount_micro,expires_at,max_uses,purpose) values(%s,%s,%s,%s,%s,%s) returning id",
             (
                 hashlib.sha256(plain.encode()).hexdigest(),
                 str(body.get("label") or "积分兑换")[:120],
                 amount,
                 body.get("expires_at") or None,
                 maximum,
+                purpose,
             ),
         ).fetchone()
         _write_audit(

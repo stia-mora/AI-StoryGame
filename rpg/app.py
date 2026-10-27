@@ -487,6 +487,14 @@ app.include_router(console_assistant_router)
 app.include_router(sidebar_router)
 app.include_router(tavern_router)
 
+from platform_app.authoring.api import router as _authoring_router
+from platform_app.authoring.mcp_server import http_app as _authoring_http
+from platform_app.authoring.oauth import router as _authoring_oauth_router
+
+app.include_router(_authoring_router)
+app.include_router(_authoring_oauth_router)
+app.mount("/mcp", _authoring_http)
+
 # 同源 mount frontend 静态文件 — dev/prod 都需要 (cookie SameSite=lax 跨 origin 5173↔7860 会丢)
 # 必须在所有具体路由之后 mount,否则会拦截 /api/* 和 /
 from pathlib import Path as _Path

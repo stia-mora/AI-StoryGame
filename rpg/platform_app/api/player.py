@@ -120,9 +120,7 @@ def estimate_usage(uid, save, profile, kind, message, *, reveal_future=False):
 def bootstrap(user=Depends(require_player)):
     uid = user["id"]
     with connect() as db:
-        stories = db.execute(
-            "select * from player_stories p where status='published' and exists(select 1 from player_model_profiles m where m.id=p.profile_id and m.enabled) order by sort_order,id"
-        ).fetchall()
+        stories = catalog.listed_stories()
         saves = db.execute(
             "select g.*,p.title as story_title from game_saves g join player_stories p on p.id=g.player_story_id where g.user_id=%s order by g.updated_at desc,g.id desc",
             (uid,),
@@ -143,11 +141,7 @@ def bootstrap(user=Depends(require_player)):
 
 @router.get("/catalog")
 def public_catalog():
-    with connect() as db:
-        rows = db.execute(
-            "select p.* from player_stories p join player_model_profiles m on m.id=p.profile_id "
-            "where p.status='published' and m.enabled order by p.sort_order,p.id limit 200"
-        ).fetchall()
+    rows = catalog.listed_stories()
     return {"stories": [catalog.public_story(row) for row in rows]}
 
 
@@ -159,15 +153,26 @@ def player_session(user=Depends(current_user)):
 
 @router.get("/stories/{story_id}/cover")
 def story_cover(story_id: int):
-    from platform_app.storage import resolve_path
     selected = catalog.story(story_id, new=True)
+    return _cover_response(selected)
+
+
+@router.get("/saves/{sid}/cover")
+def save_cover(sid: int, user=Depends(require_player)):
+    save = catalog.player_save(user["id"], sid)
+    selected = save.get("player_story_snapshot") or catalog.story(save["player_story_id"])
+    return _cover_response(selected, private=True)
+
+
+def _cover_response(selected, *, private=False):
+    from platform_app.storage import resolve_path
     cover = selected.get("cover") or ""
     if not cover.startswith("/api/storage/"):
         raise HTTPException(404, "封面不存在")
     path = resolve_path(cover.removeprefix("/api/storage/"))
     if not path.is_file() or path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"}:
         raise HTTPException(404, "封面不存在")
-    return FileResponse(path, headers={"Cache-Control": "public,max-age=300"})
+    return FileResponse(path, headers={"Cache-Control": ("private" if private else "public")+",max-age=300"})
 
 
 @router.post("/saves")
@@ -176,10 +181,10 @@ def create(body: Create, user=Depends(require_player)):
         return _create(body, user)
 
 
-def _create(body: Create, user):
+def _create(body: Create, user, *, selected=None, preview_revision=None, preview_key=None):
     from platform_app import branches, workspace
 
-    selected = catalog.story(body.story_id, new=True)
+    selected = selected or catalog.story(body.story_id, new=True)
     identity = next(
         (i for i in selected["identities"] if str(i.get("id")) == body.identity_id), None
     )
@@ -193,6 +198,9 @@ def _create(body: Create, user):
     from platform_app.player.character_creation import prepare
 
     setup = prepare(defaults, body.martial_soul.model_dump() if body.martial_soul else None)
+    story_snapshot = {k: selected[k] for k in ("id", "script_id", "profile_id", "title", "introduction", "cover", "identities", "defaults")}
+    if preview_revision:
+        story_snapshot["preview_creation"] = dict(identity_id=body.identity_id, name=body.name)
     name = str(identity.get("character_name") or body.name).strip()
     card = {
         "name": name,
@@ -201,6 +209,11 @@ def _create(body: Create, user):
             filter(None, [identity.get("background", ""), body.background.strip()])
         ),
     }
+    if identity.get("subject"):
+        with connect() as db:
+            bound = db.execute("select * from character_cards where id=%s and script_id=%s and enabled",
+                               (identity.get("card_id"), selected["script_id"])).fetchone()
+        card = {**(bound or {}), **card, "authoring_subject": identity["subject"], "bound_npc_card_id": (bound or {}).get("id")}
     result = workspace.create_save(
         user["id"],
         selected["script_id"],
@@ -212,6 +225,9 @@ def _create(body: Create, user):
         identity_known=defaults.get("identity_known"),
         player_story_id=selected["id"],
         player_setup=setup,
+        player_story_snapshot=story_snapshot,
+        authoring_revision_id=preview_revision,
+        authoring_preview_key=preview_key,
     )
     sid = int((result.get("save") or result)["id"])
     branches.activate_save(user["id"], sid)
@@ -238,7 +254,7 @@ def quote(body: Quote, user=Depends(require_player)):
     if not rate_allowed(f"player-quote:{user['id']}", 60):
         raise HTTPException(429, "报价过于频繁，请稍后重试", headers={"Retry-After": "60"})
     save = catalog.player_save(user["id"], body.save_id)
-    selected = catalog.story(save["player_story_id"])
+    selected = catalog.for_save(save)
     from platform_app.player.character_creation import pending
 
     if body.kind == "opening" and catalog.view(user["id"], body.save_id)["has_opening"]:
@@ -268,7 +284,7 @@ def event(name, data):
 @router.post("/execute")
 async def execute(body: Execute, user=Depends(require_player)):
     save = catalog.player_save(user["id"], body.save_id)
-    catalog.story(save["player_story_id"])
+    catalog.for_save(save)
     from platform_app.player.character_creation import pending
 
     if body.kind == "turn" and pending(save.get("state_snapshot") or {}):

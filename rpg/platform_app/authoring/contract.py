@@ -127,6 +127,14 @@ def inspect_package(data: bytes):
         if not isinstance(parsed.get("script.json"), dict):
             raise ValueError("缺少 script.json")
         contract = AuthoringPackage.model_validate(parsed.get("authoring.json"))
+        from .content_schema import FILES
+        for filename, model in FILES.items():
+            for index, item in enumerate(parsed.get(filename, [])):
+                try:
+                    model.model_validate(item)
+                except ValidationError as exc:
+                    for issue in exc.errors():
+                        error(f"{filename}.{index}." + ".".join(map(str, issue["loc"])), issue["type"], issue["msg"])
         world = GuideWorld.model_validate(parsed.get("overrides.json", {}).get("guide_world"))
         sources = {s.key: s for s in contract.sources}
         if len(sources) != len(contract.sources):
@@ -140,14 +148,21 @@ def inspect_package(data: bytes):
         if len(set(contract.scope)) != len(contract.scope) or not set(contract.scope) <= chapters.keys():
             error("scope", "reference", "范围包含未知或重复章节")
         imported = parsed.get("chapters.jsonl", [])
+        by_index = {}
+        for _, chapter in chapters.values():
+            by_index.setdefault(chapter.index, []).append(chapter)
+        imported_by_index = {c.get("chapter_index"): c for c in imported}
+        source_lines = {index: str(c.get("content", "")).splitlines() for index, c in imported_by_index.items()}
         indices = [c.get("chapter_index") for c in imported]
         if (not imported or len(set(indices)) != len(indices) or
                 set(indices) != {chapters[k][1].index for k in contract.scope if k in chapters}):
             error("chapters.jsonl", "coverage", "内容章节与声明范围不一致")
         for ch in imported:
-            matches = [c for _, c in chapters.values() if c.index == ch.get("chapter_index")]
+            matches = by_index.get(ch.get("chapter_index"), [])
             if len(matches) != 1 or hashlib.sha256(str(ch.get("content", "")).encode()).hexdigest() != matches[0].sha256:
                 error("chapters.jsonl", "fingerprint", "章节内容与来源指纹不符")
+            elif not ch.get("content") or len(ch["content"].splitlines()) != matches[0].line_count:
+                error("chapters.jsonl", "line_range", "章节正文为空或行数声明不符")
         if not set(contract.scope) <= set(contract.completeness.chapter_notes):
             error("completeness.chapter_notes", "coverage", "缺少范围内章节笔记")
         facts = parsed.get("chapter_facts.jsonl", [])
@@ -156,6 +171,23 @@ def inspect_package(data: bytes):
         subjects = {s.key for s in world.subjects}
         if not set(contract.completeness.main_subjects) <= subjects:
             error("completeness.main_subjects", "reference", "主要人物引用不存在")
+        unique_fields = {"chapter_facts.jsonl": ("chapter",), "character_cards.jsonl": ("name",),
+                         "worldbook.jsonl": ("title",), "kb_canon_entities.jsonl": ("logical_key",),
+                         "timeline_anchors.jsonl": ("story_phase", "story_time_label"),
+                         "worldlines.jsonl": ("wl_key",), "worldline_nodes.jsonl": ("wl_key", "node_key"),
+                         "documents.jsonl": ("source_kind", "source_ref"),
+                         "chunks.jsonl": ("source_kind", "source_ref", "chunk_index")}
+        for filename, fields in unique_fields.items():
+            rows = parsed.get(filename, [])
+            keys = [tuple(row.get(field) for field in fields) for row in rows]
+            if len(set(keys)) != len(keys):
+                error(filename, "duplicate", "存在会被导入器合并的重复逻辑标识")
+        canon = {e.get("logical_key") for e in parsed.get("kb_canon_entities.jsonl", [])}
+        if not set(contract.completeness.main_subjects) <= canon:
+            error("kb_canon_entities.jsonl", "coverage", "主要人物缺少对应的规范实体")
+        for anchor in parsed.get("timeline_anchors.jsonl", []):
+            if anchor.get("chapter_max", 0) < anchor.get("chapter_min", 0):
+                error("timeline_anchors.jsonl", "period", "锚点章节范围倒置")
         for fact in [*world.facts, *world.beats]:
             for evidence in fact.evidence:
                 entry = chapters.get(evidence.locator)
@@ -163,6 +195,15 @@ def inspect_package(data: bytes):
                     error("overrides.guide_world.evidence", "reference", "出处必须引用来源 key 和章节 key")
                 elif evidence.line_end and evidence.line_end > entry[1].line_count:
                     error("overrides.guide_world.evidence", "line_range", "证据行号超出章节")
+                elif entry:
+                    if evidence.chapter_sha256 and evidence.chapter_sha256 != entry[1].sha256:
+                        error("overrides.guide_world.evidence", "fingerprint", "出处的章节指纹不符")
+                    if evidence.chapter_index is not None and evidence.chapter_index != entry[1].index:
+                        error("overrides.guide_world.evidence", "reference", "出处章节编号不符")
+                    lines = source_lines.get(entry[1].index, [])
+                    excerpt = "\n".join(lines[(evidence.line_start or 1)-1:evidence.line_end or len(lines)])
+                    if evidence.quote and evidence.quote not in excerpt:
+                        error("overrides.guide_world.evidence", "quote", "引用文字不在指定出处范围内")
         moments = {m.key: m for m in world.moments}
         openings = {o.key: o for o in contract.play.openings}
         if len(openings) != len(contract.play.openings):
@@ -177,11 +218,33 @@ def inspect_package(data: bytes):
                     error("play.openings", "period", "开局章节与时点冲突")
         if len({i.id for i in contract.play.identities}) != len(contract.play.identities):
             error("play.identities", "duplicate", "身份 id 重复")
+        character_subjects = {s.key for s in world.subjects if s.kind == "character"}
+        bindings = {}
+        for index, card in enumerate(parsed.get("character_cards.jsonl", [])):
+            subject = (card.get("metadata") or {}).get("authoring_subject")
+            if subject is None:
+                continue
+            if not isinstance(subject, str) or subject not in character_subjects:
+                error(f"character_cards.jsonl.{index}.metadata.authoring_subject", "reference", "角色卡必须绑定世界中的人物 key")
+                continue
+            if subject in bindings:
+                error(f"character_cards.jsonl.{index}.metadata.authoring_subject", "duplicate", "同一人物只能绑定一张角色卡")
+            bindings[subject] = card
         for identity in contract.play.identities:
             if identity.opening not in openings or (identity.subject and identity.subject not in subjects):
                 error("play.identities", "reference", "身份的角色或开局不存在")
             if identity.character_name and not identity.subject:
                 error("play.identities", "reference", "原著姓名必须绑定角色逻辑标识")
+            if identity.character_name and (identity.subject not in bindings or not bindings[identity.subject].get("enabled", True)):
+                error("play.identities", "coverage", "原著人物身份必须绑定一张启用的角色卡")
+            if identity.character_name and identity.subject in subjects and identity.opening in openings:
+                at = moments.get(openings[identity.opening].moment)
+                names = {s.name for s in world.subjects if s.key == identity.subject}
+                if at:
+                    names.update(f.value for f in world.facts if f.subject == identity.subject and f.field in ("name", "alias")
+                                 and moments[f.starts_at].order <= at.order and (not f.ends_at or at.order < moments[f.ends_at].order))
+                if identity.character_name not in names:
+                    error("play.identities", "period", "原著姓名与绑定人物及开局时期不符")
         for medium in contract.media:
             raw = files.get(medium.path, b"")
             if hashlib.sha256(raw).hexdigest() != medium.sha256 or len(raw) > 5 * 1024 * 1024:
@@ -213,6 +276,9 @@ def inspect_package(data: bytes):
         error("package", "invalid_package", str(exc)[:300])
     # ZIP metadata and export timestamps do not define a new content revision.
     normalized = {k: v for k, v in parsed.items() if k != "manifest.json"}
+    manifest = parsed.get("manifest.json") if isinstance(parsed.get("manifest.json"), dict) else {}
+    normalized["manifest.json"] = {k: v for k, v in manifest.items()
+                                  if k in ("format_version", "chunks_included", "chunks_version")}
     fingerprint = hashlib.sha256(_json(normalized).encode() + b"".join(
         files[k] for k in sorted(files) if not k.endswith((".json", ".jsonl")))).hexdigest()
     report = dict(valid=not errors, fingerprint=fingerprint, errors=errors[:100], total_errors=len(errors), warnings=warnings,
@@ -224,7 +290,8 @@ def inspect_package(data: bytes):
 def get_contract(section="summary"):
     from platform_app.knowledge import script_pack
     if section == "schemas":
-        return dict(authoring=AuthoringPackage.model_json_schema(), guide_world=GuideWorld.model_json_schema())
+        from .content_schema import schemas
+        return dict(authoring=AuthoringPackage.model_json_schema(), guide_world=GuideWorld.model_json_schema(), content_files=schemas())
     if section == "example":
         from .examples import example_files
         return example_files()

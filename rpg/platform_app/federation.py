@@ -60,7 +60,8 @@ def rate_ok(key: str, max_calls: int, window_s: float) -> bool:
 PAT_PREFIX = "rpgpat_"
 DEFAULT_OFFICIAL_BASE = "https://rpg-roleplay.stellatrix.icu"
 CONNECTOR_API_ID = "online_library"          # user_api_credentials.api_id
-VALID_SCOPES = ("library:read", "library:publish")
+VALID_SCOPES = ("library:read", "library:publish", "authoring:read", "authoring:write",
+                "authoring:preview", "authoring:submit")
 DEVICE_TTL_SECONDS = 600                      # 设备码 10 分钟有效
 DEVICE_POLL_INTERVAL = 5
 PAT_DEFAULT_TTL_DAYS = 365
@@ -206,6 +207,7 @@ def _require_creator(db, user_id):
 def revoke_account_tokens(db, user_id):
     db.execute("select id from users where id=%s for update", (user_id,)).fetchone()
     db.execute("update personal_access_tokens set revoked_at=now() where user_id=%s and revoked_at is null", (user_id,))
+    db.execute("update authoring_oauth_grants set revoked_at=now() where user_id=%s and revoked_at is null", (user_id,))
     db.execute("update device_authorizations set status='denied' where user_id=%s and status in ('pending','approved')", (user_id,))
 
 

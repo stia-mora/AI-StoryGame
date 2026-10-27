@@ -9,6 +9,12 @@ from platform_app.knowledge._utils import _slugify, _worldbook_seed_entries
 
 
 def _ensure_book(db, script: dict[str, Any]) -> dict[str, Any]:
+    if script.get("authoring_locked"):
+        # Imported editions already contain their book; runtime sessions reuse it.
+        book = db.execute("select * from books where script_id=%s", (script["id"],)).fetchone()
+        if not book:
+            raise ValueError("不可变版本缺少书目")
+        return book
     slug = _slugify(f"{script['id']}-{script['title']}")
     return db.execute(
         """

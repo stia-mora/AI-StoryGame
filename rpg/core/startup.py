@@ -351,16 +351,26 @@ async def lifespan(app: FastAPI):
 
     async def _player_reaper():
         import asyncio
+
         from platform_app.player.wallet import reap
         while True:
             try:
                 await asyncio.to_thread(reap)
+                from platform_app.authoring.preview import reconcile
+                await asyncio.to_thread(reconcile)
             except Exception:
                 log.exception('Player reservation reconciliation failed')
             await asyncio.sleep(60)
     import asyncio as _player_asyncio
     _player_reaper_task = _player_asyncio.create_task(_player_reaper())
-    yield
+    from platform_app.authoring import service as _authoring_service
+    from platform_app.authoring.mcp_server import http_app as _authoring_http
+    try:
+        await _player_asyncio.to_thread(_authoring_service.recover)
+    except Exception:
+        log.exception('Authoring import recovery failed')
+    async with _authoring_http.router.lifespan_context(_authoring_http):
+        yield
     _player_reaper_task.cancel()
     try:
         await _player_reaper_task
@@ -449,6 +459,8 @@ async def _internal_error_handler(request: Request, exc: Exception):
     完整 traceback 写到服务端日志（含 request_id 便于追查），返回给前端只有通用错误码。
     """
     from platform_app.api._deps import json_response
+    if getattr(exc, "sqlstate", None) == "P7501":
+        return json_response({"ok": False, "code": "E_IMMUTABLE_REVISION", "error": "此作品版本不可直接修改，请上传新版本"}, status_code=409)
     request_id = getattr(request.state, "request_id", None) or uuid.uuid4().hex
     log.exception("unhandled exception in request %s: %s", request_id, type(exc).__name__)
     return json_response(

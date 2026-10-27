@@ -22,6 +22,8 @@ def test_original_samples_validate(alternate):
     (lambda f: f["overrides.json"].update(api_key="must-not-be-imported"), "platform_field"),
     (lambda f: f["authoring.json"]["play"]["identities"][0].update(opening="missing"), "reference"),
     (lambda f: f["authoring.json"]["completeness"].update(chapter_notes=[]), "coverage"),
+    (lambda f: f["character_cards.jsonl"][0].update(metadata={}), "coverage"),
+    (lambda f: f["character_cards.jsonl"].append({**f["character_cards.jsonl"][0], "name": "另一个人"}), "duplicate"),
 ])
 def test_bad_packages_report_repairable_errors(change, code):
     files = copy.deepcopy(example_files())

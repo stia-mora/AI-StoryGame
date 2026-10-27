@@ -56,6 +56,9 @@ def create_save(
     identity_known: bool | None = None,
     player_story_id: int | None = None,
     player_setup: dict[str, Any] | None = None,
+    player_story_snapshot: dict[str, Any] | None = None,
+    authoring_revision_id: int | None = None,
+    authoring_preview_key: str | None = None,
 ) -> dict[str, Any]:
     """创建新存档。
 
@@ -85,14 +88,17 @@ def create_save(
         # 读级归属判定收敛到 perms.script_readable(返 select s.* 整行)。
         if player_story_id is not None:
             from ..perms import script_playable
-            script = script_playable(db, script_id, user_id, player_story_id)
+            script = script_playable(db, script_id, user_id, player_story_id,
+                                     preview_revision=authoring_revision_id,
+                                     preview_profile=(player_story_snapshot or {}).get('profile_id'))
         else:
             script = script_readable(db, script_id, user_id)
         if not script:
             raise ValueError("无权访问该剧本")
         # 复核闸:KB 提取/复核未完成的剧本不允许开局,避免 GM 拿到错章节/未审实体/未消歧别名
         # 直接喂玩家(治"复核机制完全孤立于导入流程"的架构裂缝)。重切后会自动回 unreviewed。
-        if (script.get("review_status") or "unreviewed") == "unreviewed":
+        is_private_preview = player_story_id is not None and script.get("authoring_locked") and script.get("owner_id") == user_id
+        if (script.get("review_status") or "unreviewed") == "unreviewed" and not is_private_preview:
             raise ValueError("剧本尚未通过 KB 复核,请先在剧本复核页 (script-review) 检查实体/时间线/世界观无误后点击「标记已复核」")
         snapshot = _build_initial_snapshot(user_id, script_id, new_card, character, birthpoint=birthpoint, identity=identity, story_intent=story_intent, player_origin=player_origin, identity_known=identity_known)
         world_row = db.execute("select data->'guide_world' as model from script_overrides where script_id=%s",
@@ -101,7 +107,9 @@ def create_save(
             from ..player.guide_world import bind_initial
             bind_initial(world_row["model"], snapshot, default_opening=not bool(birthpoint))
         if player_story_id is not None:
-            settings = db.execute('select defaults from player_stories where id=%s', (player_story_id,)).fetchone()['defaults']
+            settings = (player_story_snapshot or {}).get('defaults')
+            if settings is None:
+                settings = db.execute('select defaults from player_stories where id=%s', (player_story_id,)).fetchone()['defaults']
             snapshot.setdefault('permissions', {})['mode'] = 'full_access'
             snapshot.setdefault('worldline', {})['steering_strength'] = settings.get('steering_strength', 'free')
             if player_setup is not None:
@@ -109,11 +117,13 @@ def create_save(
                 snapshot['player_setup'] = deepcopy(player_setup)
         save = db.execute(
             """
-            insert into game_saves(user_id, script_id, title, state_path, state_snapshot, player_story_id)
-            values (%s, %s, %s, %s, %s, %s)
+            insert into game_saves(user_id, script_id, title, state_path, state_snapshot, player_story_id,
+                                  player_story_snapshot,authoring_revision_id,authoring_preview_key)
+            values (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             returning *
             """,
-            (user_id, script_id, title.strip() or "新存档", str(SAVE_FILE), Jsonb(snapshot), player_story_id),
+            (user_id, script_id, title.strip() or "新存档", str(SAVE_FILE), Jsonb(snapshot), player_story_id,
+             Jsonb(player_story_snapshot) if player_story_snapshot else None, authoring_revision_id, authoring_preview_key),
         ).fetchone()
         # v27: 持久化身份卡 + 角色↔身份绑定。身份卡是 save 级独立实体,不修改角色卡行。
         # 注意:仅当 identity 至少有 role 或 background 才落库;否则视为"没身份,直接用角色卡"。
