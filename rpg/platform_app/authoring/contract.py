@@ -239,7 +239,8 @@ def inspect_package(data: bytes):
                 error("play.identities", "coverage", "原著人物身份必须绑定一张启用的角色卡")
             if identity.character_name and identity.subject in subjects and identity.opening in openings:
                 at = moments.get(openings[identity.opening].moment)
-                names = {s.name for s in world.subjects if s.key == identity.subject}
+                dated_names = [f for f in world.facts if f.subject == identity.subject and f.field == "name"]
+                names = {name for s in world.subjects if s.key == identity.subject for name in (s.name, *s.aliases)} if not dated_names else set()
                 if at:
                     names.update(f.value for f in world.facts if f.subject == identity.subject and f.field in ("name", "alias")
                                  and moments[f.starts_at].order <= at.order and (not f.ends_at or at.order < moments[f.ends_at].order))
