@@ -13,6 +13,18 @@ beforeEach(() => {
 });
 const show = () => render(<Wallet refresh={vi.fn()} navigate={vi.fn()} />);
 
+it("distinguishes a hold from the final charge and explicitly labels the returned remainder", async () => {
+  window.api.player.ledger.mockResolvedValue({ items: [
+    { ...row(1, "本轮预留"), kind: "reserve", free_delta: -141320000, permanent_delta: 0, held_delta: 141320000 },
+    { ...row(2, "本轮结算"), kind: "settle", free_delta: 91070000, permanent_delta: 0, held_delta: -141320000, charged_micro: 50250000 },
+  ], total: 2, page: 1, pages: 1 });
+  show();
+  await screen.findByText("实扣 -50.25 积分");
+  expect(screen.getByText("转入预留 141.32 积分")).toBeTruthy();
+  expect(screen.getByText("退回预留余量 +91.07 积分")).toBeTruthy();
+  expect(screen.getByText("暂从可用余额转出，尚未扣费")).toBeTruthy();
+});
+
 it.each([
   { free_micro: 100000000, permanent_micro: 4900000001, held_micro: 0 },
   { free_micro: 0, permanent_micro: 0, held_micro: 5000000001 },

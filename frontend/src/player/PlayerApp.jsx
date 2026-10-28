@@ -146,6 +146,8 @@ export function PlayerApp() {
   const saveId = /^\/play\/saves\/(\d+)$/.exec(path)?.[1];
   const storyId = /^\/play\/stories\/(\d+)$/.exec(path)?.[1];
   const commentsId = /^\/play\/stories\/(\d+)\/comments$/.exec(path)?.[1];
+  const commentsSave = new URLSearchParams(location.search).get("save");
+  const commentsReturn = /^\d+$/.test(commentsSave || "") ? `/play/saves/${commentsSave}` : null;
   const story = data?.stories.find((s) => String(s.id) === (storyId || commentsId));
   return (
     <div
@@ -172,6 +174,7 @@ export function PlayerApp() {
         {data?.user && <button className="wallet-link" aria-current={path === "/play/wallet" ? "page" : undefined} onClick={() => navigate("/play/wallet")}>
           <Coins size={19} aria-hidden="true" />
           <span>{data.wallet ? points(data.wallet.free_micro + data.wallet.permanent_micro) : "—"} 积分</span>
+          {data.wallet?.held_micro > 0 && <small>预留 {points(data.wallet.held_micro)}</small>}
         </button>}
         <nav aria-label="玩家导航">
           <button className="header-help" aria-label="指引" onClick={() => setHelpOpen(true)}><Question size={21} aria-hidden="true" /><span>指引</span></button>
@@ -230,7 +233,7 @@ export function PlayerApp() {
         <Manage navigate={navigate} />
       ) : (storyId || commentsId) ? (
         story ? (
-          commentsId ? <Comments key={`${story.id}-${data.user?.id || "guest"}`} story={story} user={data.user} navigate={navigate} login={login} /> : <Initialize key={story.id} uid={data.user?.id} story={story} navigate={navigate} refresh={reload} guest={!data.user} login={login} />
+          commentsId ? <Comments key={`${story.id}-${data.user?.id || "guest"}`} story={story} user={data.user} navigate={navigate} login={login} returnTo={commentsReturn} /> : <Initialize key={story.id} uid={data.user?.id} story={story} navigate={navigate} refresh={reload} guest={!data.user} login={login} />
         ) : (
           <main id="player-main" className="player-shell">
             <Empty title="故事暂未上架">可以返回故事大厅，选择其他故事。</Empty>

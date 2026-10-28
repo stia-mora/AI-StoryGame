@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { lsGetJSON, lsSetJSON } from "../lib/storage.js";
 
 export function useWorkspaceSplit(uid) {
@@ -9,8 +9,13 @@ export function useWorkspaceSplit(uid) {
   });
   const [dragging, setDragging] = useState(false);
   const panes = useRef(null), drag = useRef(null), current = useRef(ratio);
+  const expandedKey = `${key}-expanded`;
+  const expanded = useRef(lsGetJSON(expandedKey, null));
   const update = (value) => { current.current = value; setRatio(value); };
-  const commit = (value) => { update(value); lsSetJSON(key, value); };
+  const rememberExpanded = useCallback((value) => {
+    if (value === null || value <= 82) { expanded.current = value; lsSetJSON(expandedKey, value); }
+  }, [expandedKey]);
+  const commit = (value) => { if (value > 82 && current.current <= 82) rememberExpanded(current.current); else rememberExpanded(value); update(value); lsSetJSON(key, value); };
   useEffect(() => {
     if (!dragging) return;
     const end = (cancel) => {
@@ -18,6 +23,7 @@ export function useWorkspaceSplit(uid) {
       if (!drag.current) return;
       drag.current = null;
       const value = cancel ? original : current.current;
+      rememberExpanded(value > 82 ? original : value);
       current.current = value;
       setRatio(value);
       lsSetJSON(key, value);
@@ -47,10 +53,10 @@ export function useWorkspaceSplit(uid) {
       window.removeEventListener("resize", cancel);
       window.removeEventListener("keydown", escape, true);
     };
-  }, [dragging, key]);
+  }, [dragging, key, rememberExpanded]);
   return {
     panes, ratio, dragging, collapsed: ratio > 82,
-    toggle: () => commit(ratio > 82 ? 50 : 95),
+    toggle: () => commit(ratio > 82 ? expanded.current : 95),
     handleProps: {
       role: "separator", tabIndex: 0, "aria-label": "调整剧情和状态栏宽度",
       "aria-orientation": "vertical", "aria-valuemin": 20, "aria-valuemax": 95,

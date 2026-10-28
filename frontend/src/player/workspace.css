@@ -595,10 +595,8 @@
   justify-self: start;
 }
 .workspace-jump {
-  position: absolute;
-  bottom: calc(100% + 12px);
-  left: 50%;
-  transform: translateX(-50%);
+  position: static;
+  margin: 0 auto 8px;
   background: var(--surface);
   border: 1px solid var(--line-strong);
   border-radius: 6px;
@@ -1326,6 +1324,10 @@
 
 /* Public lobby, account menu and reusable player guidance. */
 .generation-progress { margin-block: 20px; padding-block: 12px; font-size: .8125rem; }
+.workspace-composer-dock .generation-progress { margin-block: 0 8px; padding-block: 0; }
+.workspace-history-actions { padding: 8px; text-align: center; }
+.workspace-assistant-empty button small { display: block; margin-top: 6px; color: var(--muted); }
+.wallet-link small { font-size: .6875rem; color: var(--muted); }
 .generation-progress ol { display: flex; flex-wrap: wrap; gap: 8px 16px; list-style: none; padding: 0; margin: 0 0 12px; }
 .generation-progress li { display: flex; align-items: center; gap: 6px; color: var(--muted); }
 .generation-progress li[aria-current] { color: var(--ink); font-weight: 600; }

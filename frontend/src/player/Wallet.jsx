@@ -11,6 +11,7 @@ const names = {
   redeem: "兑换码",
   grant: "管理员发放",
 };
+const signed = (value, exact = false) => `${value > 0 ? "+" : ""}${exact ? value / 1e6 : points(value)}`;
 export function Wallet({ onWalletChange, navigate }) {
   const [wallet, setWallet] = useState(null);
   const [code, setCode] = useState(""), [message, setMessage] = useState(""), [error, setError] = useState("");
@@ -121,7 +122,7 @@ export function Wallet({ onWalletChange, navigate }) {
             兑换 <ArrowRight size={17} />
           </Button>
         </form>
-        {redeemBlocked && <Notice>当前游玩积分（含预留）已超过 5000，请先使用已有积分后再兑换。</Notice>}
+        {redeemBlocked && <Notice>当前游玩积分（含预留）已超过 5000，暂不能继续兑换。这不影响继续游玩；使用部分积分后即可再兑换。</Notice>}
         {error && <Notice error>{error}</Notice>}
         {message && <Notice>{message}</Notice>}
       </section>
@@ -153,9 +154,11 @@ export function Wallet({ onWalletChange, navigate }) {
                     <time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}</time>
                   </div>
                   <div className="ledger-amount">
-                    <span>{item.kind === "settle" ? `实扣 ${points(item.charged_micro)}` : `${item.free_delta + item.permanent_delta > 0 ? "+" : ""}${points(item.free_delta + item.permanent_delta)}`} 积分</span>
-                    {item.held_delta !== 0 && <small>预留 {item.held_delta > 0 ? "+" : ""}{points(item.held_delta)}</small>}
-                    <small>精确变动 {(item.free_delta + item.permanent_delta) / 1e6}</small>
+                    <span>{item.kind === "settle" ? `实扣 ${signed(-item.charged_micro)}` : item.kind === "reserve" ? `转入预留 ${points(Math.abs(item.held_delta))}` : `${item.kind === "release" ? "退回预留 " : ""}${signed(item.free_delta + item.permanent_delta)}`} 积分</span>
+                    {item.kind === "settle" && <small>退回预留余量 {signed(item.free_delta + item.permanent_delta)} 积分</small>}
+                    {item.held_delta < 0 && <small>本次释放预留 {points(-item.held_delta)} 积分{item.kind === "release" ? " · 实扣 0" : ""}</small>}
+                    {item.kind === "reserve" && <small>暂从可用余额转出，尚未扣费</small>}
+                    <details><summary>精确金额</summary><small>可用余额变动 {signed(item.free_delta + item.permanent_delta, true)} 积分</small><small>预留余额变动 {signed(item.held_delta || 0, true)} 积分</small></details>
                   </div>
                 </li>
               ))}</ul>

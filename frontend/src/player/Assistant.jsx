@@ -11,11 +11,14 @@ import { safeUUID as uuid } from "../lib/crypto-safe.js";
 import { Button, Narration, Notice, Receipt, points } from "./shared.jsx";
 import { useComposerKeys } from "./useComposerKeys.js";
 
+const questions = ["当前各方局势如何？", "目前有什么值得注意的风险？", "根据当前目标，建议我怎样推进？"];
+
 export function Assistant({
   uid,
   saveId,
   name,
   gameBusy,
+  historical = false,
   onBusy,
   onUse,
   refreshWallet,
@@ -33,6 +36,7 @@ export function Assistant({
     [quote, setQuote] = useState(null),
     [revealFuture, setRevealFuture] = useState(false),
     [error, setError] = useState("");
+  const [shortcutQuotes, setShortcutQuotes] = useState({});
   const quoteReady = quote?.message === draft && quote?.reveal_future === revealFuture;
   const pending = useRef(null),
     mounted = useRef(true),
@@ -67,7 +71,6 @@ export function Assistant({
         };
         if (followNewer()) return false;
         await reload();
-        await refreshWallet();
         if (pending.current?.request_id !== id || followNewer()) return false;
         lsRemove(key);
         pending.current = null;
@@ -81,6 +84,7 @@ export function Assistant({
           }
           else setError("咨询未完成，预留已释放，未扣积分。");
         }
+        Promise.resolve().then(refreshWallet).catch(() => {});
         return true;
       } catch (e) {
         if (e.status === 404 && pending.current?.request_id === id) {
@@ -122,6 +126,18 @@ export function Assistant({
     );
     return () => clearInterval(timer);
   }, [busy, finish]);
+  useEffect(() => {
+    if (!open || busy || gameBusy || items.length) return;
+    let live = true;
+    setShortcutQuotes({});
+    questions.forEach(async (message) => {
+      try {
+        const value = await window.api.player.quote({ save_id: saveId, kind: "guide", message, reveal_future: revealFuture });
+        if (live) setShortcutQuotes((old) => ({ ...old, [message]: value }));
+      } catch { /* Filling a question still allows the normal quote/retry flow. */ }
+    });
+    return () => { live = false; };
+  }, [open, busy, gameBusy, items.length, saveId, revealFuture]);
   useEffect(() => {
     setQuote(null);
     if (!draft.trim() || busy || gameBusy || !open) return;
@@ -180,6 +196,7 @@ export function Assistant({
     onBusy(true);
     setError("");
     const channel = window.api.player.execute(request, {
+      on_saving: () => Promise.resolve().then(refreshWallet).catch(() => {}),
       on_error: (data) => mounted.current && setError(data.message),
       onError: () =>
         mounted.current && setError("连接中断，正在查询咨询结果。"),
@@ -225,15 +242,13 @@ export function Assistant({
         </header>
         <div className="workspace-assistant-binding"><span>{name}</span><span>咨询不推进回合</span></div>
         <div className="workspace-assistant-history">
-          {!items.length && (
+          {!items.length && !draft.trim() && (
             <div className="workspace-assistant-empty">
-              {[
-                "当前各方局势如何？",
-                "目前有什么值得注意的风险？",
-                "根据当前目标，建议我怎样推进？",
-              ].map((s) => (
-                <button key={s} onClick={() => setDraft(s)}>
+              <p className="fine-print">快捷问题只填入输入框。确认报价后，点击“发送”才会开始计费咨询。</p>
+              {questions.map((s) => (
+                <button key={s} type="button" aria-label={s} disabled={busy || gameBusy} onClick={() => setDraft(s)}>
                   {s}
+                  <small>{shortcutQuotes[s] ? `预计 ${points(shortcutQuotes[s].estimate_micro)} · 最多预留 ${points(shortcutQuotes[s].cap_micro)} 积分` : "正在获取参考报价……"}</small>
                 </button>
               ))}
             </div>
@@ -295,14 +310,14 @@ export function Assistant({
           <div className="workspace-assistant-footer">
             <small>
               {gameBusy
-                ? "回合完成后可咨询"
+                ? historical ? "返回最新回合后可咨询" : "回合完成后可咨询"
                 : busy
                   ? "已预留，完成后按实际用量结算"
                   : quoteReady
                     ? `预计 ${points(quote.estimate_micro)} · 封顶 ${points(quote.cap_micro)} 积分${quote.affordable ? "" : " · 余额不足"}`
                     : draft.trim()
                       ? "正在获取报价……"
-                      : "咨询按实际用量计费"}
+                      : "填入问题后显示报价，点击发送才计费"}
             </small>
             {busy ? (
               <Button
@@ -324,6 +339,7 @@ export function Assistant({
               </Button>
             )}
           </div>
+          <p className="fine-print">封顶是扣费上限，按实际用量结算，未用预留自动退回。勾选“揭示未来”后会重新报价。</p>
         </form>
       </section>
     </>

@@ -45,6 +45,7 @@ RECORDING_GUIDE = """
 角色：已测定或实际成长的武魂、先天魂力、当前魂力、魂环、伤势等写入 player.martial_soul / player.innate_soul_power / player.soul_power / player.soul_rings / player.injury；实际学会的技巧写入 memory.abilities。
 背包：真正交付、消耗、转交的物品与资源，写清数量、归属与余量；不得用未来奖励顶替已获得物品。
 人物：已认识的人和本轮确认的关系、态度、约定写入 relationships.<人物名>，保留已知关系，不因问候就制造重大亲密或仇恨。
+本轮与玩家实际交流的具名人物，即使关系尚无变化，也要保存其已知称呼、身份与“相识”等已发生事实；不能只在正文提及却让人物页保持空白。不得从原著未来资料补入尚未接触的人物。
 任务：接取、推进、完成、失败或暂缓的任务写入 memory.tasks.<稳定任务名>，value 为 {"name":"任务名","description":"已知目标","status":"active|completed|failed|paused","progress":"本轮确认的进展"}。完成后保留记录，只有奖励实际交付才另记资源。
 世界线：确已达成的成长或分支里程碑追加 memory.milestones，value 为 {"name":"节点名称","description":"实际结果及选择造成的影响","status":"completed"}；已公开的事件同步 world.known_events。计划、未来情报、可能后果不算已达成。
 以给出的现有状态为基线逐项查漏。六类不必强行全变，未变化的字段不写；但正文有实质变化时不能漏记，也不能用改写同一事实冒充新进展。

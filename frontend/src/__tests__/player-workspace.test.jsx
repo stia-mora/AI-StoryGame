@@ -53,6 +53,39 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
+it("quotes assistant shortcuts before sending and clicking one only fills the draft", async () => {
+  render(<Reader {...props} />);
+  fireEvent.click(await screen.findByRole("button", { name: "打开游玩助手" }));
+  const question = "当前各方局势如何？";
+  const shortcut = screen.getByRole("button", { name: question });
+  await waitFor(() => expect(shortcut).toHaveTextContent("最多预留 5.00"));
+  expect(screen.getByText(/快捷问题只填入输入框/)).toBeTruthy();
+  fireEvent.click(shortcut);
+  expect(screen.getByLabelText("向游玩助手提问").value).toBe(question);
+  expect(window.api.player.execute).not.toHaveBeenCalled();
+  await waitFor(() => expect(screen.getByRole("button", { name: "发送" }).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
+  expect(window.api.player.execute).toHaveBeenCalledTimes(1);
+});
+
+it("reads historical state with no action composer and restores the latest draft on return", async () => {
+  window.api.player.save.mockResolvedValue({ ...view, status: { name: "旅人", location: "学院", time: "次日" },
+    messages: [
+      { ...view.messages[0], status: { name: "旅人", location: "旧桥", time: "清晨", resources: ["旧信"] } },
+      ...view.messages.slice(1),
+    ],
+  });
+  render(<Reader {...props} />);
+  fireEvent.change(await screen.findByLabelText("你要如何行动？"), { target: { value: "保留草稿" } });
+  fireEvent.click(screen.getByRole("button", { name: "上一回合" }));
+  expect(screen.queryByLabelText("你要如何行动？")).toBeNull();
+  expect(screen.queryByText("学院")).toBeNull();
+  expect(screen.getAllByText("旧桥").length).toBeGreaterThan(0);
+  fireEvent.click(screen.getByRole("button", { name: "返回最新回合后行动" }));
+  expect(screen.getByLabelText("你要如何行动？").value).toBe("保留草稿");
+  expect(window.api.player.execute).not.toHaveBeenCalled();
+});
+
 it("receives server stages and unlocks a settled turn while the wallet request is stalled", async () => {
   let handlers, done;
   window.api.player.execute.mockImplementation((_body, callbacks) => {

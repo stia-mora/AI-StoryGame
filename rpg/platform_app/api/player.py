@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field, StrictBool, model_validator
 from core.sse import SSE_HEADERS, with_keepalive
 from platform_app.db import connect, expose
 from platform_app.player import catalog, wallet
-from platform_app.player.generation_progress import public_stage
+from platform_app.player.generation_progress import public_stage, recent_timing
 from platform_app.player.meter import Run, active_run
 
 from ._deps import current_user, require_user
@@ -274,10 +274,12 @@ def quote(body: Quote, user=Depends(require_player)):
     )
     tool_allowance = 4000 if selected["profile"].get("tools_mode") == "internal" else 0
     estimate += tool_allowance
-    return wallet.make_quote(
+    result = wallet.make_quote(
         user["id"], save, selected["profile"], body.kind, body.message, estimate, estimate_output,
         reveal_future=body.reveal_future,
     )
+    result["timing"] = recent_timing(user["id"], body.save_id, body.kind, selected["profile"])
+    return result
 
 
 def event(name, data):
@@ -403,6 +405,9 @@ async def execute(body: Execute, user=Depends(require_player)):
                     if progress and progress != run.progress:
                         run.progress = progress
                         yield event("stage", progress)
+                    if name == "agent" and data.get("phase") == "stop_reason":
+                        run.output_notice = "这一轮触发了模型输出限制，正文可能不完整。请核对已保存内容，再决定下一步行动。"
+                        yield event("notice", {"message": run.output_notice})
                     if name == "token":
                         visible = visible_guard.feed(data.get("text", ""))
                         text += visible

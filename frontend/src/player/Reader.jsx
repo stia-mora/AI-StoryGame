@@ -83,6 +83,7 @@ export function Reader({
     [saveState, setSaveState] = useState("已保存");
   const [quoteRevision, setQuoteRevision] = useState(0);
   const [historyBusy, setHistoryBusy] = useState(false);
+  const [generationNotice, setGenerationNotice] = useState("");
   const [stateUnread, setStateUnread] = useState(0);
   const [stage, setStage] = useState("preparing"), [startedAt, setStartedAt] = useState(null), [confirmedAt, setConfirmedAt] = useState(null);
   const [selectedId, setSelectedId] = useState(null),
@@ -119,6 +120,13 @@ export function Reader({
   );
   const selected = rounds[selectedIndex];
   const latest = !selectedId || selectedIndex === rounds.length - 1;
+  const displayView = !latest && view ? {
+    ...view,
+    status: selected?.status || { name: view.status.name },
+    latest_progress: selected?.progress,
+    messages: view.messages.filter((message) => parseInt(message.id) <= parseInt(selected.id)),
+    journey: (view.journey || []).filter((step) => parseInt(step.message_id) <= parseInt(selected.id)),
+  } : view;
   const { scroller, bindScroller, away, jump, reset, scrollEvents } = useReadingScroll(
     streamText || selected?.text, busy && latest, mobileView,
   );
@@ -271,7 +279,7 @@ export function Reader({
   useEffect(() => {
     setQuote(null);
     setQuoteError("");
-    if (!view || busy || helperBusy || (kind === "turn" && !draft.trim()))
+    if (!view || busy || helperBusy || !latest || (kind === "turn" && !draft.trim()))
       return;
     let active = true;
     const timer = setTimeout(async () => {
@@ -298,6 +306,7 @@ export function Reader({
     busy,
     helperBusy,
     quoteRevision,
+    latest,
   ]);
   useEffect(() => {
     if (!quote || busy) return;
@@ -305,7 +314,7 @@ export function Reader({
     return () => clearTimeout(timer);
   }, [quote, busy]);
   const executeAction = async (message, selectedQuote) => {
-    if (busy || helperBusy || execution.current || !selectedQuote?.affordable)
+    if (!latest || busy || helperBusy || execution.current || !selectedQuote?.affordable)
       return;
     if (
       !action.current ||
@@ -322,6 +331,7 @@ export function Reader({
       quote_id: selectedQuote.id,
       cap_micro: selectedQuote.cap_micro,
       started_at: Date.now(),
+      timing: selectedQuote.timing,
     };
     execution.current = request;
     lsSetJSON(requestKey, request);
@@ -332,11 +342,14 @@ export function Reader({
     setStage("preparing");
     setError("");
     setStreamText("");
+    setGenerationNotice("");
     setSelectedId(null);
     setSaveState("正在生成");
     const channel = window.api.player.execute(request, {
+      on_notice: (data) => mounted.current && setGenerationNotice(data.message),
       on_saving: (data) => {
         if (mounted.current) {
+          Promise.resolve().then(refreshWallet).catch(() => {});
           setConfirmedAt(Date.now());
           setStage(data?.phase || "preparing");
           setSaveState(
@@ -487,7 +500,7 @@ export function Reader({
       historyBusy={historyBusy}
     />
   );
-  const information = <InformationPanel view={view} uid={uid} active={mobileView === "state"} desktopHidden={split.collapsed || split.dragging} onRead={readRound} onUnreadChange={setStateUnread} />;
+  const information = <InformationPanel view={displayView} historical={!latest} uid={uid} active={mobileView === "state"} desktopHidden={split.collapsed || split.dragging} onRead={readRound} onUnreadChange={setStateUnread} />;
   const changeView = (next) => {
     setMobileView(next);
     setAssistantOpen(next === "assistant");
@@ -520,15 +533,15 @@ export function Reader({
                 ? "序章"
                 : `第 ${selected?.turn ?? view.save.turn} 回合`}
           </span>
-          {view.status.location && (
+          {displayView.status.location && (
             <span className="workspace-scene">
               <MapPin size={14} />
-              <span>{description(view.status.location)}</span>
-              {view.status.time && <span>{description(view.status.time)}</span>}
+              <span>{description(displayView.status.location)}</span>
+              {displayView.status.time && <span>{description(displayView.status.time)}</span>}
             </span>
           )}
           <div className="workspace-reading-tools">
-            <button className="icon-button" aria-label="故事评论" disabled={busy || helperBusy} onClick={() => navigate(`/play/stories/${view.save.story_id}/comments`)}><ChatCircleText size={18} /></button>
+            <button className="icon-button" aria-label="故事评论" disabled={busy || helperBusy} onClick={() => navigate(`/play/stories/${view.save.story_id}/comments?save=${saveId}`)}><ChatCircleText size={18} /></button>
             <button className="icon-button workspace-state-toggle" aria-label={split.collapsed ? "展开状态栏" : "收起状态栏"} aria-expanded={!split.collapsed} aria-controls="player-state" onClick={split.toggle}><SidebarSimple size={18} />{stateUnread > 0 && <span className="workspace-tab-change" aria-label="状态有未读变化" />}</button>
             <button
               className="icon-button"
@@ -595,10 +608,10 @@ export function Reader({
                   <p>{actionLabel(action.current?.message || "开始故事")}</p>
                 </div>
                 <StreamingNarration text={streamText} />
-                <GenerationProgress phase={stage} startedAt={startedAt} confirmedAt={confirmedAt} opening={kind === "opening"} />
               </article>
             )}
             {error && <Notice error>{error}</Notice>}
+            {busy && generationNotice && <Notice>{generationNotice}</Notice>}
             {!busy && view.has_opening && latest && options.length > 0 && (
               <ActionChoices
                 options={options}
@@ -611,12 +624,13 @@ export function Reader({
             )}
             {!latest && (
               <p className="workspace-history-note">
-                正在阅读已保存的回合。行动会接续最新进度。
+                正在只读查看{selected?.turn === 0 ? "序章" : `第 ${selected?.turn} 回合`}及该回合保存的状态。
               </p>
             )}
           </div>
         </div>
         <div className="workspace-composer-dock">
+          {busy && <GenerationProgress phase={stage} startedAt={startedAt} confirmedAt={confirmedAt} opening={kind === "opening"} timing={quote?.timing || execution.current?.timing} />}
           {away && latest && (
             <button
               className="workspace-jump"
@@ -633,7 +647,7 @@ export function Reader({
               {saveState}
             </span>
           </div>
-          <form className="workspace-composer" onSubmit={send}>
+          {!latest ? <div className="workspace-history-actions"><Button type="button" onClick={() => readRound(null)}>返回最新回合后行动</Button></div> : <form className="workspace-composer" onSubmit={send}>
             {kind === "turn" && (
               <>
                 <label className="sr-only" htmlFor="player-action">
@@ -742,7 +756,7 @@ export function Reader({
                 查看积分与兑换码
               </button>
             )}
-          </form>
+          </form>}
         </div>
       </section>
       <div className="workspace-splitter" {...split.handleProps}><span aria-hidden="true" /></div>
@@ -755,7 +769,8 @@ export function Reader({
         uid={uid}
         saveId={saveId}
         name={view.status.name}
-        gameBusy={busy}
+        gameBusy={busy || !latest}
+        historical={!latest}
         onBusy={setHelperBusy}
         open={assistantOpen}
         onOpenChange={changeAssistant}

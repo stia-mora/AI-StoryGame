@@ -304,7 +304,7 @@ def lock_request(db, uid, request_id, save_id=None):
     return w, req
 
 
-def settle(db, uid, request_id, commit_id, text, options, partial=False):
+def settle(db, uid, request_id, commit_id, text, options, partial=False, output_notice=""):
     w, req = lock_request(db, uid, request_id)
     if not str(text).strip():
         raise ValueError("空回复不能结算")
@@ -343,6 +343,8 @@ def settle(db, uid, request_id, commit_id, text, options, partial=False):
         saved=True,
         funding=req.get("funding", "player"),
     )
+    if output_notice:
+        receipt["output_notice"] = output_notice
     db.execute(
         "update player_requests set status='settled',actual_micro=%s,charged_micro=%s,receipt=%s,commit_id=%s where id=%s",
         (actual, charged, Jsonb(receipt), commit_id, request_id),

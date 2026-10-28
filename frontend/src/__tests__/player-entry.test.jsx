@@ -11,6 +11,19 @@ const account = {
     { id: 10, story_id: 538, story_title: story.title, name: "Robin", turn: 0 },
   ],
 };
+
+it("distinguishes a generated prologue from a new character and filters all lobby save surfaces", async () => {
+  window.api.player.bootstrap.mockResolvedValue({ ...account, saves: [
+    { ...account.saves[0], name: "赵玖", turn: 0, has_opening: true },
+    { ...account.saves[1], name: "Robin", turn: 0, has_opening: false, story_title: "另一部故事" },
+  ] });
+  render(<PlayerApp />);
+  await screen.findByRole("heading", { name: "故事大厅" });
+  expect(screen.getAllByText(/序章已生成/).length).toBeGreaterThan(0);
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "另一部" } });
+  expect(screen.queryByText(/赵玖/)).toBeNull();
+  expect(screen.getAllByText(/Robin/).length).toBeGreaterThan(0);
+});
 beforeEach(() => {
   sessionStorage.clear();
   vi.restoreAllMocks();

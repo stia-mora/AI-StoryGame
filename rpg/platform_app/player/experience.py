@@ -372,10 +372,13 @@ def progress(before, after, narration, action=""):
 
 def snapshot_sql(column):
     """Column is an internal SQL identifier, not user input. Select only display state."""
+    stats = ",".join(f"'{key}',{column}->'player'->'{key}'" for key in (
+        "level", "hp", "max_hp", "ac", "strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma"))
     return f"""jsonb_build_object(
-      'player',jsonb_build_object('current_location',{column}->'player'->'current_location','role',{column}->'player'->'role','inventory',{column}->'player'->'inventory','abilities',{column}->'player'->'abilities','martial_soul',{column}->'player'->'martial_soul','soul_power',{column}->'player'->'soul_power','innate_soul_power',{column}->'player'->'innate_soul_power','soul_rank',{column}->'player'->'soul_rank','soul_rings',{column}->'player'->'soul_rings','injury',{column}->'player'->'injury'),
-      'player_character',jsonb_build_object('inventory',{column}->'player_character'->'inventory','features',{column}->'player_character'->'features'),
+      'location',{column}->'location',
+      'player',jsonb_build_object('name',{column}->'player'->'name','current_location',{column}->'player'->'current_location','role',{column}->'player'->'role','inventory',{column}->'player'->'inventory','abilities',{column}->'player'->'abilities','skills',{column}->'player'->'skills','resources',{column}->'player'->'resources','relationships',{column}->'player'->'relationships','martial_soul',{column}->'player'->'martial_soul','soul_power',{column}->'player'->'soul_power','innate_soul_power',{column}->'player'->'innate_soul_power','soul_rank',{column}->'player'->'soul_rank','soul_rings',{column}->'player'->'soul_rings','injury',{column}->'player'->'injury',{stats}),
+      'player_character',jsonb_build_object('name',{column}->'player_character'->'name','class',{column}->'player_character'->'class','class_name',{column}->'player_character'->'class_name','level',{column}->'player_character'->'level','hp',{column}->'player_character'->'hp','max_hp',{column}->'player_character'->'max_hp','ac',{column}->'player_character'->'ac','ability_scores',{column}->'player_character'->'ability_scores','inventory',{column}->'player_character'->'inventory','features',{column}->'player_character'->'features'),
       'world',jsonb_build_object('time',{column}->'world'->'time','location',{column}->'world'->'location','known_events',{column}->'world'->'known_events'),
-      'memory',jsonb_build_object('current_objective',{column}->'memory'->'current_objective','main_quest',{column}->'memory'->'main_quest','abilities',{column}->'memory'->'abilities','resources',{column}->'memory'->'resources','tasks',{column}->'memory'->'tasks','milestones',{column}->'memory'->'milestones'),
+      'memory',jsonb_build_object('current_objective',{column}->'memory'->'current_objective','main_quest',{column}->'memory'->'main_quest','abilities',{column}->'memory'->'abilities','resources',{column}->'memory'->'resources','relationships',{column}->'memory'->'relationships','tasks',{column}->'memory'->'tasks','milestones',{column}->'memory'->'milestones'),
       'relationships',{column}->'relationships',
       'worldline',jsonb_build_object('divergence_chapter',{column}->'worldline'->'divergence_chapter','last_projection',{column}->'worldline'->'last_projection'))"""

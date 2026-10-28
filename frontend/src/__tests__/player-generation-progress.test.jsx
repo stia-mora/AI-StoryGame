@@ -5,6 +5,16 @@ import { GenerationProgress } from "../player/GenerationProgress.jsx";
 
 afterEach(() => vi.useRealTimers());
 
+it("uses recent observed durations for a qualified remaining-time range, then reports an overrun", () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000000);
+  render(<GenerationProgress phase="generating" startedAt={940000} timing={{ samples: 3, low_seconds: 180, high_seconds: 300, median_seconds: 240 }} />);
+  expect(screen.getByText(/剩余参考约 2 分钟–4 分钟/)).toBeTruthy();
+  expect(screen.getByText(/依据本存档同模型近期 3 次记录/)).toBeTruthy();
+  act(() => vi.advanceTimersByTime(241000));
+  expect(screen.getByText(/已超过近期参考用时/)).toBeTruthy();
+  expect(screen.getByRole("timer")).toHaveTextContent("5:01");
+});
+
 it("shows elapsed time and actual stages without an invented percentage or ETA", () => {
   vi.useFakeTimers();
   vi.setSystemTime(1000000);

@@ -72,6 +72,7 @@ def test_player_stream_forwards_sanitized_progress_through_the_actual_adapter(mo
             yield api.event("agent", {"phase": "llm_curator", "message": "PRIVATE", "prompt": "PRIVATE"})
             yield api.event("stage", {"phase": "generating", "prompt": "PRIVATE"})
             yield api.event("token", {"text": "公开开场。"})
+            yield api.event("agent", {"phase": "stop_reason", "message": "PRIVATE provider details"})
             yield api.event("stage", {"phase": "done"})
             current().receipt = {"text": "公开开场。", "saved": True}
         return StreamingResponse(chunks())
@@ -89,6 +90,8 @@ def test_player_stream_forwards_sanitized_progress_through_the_actual_adapter(mo
     assert '"phase": "saving"' in stream
     assert "公开开场。" in stream
     assert "event: receipt" in stream
+    assert "正文可能不完整" in stream
+    assert "event: notice" in stream
     assert str(rid) not in api.RUNS
 
 

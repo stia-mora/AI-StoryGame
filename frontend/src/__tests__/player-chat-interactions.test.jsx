@@ -191,6 +191,17 @@ function pointerSupport() {
   });
 }
 
+it("restores the exact saved column width after collapsing, including after remount", () => {
+  localStorage.setItem("player-split-1", "70");
+  const first = render(<Split />);
+  fireEvent.click(screen.getByRole("button", { name: "切换状态" }));
+  expect(screen.getByTestId("panes").dataset.collapsed).toBe("true");
+  first.unmount();
+  render(<Split />);
+  fireEvent.click(screen.getByRole("button", { name: "切换状态" }));
+  expect(screen.getByTestId("panes").dataset.ratio).toBe("70");
+});
+
 it("shields the preview during drag, collapses beyond 82% and Escape restores the original ratio", () => {
   pointerSupport();
   render(<Split />);
@@ -229,12 +240,12 @@ it("commits and restores proportions, supports keyboard resizing and cancels los
   fireEvent.keyDown(next, { key: "End" });
   expect(screen.getByTestId("panes").dataset.collapsed).toBe("true");
   fireEvent.click(screen.getByRole("button", { name: "切换状态" }));
-  expect(next.getAttribute("aria-valuenow")).toBe("50");
+  expect(next.getAttribute("aria-valuenow")).toBe("72");
   screen.getByTestId("panes").getBoundingClientRect = () => ({ left: 0, width: 1014 });
   fireEvent.pointerDown(next, { button: 0, pointerId: 1 });
   fireEvent.pointerMove(window, { pointerId: 1, clientX: 800 });
   fireEvent.pointerCancel(window, { pointerId: 1 });
-  expect(next.getAttribute("aria-valuenow")).toBe("50");
+  expect(next.getAttribute("aria-valuenow")).toBe("72");
   expect(screen.queryByTestId("shield")).toBeNull();
 });
 

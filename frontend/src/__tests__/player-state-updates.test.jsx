@@ -27,6 +27,28 @@ beforeEach(() => { localStorage.clear(); vi.useFakeTimers(); });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 const changeButton = () => screen.getByRole("button", { name: "查看最近回合变化" });
 
+it("explains when the latest round has no worldline change and persists explicit acknowledgement", () => {
+  const next = { ...view, save: { ...view.save, turn: 3 }, messages: [...view.messages, { id: "33-gm", role: "assistant", turn: 3 }], latest_progress: { changes: [{ kind: "地点", after: "学院" }] } };
+  const first = render(<InformationPanel uid={1} view={next} onRead={vi.fn()} />);
+  fireEvent.click(screen.getByRole("tab", { name: "世界线" }));
+  fireEvent.click(changeButton());
+  expect(screen.getByRole("tooltip")).toHaveTextContent("最新第 3 回合未新增本栏变化");
+  fireEvent.click(screen.getByRole("button", { name: "标记本栏已读" }));
+  expect(screen.getByRole("tab", { name: "世界线" }).querySelector(".workspace-tab-change")).toBeNull();
+  first.unmount();
+  render(<InformationPanel uid={1} view={next} onRead={vi.fn()} />);
+  expect(screen.getByRole("tab", { name: "世界线" }).querySelector(".workspace-tab-change")).toBeNull();
+});
+
+it("lists recorded resources once in the inventory and avoids an empty physical-item section", () => {
+  render(<InformationPanel uid={1} view={{ ...view, status: { name: "旅人", resources: ["学院证明"], inventory: [] } }} onRead={vi.fn()} />);
+  fireEvent.click(screen.getByRole("tab", { name: "角色" }));
+  expect(screen.queryByText("学院证明")).toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "背包" }));
+  expect(screen.getAllByText("学院证明")).toHaveLength(1);
+  expect(screen.queryByRole("button", { name: /^随身物品/ })).toBeNull();
+});
+
 it("uses status tabs only for navigation, without tooltips on hover, focus or keyboard selection", () => {
   render(<InformationPanel uid={1} view={view} onRead={vi.fn()} />);
   for (const tab of screen.getAllByRole("tab")) {

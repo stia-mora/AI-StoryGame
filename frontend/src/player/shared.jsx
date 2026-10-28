@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { ArrowRight, BookOpen, Users } from "@phosphor-icons/react";
 
 export const points = (micro = 0) => (Number(micro) / 1e6).toFixed(2);
+export const saveProgress = (save) => save.turn > 0 ? `第 ${save.turn} 回合` : save.has_opening ? "序章已生成 · 尚未进入第 1 回合" : "待开场";
 export const actionLabel = (value = "") =>
   String(value)
     .replace(/^【快进至下一处关键抉择】/, "")
@@ -105,7 +106,7 @@ export function StreamingNarration({ text = "" }) {
   if (!text.startsWith(previous.current.text)) previous.current = { text: "", characters: [] };
   const added = Array.from(text.slice(previous.current.text.length));
   if (added.length) {
-    previous.current = { text, characters: [...previous.current.characters, ...added.map((character, index) => ({ character, delay: index * 30 }))] };
+    previous.current = { text, characters: [...previous.current.characters, ...added.map((character, index) => ({ character, delay: Math.min(index * 30, 180) }))] };
   }
   return <div className="narration stream-narration">{previous.current.characters.map(({ character, delay }, index) => <span key={index} style={{ animationDelay: `${delay}ms` }}>{character}</span>)}</div>;
 }
@@ -128,7 +129,9 @@ export function Receipt({ receipt }) {
       <summary>
         本轮实扣 {points(receipt.charged_micro)} 积分
         {receipt.partial ? " · 已保存部分回复" : ""}
+        {receipt.output_notice ? " · 正文可能不完整" : ""}
       </summary>
+      {receipt.output_notice && <p>{receipt.output_notice}</p>}
       <p>
         输入 {receipt.input_tokens.toLocaleString()} Token · 输出{" "}
         {receipt.output_tokens.toLocaleString()} Token · 费率版本{" "}
@@ -184,6 +187,9 @@ export function BookCover({ story, large = false }) {
   );
 }
 export function StoryCard({ story, onStart, onComments }) {
+  const [expanded, setExpanded] = useState(false);
+  const introduction = Array.from(story.introduction || "");
+  const longIntroduction = introduction.length > 140;
   return (
     <article className="story-card entry-story" aria-labelledby={`story-title-${story.id}`}>
       <BookCover story={story} />
@@ -192,11 +198,12 @@ export function StoryCard({ story, onStart, onComments }) {
           <span className="story-meta"><Users size={15} aria-hidden="true" />{story.identities.length} 种可选身份</span>
           <h3 id={`story-title-${story.id}`}>{story.title}</h3>
         </div>
-        {story.introduction && <p className="story-introduction">{story.introduction}</p>}
+        {story.introduction && <p className="story-introduction">{longIntroduction && !expanded ? `${introduction.slice(0, 140).join("")}…` : story.introduction}</p>}
+        {longIntroduction && <button className="text-button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? "收起简介" : "展开完整简介"}</button>}
         {story.author && <p className="story-meta">{story.author}{story.version ? ` · v${story.version}` : ""}</p>}
         <div className="story-card-actions"><Button quiet onClick={onStart}>
           {story.opening_preview ? "开场试读 / 开始故事" : "开始故事"} <ArrowRight size={18} />
-        </Button>{onComments && <button className="text-button" aria-label={`查看${story.title}的评论`} onClick={onComments}>评论</button>}</div>
+        </Button>{onComments && <button className="text-button" aria-label={`查看${story.title}的评论`} onClick={onComments}>评论{Number.isFinite(story.comment_count) ? ` ${story.comment_count}` : ""}</button>}</div>
       </div>
     </article>
   );

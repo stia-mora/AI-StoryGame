@@ -14,7 +14,7 @@ import {
   ListChecks,
   Sparkle,
 } from "@phosphor-icons/react";
-import { BookCover, description, actionLabel } from "./shared.jsx";
+import { BookCover, description, actionLabel, saveProgress } from "./shared.jsx";
 import { TurnProgress } from "./Progress.jsx";
 import { lsGetJSON, lsSetJSON } from "../lib/storage.js";
 import { stateUpdates } from "./stateUpdates.js";
@@ -54,7 +54,7 @@ function Records({ title, values, empty = "尚无记录" }) {
   );
 }
 
-export function InformationPanel({ view, uid, active = true, desktopHidden = false, onRead, onUnreadChange }) {
+export function InformationPanel({ view, uid, active = true, desktopHidden = false, historical = false, onRead, onUnreadChange }) {
   const [tab, setTab] = useState("overview");
   const panelId = useId();
   const readKey = `player-state-read-${uid || "guest"}-${view.save.id}`;
@@ -70,7 +70,7 @@ export function InformationPanel({ view, uid, active = true, desktopHidden = fal
   const markRead = useCallback((id, groups) => {
     const desktop = window.matchMedia?.("(min-width: 1200px)").matches ?? true;
     const node = content.current;
-    if (document.hidden || !(desktop ? !desktopHidden : active) || id !== tab || !groups.length || !atEnd(node)) return;
+    if (historical || document.hidden || !(desktop ? !desktopHidden : active) || id !== tab || !groups.length || !atEnd(node)) return;
     if (node.checkVisibility && !node.checkVisibility()) return;
     if (node.querySelector('.collapse-grid[data-open="false"] li')) return;
     const order = Math.max(...groups.map((group) => group.order));
@@ -80,12 +80,13 @@ export function InformationPanel({ view, uid, active = true, desktopHidden = fal
       lsSetJSON(readKey, next);
       return next;
     });
-  }, [active, desktopHidden, readKey, tab]);
+  }, [active, desktopHidden, historical, readKey, tab]);
   const showPreview = (event) => {
     clearTimeout(closeTimer.current);
     previewTrigger.current = event.currentTarget;
-    const groups = unread(tab).length ? unread(tab) : updates[tab].slice(0, 1);
-    setPreview(groups.length ? { id: tab, groups } : null);
+    const groups = updates[tab];
+    const latest = view.messages?.filter((message) => message.role === "assistant").at(-1);
+    setPreview(groups.length ? { id: tab, groups, latest } : null);
   };
   const closePreview = () => {
     clearTimeout(closeTimer.current);
@@ -108,7 +109,7 @@ export function InformationPanel({ view, uid, active = true, desktopHidden = fal
   const browsePanel = () => {
     setReadIntent(atEnd(content.current) ? { id: tab, groups: updates[tab] } : null);
   };
-  useEffect(() => { onUnreadChange?.(unreadCount); }, [onUnreadChange, unreadCount]);
+  useEffect(() => { if (!historical) onUnreadChange?.(unreadCount); }, [onUnreadChange, unreadCount, historical]);
   useEffect(() => {
     const visibility = () => setForeground(!document.hidden);
     document.addEventListener("visibilitychange", visibility);
@@ -172,7 +173,7 @@ export function InformationPanel({ view, uid, active = true, desktopHidden = fal
           >
             <Icon size={17} />
             {title}
-            {unread(id).length > 0 && (
+            {!historical && unread(id).length > 0 && (
               <span className="workspace-tab-change" aria-label="有未读变化" />
             )}
           </button>
@@ -183,6 +184,11 @@ export function InformationPanel({ view, uid, active = true, desktopHidden = fal
         <strong>{status.name}</strong>
         <small>存档 {view.save.id}</small>
       </div>
+      {historical && <p className="fine-print">历史回合状态 · 只读</p>}
+      {!historical && unread(tab).length > 0 && <button type="button" className="text-button" onClick={() => {
+        const next = { ...read, [tab]: Math.max(...updates[tab].map((group) => group.order)) };
+        setRead(next); lsSetJSON(readKey, next); setPreview(null);
+      }}>标记本栏已读</button>}
       {updates[tab].length > 0 && (
         <div
           className="workspace-change-bar"
@@ -218,6 +224,7 @@ export function InformationPanel({ view, uid, active = true, desktopHidden = fal
               onMouseEnter={() => clearTimeout(closeTimer.current)}
             >
               <strong>{tabs.find(([id]) => id === preview.id)[1]}变化</strong>
+              {preview.latest && preview.groups[0]?.id !== preview.latest.id && <p>最新{preview.latest.turn === 0 ? "序章" : `第 ${preview.latest.turn} 回合`}未新增本栏变化，以下是此前的变化记录。</p>}
               {preview.groups.map((group) => (
                 <section key={group.id}>
                   <h3>{group.turn === 0 ? "序章" : `第 ${group.turn ?? view.save.turn} 回合`}</h3>
@@ -292,12 +299,11 @@ export function InformationPanel({ view, uid, active = true, desktopHidden = fal
               empty="属性尚未在故事中确认"
             />
             <Records title="能力与技能" values={status.abilities} />
-            <Records title="资源" values={status.resources} />
           </>
         )}
         {tab === "inventory" && (
           <>
-            <Records title="随身物品" values={status.inventory} />
+            {(status.inventory?.length > 0 || !status.resources?.length) && <Records title="随身物品" values={status.inventory} />}
             <Records title="资源" values={status.resources} />
           </>
         )}
@@ -305,7 +311,7 @@ export function InformationPanel({ view, uid, active = true, desktopHidden = fal
           <Records
             title="已知人物与关系"
             values={status.people}
-            empty="遇见并认识的人会记录在这里"
+            empty="尚无已保存的人物关系。已在剧情中出现的人物，需要随回合状态保存后才会列在这里。"
           />
         )}
         {tab === "tasks" && (
@@ -363,7 +369,7 @@ export function InformationPanel({ view, uid, active = true, desktopHidden = fal
             )}
             <h3>世界线记录</h3>
             <ol className="workspace-timeline">
-              {journey.map((step, i) => (
+              {journey.slice().reverse().map((step, i) => (
                 <li key={`${step.turn}-${i}`}>
                   <button onClick={() => onRead(step.message_id)}>
                     <span>
@@ -483,7 +489,7 @@ export function SaveRail({
             >
               <span>{save.name}</span>
               <span className="muted">
-                {save.story_title} · {save.id === view.save.id ? view.save.turn : save.turn} 回合
+                {save.story_title} · {saveProgress(save.id === view.save.id ? { ...save, ...view.save, has_opening: view.has_opening } : save)}
               </span>
             </button>
           ))

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { ArrowRight, BookOpen, Check, Clock, Copy, FolderOpen, Info, MagnifyingGlass, Play, X } from "@phosphor-icons/react";
-import { BookCover, Button, Empty, StoryCard } from "./shared.jsx";
+import { BookCover, Button, Empty, StoryCard, saveProgress } from "./shared.jsx";
 
 function BetaNotice() {
   const [dismissed, setDismissed] = useState(() => {
@@ -51,7 +51,7 @@ function SaveList({ saves, navigate }) {
             <span className="save-avatar" aria-hidden="true">{Array.from(save.name || save.title || "")[0]}</span>
             <span className="save-copy">
               <strong>{save.story_title}</strong>
-              <span>{save.name || save.title} · {save.turn > 0 ? `第 ${save.turn} 回合` : "待开场"}</span>
+              <span>{save.name || save.title} · {saveProgress(save)}</span>
             </span>
             <ArrowRight size={18} aria-hidden="true" />
           </button>
@@ -85,7 +85,7 @@ export function Lobby({ data, navigate, search, setSearch, onHelp, archive = fal
   const stories = data.stories.filter((story) => `${story.title} ${story.introduction}`.toLocaleLowerCase().includes(query));
   const localSaves = data.saves.filter((save) => `${save.story_title} ${save.name || ""} ${save.title || ""}`.toLocaleLowerCase().includes(query));
   const saves = paginated ? (remote?.items || []) : localSaves;
-  const latest = data.saves[0];
+  const latest = localSaves[0];
   const latestStory = latest && data.stories.find((story) => story.id === latest.story_id);
   return (
     <main id="player-main" className="player-shell player-lobby" tabIndex={-1}>
@@ -112,13 +112,13 @@ export function Lobby({ data, navigate, search, setSearch, onHelp, archive = fal
           <div className="resume-copy">
             <span className="lobby-caption"><Clock size={15} aria-hidden="true" />最近游玩</span>
             <h2>{latest.story_title}</h2>
-            <p>{latest.name || latest.title} <span>·</span> {latest.turn > 0 ? `第 ${latest.turn} 回合` : "待开场"}</p>
+            <p>{latest.name || latest.title} <span>·</span> {saveProgress(latest)}</p>
           </div>
           <Button onClick={() => navigate(`/play/saves/${latest.id}`)}><Play size={16} weight="fill" aria-hidden="true" />继续游玩</Button>
         </section>
       )}
 
-      {!archive && (!data.user || !latest) && (
+      {!archive && !query && (!data.user || !latest) && (
         <div className="lobby-welcome">
           <BookOpen size={20} aria-hidden="true" />
           <p>{data.user ? "选择一个故事，创建你的第一个角色。" : "先找一个喜欢的故事，登录后创建角色、保存进度。"}</p>
@@ -157,7 +157,7 @@ export function Lobby({ data, navigate, search, setSearch, onHelp, archive = fal
               <h2><FolderOpen size={18} aria-hidden="true" />我的存档</h2>
               {saveTotal > 0 && <button className="text-button" onClick={() => navigate("/play/saves")}>全部 {saveTotal}<ArrowRight size={14} /></button>}
             </div>
-            {data.saves.length ? <SaveList saves={data.saves.slice(0, 4)} navigate={navigate} /> : <p className="lobby-sidebar-empty">{data.user ? "你的角色与游玩进度会收录在这里。" : "登录后，在这里继续你的故事。"}</p>}
+            {localSaves.length ? <SaveList saves={localSaves.slice(0, 4)} navigate={navigate} /> : <p className="lobby-sidebar-empty">{query ? "没有匹配的存档。" : data.user ? "你的角色与游玩进度会收录在这里。" : "登录后，在这里继续你的故事。"}</p>}
             <div className="lobby-guide">
               <h2>开始之前</h2>
               <p>创建角色与阅读存档免费。生成剧情前，会显示积分估算与本次费用上限。</p>

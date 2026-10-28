@@ -21,7 +21,6 @@ export function stateUpdates(view) {
         if (["属性", "能力"].includes(item.kind)) entries.character.push(entry);
         else {
           entries.inventory.push(entry);
-          if (item.kind === "资源") entries.character.push(entry);
         }
       }
     }

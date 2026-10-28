@@ -4,7 +4,7 @@ import { lsGet, lsSet } from "../lib/storage.js";
 import { Button, Notice } from "./shared.jsx";
 import { useComposerKeys } from "./useComposerKeys.js";
 
-export function Comments({ story, user, navigate, login }) {
+export function Comments({ story, user, navigate, login, returnTo }) {
   const draftKey = `story-comment-${user?.id || "guest"}-${story.id}`;
   const [draft, setDraft] = useState(() => lsGet(draftKey, ""));
   const [items, setItems] = useState([]), [cursor, setCursor] = useState(null);
@@ -55,7 +55,7 @@ export function Comments({ story, user, navigate, login }) {
   return (
     <main id="player-main" className="player-shell story-comments" tabIndex={-1}>
       <header className="comments-heading">
-        <button className="icon-button" aria-label="返回故事" onClick={() => navigate(`/play/stories/${story.id}`)}><ArrowLeft size={20} /></button>
+        <button className="back-link" aria-label={returnTo ? "返回当前存档" : "返回故事介绍"} onClick={() => navigate(returnTo || `/play/stories/${story.id}`)}><ArrowLeft size={20} />{returnTo ? "返回当前存档" : "返回故事介绍"}</button>
         <div><span>{story.title}</span><h1>故事评论</h1></div>
       </header>
       <p className="comments-note">聊聊人物、选择和游玩感受。评论公开可见，请勿留下私人信息。</p>

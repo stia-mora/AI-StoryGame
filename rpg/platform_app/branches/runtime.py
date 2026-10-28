@@ -148,7 +148,8 @@ def record_runtime_turn(
                     _lg.getLogger("kb_state").warning("[kb_state] persist import/maintain skip: %s", _kbe)
             if _billing_run and _billing_run.committing:
                 _pending_receipt = settle(db, int(user_id), _billing_run.id, row['id'],
-                                          gm_response, data.get('structured_options') or [], _billing_run.partial)
+                                          gm_response, data.get('structured_options') or [], _billing_run.partial,
+                                          output_notice=getattr(_billing_run, 'output_notice', ''))
     if _pending_receipt is not None:
         _billing_run.receipt = _pending_receipt
     if missing_parent:

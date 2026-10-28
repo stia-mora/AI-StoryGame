@@ -15,6 +15,24 @@ beforeEach(() => {
   } };
 });
 
+it("returns to the originating save from the comments deep link", async () => {
+  history.replaceState({}, "", "/play/stories/7/comments?save=9");
+  window.scrollTo = vi.fn();
+  window.api.player.session = vi.fn().mockResolvedValue({ authenticated: true });
+  window.api.player.bootstrap = vi.fn().mockResolvedValue({ user: props.user, stories: [story], saves: [], wallet: {} });
+  window.api.player.save = vi.fn().mockResolvedValue({ save: { id: 9, story_title: story.title }, status: { name: "阿言" }, messages: [], options: [], has_opening: true });
+  render(<PlayerApp />);
+  fireEvent.click(await screen.findByRole("button", { name: "返回当前存档" }));
+  expect(location.pathname).toBe("/play/saves/9");
+  await waitFor(() => expect(window.api.player.save).toHaveBeenCalledWith(9));
+});
+
+it("uses the story introduction for comments opened without a save", async () => {
+  render(<Comments {...props} />);
+  fireEvent.click(screen.getByRole("button", { name: "返回故事介绍" }));
+  expect(props.navigate).toHaveBeenCalledWith("/play/stories/7");
+});
+
 it("lets a guest read plain text and offers login without a composer", async () => {
   window.api.player.comments.mockResolvedValue({ items: [{ ...mine, content: "<img src=x onerror=alert(1)>", can_delete: false }], next_cursor: null });
   const { container } = render(<Comments {...props} user={null} />);

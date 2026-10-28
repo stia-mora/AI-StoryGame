@@ -55,6 +55,8 @@ def public_story(row, *, save_id=None):
         for i in row["identities"]
     ]
     public["martial_soul_creation"] = public_config(row.get("defaults"))
+    if "comment_count" in row:
+        public["comment_count"] = int(row["comment_count"])
     preview = (row.get("defaults") or {}).get("opening_preview", "")
     if isinstance(preview, str) and preview.strip():
         public["opening_preview"] = preview.strip()[:6000]
@@ -66,7 +68,8 @@ def public_story(row, *, save_id=None):
 
 def listed_stories():
     with connect() as db:
-        return db.execute("""select p.*,coalesce(u.display_name,u.username) as author_name,r.version as authoring_version
+        return db.execute("""select p.*,coalesce(u.display_name,u.username) as author_name,r.version as authoring_version,
+          (select count(*) from player_story_comments c where c.story_id=p.id) as comment_count
           from player_stories p join player_model_profiles m on m.id=p.profile_id
           left join authoring_revisions r on r.id=p.authoring_revision_id
           left join authoring_projects a on a.id=r.project_id left join users u on u.id=a.owner_id
@@ -89,6 +92,9 @@ def list_saves(uid, *, page=1, query="", page_size=50):
         pages = max(1, (total + page_size - 1) // page_size)
         page = max(1, min(page, pages))
         rows = db.execute("""select g.id,g.player_story_id,g.title,g.updated_at,
+              (exists(select 1 from branch_commits c where c.id=g.active_commit_id and c.save_id=g.id
+                and coalesce(c.gm_output,'')<>'') or
+                jsonb_path_exists(g.state_snapshot,'$.history[*] ? (@.role == "assistant" && @.content != "")')) as has_opening,
               coalesce(g.player_story_snapshot->>'title',p.title) as story_title,
               jsonb_build_object('player',jsonb_build_object('name',
                 coalesce(g.state_snapshot#>'{player,name}','\"\"'::jsonb)),
@@ -136,6 +142,9 @@ def save_summary(save, title=""):
         story_title=title,
         name=player.get("name", ""),
         turn=int(data.get("turn") or 0),
+        has_opening=bool(save.get("has_opening", int(data.get("turn") or 0) > 0 or any(
+            item.get("role") == "assistant" and str(item.get("content") or "").strip()
+            for item in data.get("history") or []))),
         updated_at=str(save["updated_at"]),
     )
 
@@ -177,13 +186,12 @@ def scalar(value):
 def view(uid, sid, before=None, limit=20):
     limit = max(1, min(int(limit), 50))
     from .character_creation import public_setup
-    from .turn_updates import milestones, tasks
 
     save = player_save(uid, sid)
     data = save.get("state_snapshot") or {}
     player = data.get("player") or {}
-    world = data.get("world") or {}
     pc = data.get("player_character") or {}
+    status = public_status(data)
     with connect() as db:
         selected = save.get("player_story_snapshot") or (
             db.execute("select * from player_stories where id=%s", (save["player_story_id"],)).fetchone() or {}
@@ -208,6 +216,14 @@ def view(uid, sid, before=None, limit=20):
             "select commit_id,receipt from player_requests where user_id=%s and save_id=%s and status='settled' and kind<>'guide' and commit_id=any(%s)",
             (uid, sid, [r["id"] for r in rows]),
         ).fetchall()
+        if not status["people"] and save.get("active_commit_id"):
+            from kb.live_repo import _newest_visible
+
+            relations = _newest_visible(db, "kb_relationships", sid, save["active_commit_id"],
+                                        ("logical_key", "from_key", "to_key", "kind", "metadata"))
+            known = {"relationships": {row["to_key"]: row.get("metadata") or row["kind"]
+                                       for row in relations if row["from_key"] == "_player"}}
+            status["people"] = scalar(experience.status(known)["people"])
     by_commit = {r["commit_id"]: r["receipt"] for r in receipts}
     messages = []
     for row in rows:
@@ -219,6 +235,7 @@ def view(uid, sid, before=None, limit=20):
                 role="assistant",
                 turn=row["turn_index"],
                 text=row["gm_output"],
+                status=public_status(row["display_state"] or {}, player.get("name") or pc.get("name") or ""),
                 receipt=by_commit.get(row["id"]),
                 progress=experience.progress(
                     row["previous_state"] or {},
@@ -228,24 +245,9 @@ def view(uid, sid, before=None, limit=20):
                 ),
             )
         )
-    current = experience.status(data)
-    status = dict(
-        name=player.get("name") or pc.get("name") or "",
-        role=player.get("role") or pc.get("class") or "",
-        location=scalar(current["location"]),
-        time=scalar(world.get("time") or ""),
-        inventory=scalar(current["inventory"]),
-        abilities=scalar(current["abilities"]),
-        resources=scalar(current["resources"]),
-        people=scalar(current["people"]),
-        objective=scalar(current["objective"]),
-        attributes=scalar(experience.attributes(data)),
-        tasks=tasks(data),
-        milestones=milestones(data),
-    )
     pending = data.get("pending_action") or {}
     return dict(
-        save=save_summary(save, title),
+        save=save_summary({**save, "has_opening": bool(messages)}, title),
         story=public_story(selected, save_id=sid) if selected else None,
         messages=messages,
         history_before=rows[0]["id"] if has_more and rows else None,
@@ -271,6 +273,29 @@ def view(uid, sid, before=None, limit=20):
         pending_action={"id": pending.get("id"), "message": pending.get("message")}
         if pending
         else None,
+    )
+
+
+def public_status(data, name=""):
+    from .turn_updates import milestones, tasks
+
+    player = data.get("player") or {}
+    pc = data.get("player_character") or {}
+    world = data.get("world") or {}
+    current = experience.status(data)
+    return dict(
+        name=player.get("name") or pc.get("name") or name,
+        role=player.get("role") or pc.get("class") or "",
+        location=scalar(current["location"]),
+        time=scalar(world.get("time") or ""),
+        inventory=scalar(current["inventory"]),
+        abilities=scalar(current["abilities"]),
+        resources=scalar(current["resources"]),
+        people=scalar(current["people"]),
+        objective=scalar(current["objective"]),
+        attributes=scalar(experience.attributes(data)),
+        tasks=tasks(data),
+        milestones=milestones(data),
     )
 
 
