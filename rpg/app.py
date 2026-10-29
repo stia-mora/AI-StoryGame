@@ -506,7 +506,7 @@ from starlette.exceptions import HTTPException as _StarletteHTTPException
 class _SPAStaticFiles(_StaticFiles):
     """SPA History 路由回退。
     Platform 是单页应用,干净 URL(/settings、/saves、/cards 等)对应不存在的静态文件;
-    dist 里也没有 index.html。Starlette StaticFiles(html=True) 不会为任意不存在路径回退,
+    官网由 index.html 提供。Starlette StaticFiles(html=True) 不会为任意不存在路径回退,
     直接深链/刷新就会 404。这里把这类「无扩展名、非 /api」的 404 兜回 Platform.html(SPA 壳),
     由前端 router.js 按 location.pathname 解析出对应页面。
     保留:真实文件(Login.html / Game Console.html / /assets/*)正常直出;
@@ -523,7 +523,7 @@ class _SPAStaticFiles(_StaticFiles):
                 is_root = path in ("", ".", "/")
                 if not path.startswith("api/") and (is_root or "." not in last):
                     player_path = path.strip('/')
-                    shell = "Player.html" if is_root or player_path == 'play' or player_path.startswith('play/') else "Platform.html"
+                    shell = "index.html" if is_root else "Player.html" if player_path == 'play' or player_path.startswith('play/') else "Platform.html"
                     resp = await super().get_response(shell, scope)
                 else:
                     raise
@@ -550,7 +550,7 @@ _FRONTEND_ROOT = _Path(__file__).resolve().parent.parent / "frontend"
 # dist 不存在(未 npm run build)时回退源码目录,仅配合 vite dev server (:5173) 用。
 _FRONTEND_DIR = _FRONTEND_ROOT / "dist" if (_FRONTEND_ROOT / "dist").is_dir() else _FRONTEND_ROOT
 # 是否有「已构建」前端(非源码回退)。routes/core.py 的根路由据此决定:
-# 有 dist → 裸 / 直出玩家壳 Player.html，旧创作地址 /Platform.html 保留;
+# 有 dist → 裸 / 直出官网 index.html，玩家 /play 与创作 /Platform.html 保留;
 # 无 dist(纯 API / 未构建 dev,配 Vite :5173)→ 回服务描述 JSON。
 _FRONTEND_HAS_DIST = (_FRONTEND_ROOT / "dist").is_dir()
 if _FRONTEND_DIR.is_dir():

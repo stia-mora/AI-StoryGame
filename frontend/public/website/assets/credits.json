@@ -1,0 +1,107 @@
+{
+  "images": [
+    {
+      "file": "stories/shaosong.png",
+      "source_file": "frontend/public/assets/story-covers/shaosong-yaoshan-v1.png",
+      "source_project": "故事之间 / AI-StoryGame",
+      "source_url": "https://github.com/stia-mora/AI-StoryGame",
+      "author": "用户项目现有素材",
+      "license": "用户提供素材；沿用原项目使用范围，不授予独立再分发权",
+      "width": 1024,
+      "height": 1536,
+      "note": "故事封面为项目已有插画；截图为已有保存回合记录，不表示任何新行动已执行。"
+    },
+    {
+      "file": "stories/hawkins.webp",
+      "source_file": "frontend/public/assets/story-covers/hawkins-halloween-v1.webp",
+      "source_project": "故事之间 / AI-StoryGame",
+      "source_url": "https://github.com/stia-mora/AI-StoryGame",
+      "author": "用户项目现有素材",
+      "license": "用户提供素材；沿用原项目使用范围，不授予独立再分发权",
+      "width": 1024,
+      "height": 1536,
+      "note": "故事封面为项目已有插画；截图为已有保存回合记录，不表示任何新行动已执行。"
+    },
+    {
+      "file": "stories/douluo.webp",
+      "source_file": "frontend/public/assets/story-covers/douluo-yitu-v1.webp",
+      "source_project": "故事之间 / AI-StoryGame",
+      "source_url": "https://github.com/stia-mora/AI-StoryGame",
+      "author": "用户项目现有素材",
+      "license": "用户提供素材；沿用原项目使用范围，不授予独立再分发权",
+      "width": 1024,
+      "height": 1536,
+      "note": "故事封面为项目已有插画；截图为已有保存回合记录，不表示任何新行动已执行。"
+    },
+    {
+      "file": "screens/choices.png",
+      "source_file": "videos/hawkins-halloween/assets/player-choices-mobile.png",
+      "source_project": "故事之间 / AI-StoryGame",
+      "source_url": "https://github.com/stia-mora/AI-StoryGame",
+      "author": "用户项目现有素材",
+      "license": "用户提供素材；沿用原项目使用范围，不授予独立再分发权",
+      "width": 365,
+      "height": 505,
+      "note": "故事封面为项目已有插画；截图为已有保存回合记录，不表示任何新行动已执行。"
+    },
+    {
+      "file": "screens/input.png",
+      "source_file": "videos/hawkins-halloween/assets/player-input-mobile.png",
+      "source_project": "故事之间 / AI-StoryGame",
+      "source_url": "https://github.com/stia-mora/AI-StoryGame",
+      "author": "用户项目现有素材",
+      "license": "用户提供素材；沿用原项目使用范围，不授予独立再分发权",
+      "width": 372,
+      "height": 155,
+      "note": "故事封面为项目已有插画；截图为已有保存回合记录，不表示任何新行动已执行。"
+    },
+    {
+      "file": "screens/action.png",
+      "source_file": "videos/hawkins-halloween/assets/player-action-excerpt.png",
+      "source_project": "故事之间 / AI-StoryGame",
+      "source_url": "https://github.com/stia-mora/AI-StoryGame",
+      "author": "用户项目现有素材",
+      "license": "用户提供素材；沿用原项目使用范围，不授予独立再分发权",
+      "width": 168,
+      "height": 25,
+      "note": "故事封面为项目已有插画；截图为已有保存回合记录，不表示任何新行动已执行。"
+    },
+    {
+      "file": "screens/response.png",
+      "source_file": "videos/hawkins-halloween/assets/player-response-excerpt.png",
+      "source_project": "故事之间 / AI-StoryGame",
+      "source_url": "https://github.com/stia-mora/AI-StoryGame",
+      "author": "用户项目现有素材",
+      "license": "用户提供素材；沿用原项目使用范围，不授予独立再分发权",
+      "width": 372,
+      "height": 41,
+      "note": "故事封面为项目已有插画；截图为已有保存回合记录，不表示任何新行动已执行。"
+    }
+  ],
+  "fonts": [
+    {
+      "file": "fonts/InterTight.ttf",
+      "source_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/intertight/InterTight%5Bwght%5D.ttf",
+      "license": "SIL Open Font License 1.1",
+      "downloaded": true
+    },
+    {
+      "file": "fonts/PlayfairDisplay-Italic.ttf",
+      "source_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/playfairdisplay/PlayfairDisplay-Italic%5Bwght%5D.ttf",
+      "license": "SIL Open Font License 1.1",
+      "downloaded": true
+    },
+    {
+      "file": "fonts/InterTight-OFL.txt",
+      "source_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/intertight/OFL.txt",
+      "license": "SIL Open Font License 1.1",
+      "downloaded": true
+    },
+    {
+      "file": "fonts/PlayfairDisplay-OFL.txt",
+      "source_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/playfairdisplay/OFL.txt",
+      "license": "SIL Open Font License 1.1",
+      "downloaded": true
+    }
+  ]
+}

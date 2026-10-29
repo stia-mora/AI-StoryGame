@@ -287,6 +287,7 @@ def test_save_summaries_are_paginated_searchable_and_owned(player):
 
 
 def test_server_startup_health_guest_root_and_logout_revoke_cookie(user, monkeypatch, tmp_path):
+    (tmp_path / "index.html").write_text("<html>故事之间官网</html>", encoding="utf-8")
     (tmp_path / "Player.html").write_text("<html>玩家入口</html>", encoding="utf-8")
     (tmp_path / "Platform.html").write_text("<html>创作入口</html>", encoding="utf-8")
     monkeypatch.setattr(app, "_FRONTEND_DIR", tmp_path)
@@ -294,7 +295,7 @@ def test_server_startup_health_guest_root_and_logout_revoke_cookie(user, monkeyp
     with TestClient(app.app) as client:
         assert client.get("/livez").json()["ok"] is True
         assert client.get("/readyz").json()["db"] == "ok"
-        assert "玩家入口" in client.get("/").text
+        assert "故事之间官网" in client.get("/").text
         with connect() as db:
             token = auth._issue_session(db, user["id"])
         client.cookies.set("rpg_session", token)

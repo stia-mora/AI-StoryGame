@@ -24,15 +24,15 @@ router = APIRouter()
 async def index():
     """Backend root。
 
-    有「已构建」前端(同源/桌面/自托管)→ 裸 `/` 直出玩家入口 Player.html。
+    有「已构建」前端(同源/桌面/自托管)→ 裸 `/` 直出官网 index.html。
     这样**桌面自托管开了局域网开关后**,同网设备浏览器访问 `http://<ip>:<端口>/`
-    直接进应用,而不是看到后端 JSON 描述符(群反馈 听枫叶吹落的声音)。
+    直接看到官网，并可从官网进入 /play 游玩。
     无 dist(纯 API / 未构建 dev,配合 Vite :5173)→ 回服务描述 JSON。
     旧创作入口 /Platform.html 保留，桌面壳仍可直接打开。"""
     try:
         from app import _FRONTEND_DIR, _FRONTEND_HAS_DIST
         if _FRONTEND_HAS_DIST:
-            shell = _FRONTEND_DIR / "Player.html"
+            shell = _FRONTEND_DIR / "index.html"
             if shell.is_file():
                 # 与 _SPAStaticFiles 同步:HTML 壳 no-cache(防部署后停在旧版)。
                 return FileResponse(

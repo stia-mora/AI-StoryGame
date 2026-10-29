@@ -8,9 +8,8 @@ export default defineConfig(({ mode }) => {
   void mode;
 
   const inputs = {
-    // 产品入口:登录 + 多用户创作工作台 + RPG 游戏控制台。
-    // 旧 Claude Design 原型(Overview / index 设计评审)+ Design Canvas 已删;
-    // landing 另起项目独立部署。Login 由本仓库提供(配套后端鉴权)。
+    // 官网、玩家端与创作端使用独立 HTML 入口，同站提供登录和鉴权。
+    website:      resolve(__dirname, 'index.html'),
     login:        resolve(__dirname, 'Login.html'),
     platform:     resolve(__dirname, 'Platform.html'),
     player:       resolve(__dirname, 'Player.html'),
@@ -45,7 +44,7 @@ export default defineConfig(({ mode }) => {
             return next();
           }
           const path = url.split('?')[0];
-          req.url = path === '/' || /^\/play(?:\/|$)/.test(path) ? '/Player.html' : '/Platform.html';
+          req.url = path === '/' ? '/index.html' : /^\/play(?:\/|$)/.test(path) ? '/Player.html' : '/Platform.html';
           next();
         });
       },
