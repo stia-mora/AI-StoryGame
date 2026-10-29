@@ -1,14 +1,67 @@
-.authoring-page { max-width: 64rem; margin-inline: auto; line-height: 1.6; }
-.authoring-page section { padding-block: 1.25rem; border-bottom: 1px solid var(--line, oklch(70% .005 80 / .25)); }
-.authoring-toolbar, .authoring-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
-.authoring-page h1 { font-size: 1.5rem; } .authoring-page h2 { font-size: 1.2rem; }
-.authoring-page h3 { font-size: 1rem; } .authoring-page p { max-width: 72ch; }
-.authoring-page label { display: grid; gap: .4rem; margin-block: .75rem; }
-.authoring-page input, .authoring-page select, .authoring-page textarea { color: inherit; background: var(--surface, transparent); font: inherit; padding: .65rem; border: 1px solid var(--line, oklch(70% .005 80 / .4)); border-radius: 6px; min-height: 44px; max-width: 100%; }
-.authoring-page input:focus, .authoring-page select:focus, .authoring-page textarea:focus { box-shadow: 0 0 0 2px oklch(75% .12 75 / .6); outline: none; }
-.authoring-page button { min-height: 44px; margin: .25rem .5rem .25rem 0; }
-.authoring-page pre { overflow: auto; max-height: 24rem; padding: .75rem; font-size: .8rem; }
-.authoring-page code { overflow-wrap: anywhere; } .authoring-page summary { cursor: pointer; padding-block: .75rem; }
-.authoring-detail { padding-block: 1rem; } .authoring-page article { padding-block: 1rem; }
+.authoring-page { width: min(100% - 64px, 1240px); max-width: 1240px; margin-inline: auto; padding-block: 32px; line-height: 1.7; font-size: .875rem; }
+.authoring-page section { padding-block: 24px; }
+.authoring-toolbar, .authoring-row, .authoring-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.authoring-actions { justify-content: flex-start; }
+.authoring-heading { margin-bottom: 12px; }
+.authoring-page h1 { font-size: 1.5rem; }
+.authoring-page h2 { font-size: 1.125rem; margin-bottom: 16px; }
+.authoring-page h3 { font-size: 1rem; margin-bottom: 12px; }
+.authoring-page h4 { font-weight: var(--weight-semibold); margin-block: 12px 4px; }
+.authoring-page h1, .authoring-page h2, .authoring-page h3 { display: flex; align-items: center; gap: 8px; font-weight: var(--weight-semibold); overflow-wrap: anywhere; }
+.authoring-page p { max-width: 72ch; margin-block: 8px 12px; overflow-wrap: anywhere; }
+.authoring-page label { display: grid; gap: 6px; margin-block: 12px; min-width: 0; }
+.authoring-page input, .authoring-page select, .authoring-page textarea { width: 100%; min-width: 0; color: var(--ink); background: var(--wash); font: inherit; padding: 10px 12px; border: 0; border-radius: 6px; min-height: 44px; max-width: 100%; }
+.authoring-page textarea { resize: vertical; }
+.authoring-page input:focus, .authoring-page select:focus, .authoring-page textarea:focus { box-shadow: 0 0 0 2px var(--focus-inner), 0 0 0 5px var(--focus-outer); outline: none; }
+.authoring-page button { min-height: 44px; }
+.authoring-page pre { overflow: auto; max-height: 24rem; padding: 16px; font-size: .8125rem; background: var(--wash); border-radius: 6px; }
+.authoring-page code { overflow-wrap: anywhere; }
+.authoring-page summary { cursor: pointer; padding-block: 12px; font-weight: var(--weight-medium); }
+.authoring-page summary > svg { display: inline; margin-right: 6px; vertical-align: -.125em; }
+.authoring-page ul, .authoring-steps { padding-left: 24px; }
+.authoring-steps li { margin-block: 8px; }
+.authoring-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 40px; align-items: start; }
+.authoring-content, .authoring-sidebar { min-width: 0; }
+.authoring-sidebar { background: var(--surface); padding: 0 20px; border-radius: 8px; }
+.authoring-author { color: var(--muted); }
+.authoring-author span { display: block; margin-top: 4px; }
+.authoring-copy-field { display: flex; gap: 8px; }
+.authoring-copy-field input { flex: 1; font-family: ui-monospace, monospace; font-size: .8125rem; }
+.authoring-form-row { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; }
+.authoring-form-row > label { flex: 1; margin-bottom: 0; }
+.authoring-row { padding-block: 12px; }
+.authoring-row > span:first-child { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.authoring-row small, .authoring-project-list small, .authoring-ledger small { display: block; color: var(--muted); font-size: .8125rem; }
+.authoring-project-list { margin-top: 24px; }
+.authoring-project-list button { display: flex; width: 100%; align-items: center; gap: 16px; padding: 20px 16px; background: var(--surface); color: var(--ink); border: 0; border-radius: 6px; text-align: left; margin-bottom: 8px; }
+.authoring-project-list button > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.authoring-project-list button > svg { flex-shrink: 0; color: var(--muted); }
+.authoring-project-list button:hover:not(:disabled) { background: var(--wash); }
+.authoring-project-list strong { font-weight: var(--weight-semibold); }
+.authoring-empty { padding: 32px 0; }
+.authoring-empty > svg { color: var(--accent); margin-bottom: 12px; }
+.authoring-balance, .authoring-checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-block: 16px; }
+.authoring-balance dt, .authoring-checks dt { color: var(--muted); }
+.authoring-balance dd { font-size: 1.125rem; font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; }
+.authoring-checks { background: var(--surface); padding: 16px; border-radius: 6px; }
+.authoring-ledger { padding-block: 10px; overflow-wrap: anywhere; }
+.authoring-connect, .authoring-upload, .authoring-version, .authoring-playtest, .authoring-review { margin-top: 24px; padding-top: 24px; }
+.authoring-upload { padding: 20px; background: var(--surface); border-radius: 8px; }
+.authoring-validation { margin-top: 16px; }
+.authoring-version-form { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; }
+.authoring-version-form label { margin: 0; width: 100px; }
+.authoring-access { max-width: 640px; }
 .authoring-chapter { white-space: pre-wrap; }
-@media (max-width: 600px) { .authoring-page form button { width: 100%; } }
+.authoring-page article { padding-block: 16px; }
+@media (max-width: 900px) {
+  .authoring-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .authoring-sidebar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+}
+@media (max-width: 600px) {
+  .authoring-page { width: calc(100% - 32px); padding-block: 24px; }
+  .authoring-sidebar { display: block; }
+  .authoring-heading { align-items: flex-start; }
+  .authoring-heading h1 { font-size: 1.25rem; }
+  .authoring-form-row, .authoring-copy-field { flex-direction: column; align-items: stretch; }
+  .authoring-upload { padding: 16px; }
+}

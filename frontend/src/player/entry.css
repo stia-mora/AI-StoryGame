@@ -176,7 +176,7 @@
   .player-entry .player-header nav { justify-content: flex-end; }
   .player-entry .wallet-link { min-height: 44px; padding-inline: 4px; background: none; border: 0; justify-self: end; font-size: .75rem; }
   .player-entry .player-header .header-help span, .player-entry .player-account > summary span, .player-entry .player-account > summary > svg:last-child { display: none; }
-  .player-main-nav { gap: 24px; }
+  .player-main-nav { gap: 16px; min-width: 0; }
   .player-main-nav button { min-height: 48px; }
   .player-main-nav button > svg { display: none; }
   .player-lobby { width: calc(100% - 40px); }
@@ -187,6 +187,8 @@
   .lobby-guide { margin-top: 20px; }
 }
 @media (max-width: 600px) {
+  .player-entry .player-header { grid-template-areas: "brand actions" "navigation navigation" "wallet wallet"; }
+  .player-entry .wallet-link { justify-self: start; }
   .player-entry .player-header { padding-inline: 16px; }
   .player-entry .player-brand { font-size: .9375rem; }
   .player-entry .player-header nav > .player-button { padding: 8px 10px; min-height: 40px; font-size: .75rem; }

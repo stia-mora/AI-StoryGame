@@ -8,6 +8,7 @@ import {
   Question,
   UserCircle,
   CaretDown,
+  PenNib,
 } from "@phosphor-icons/react";
 import { lsGetJSON, lsSetJSON } from "../lib/storage.js";
 import {
@@ -30,7 +31,8 @@ const Authoring = lazy(() => import("./Authoring.jsx").then(m => ({ default: m.A
 const AuthoringAdmin = lazy(() => import("./Authoring.jsx").then(m => ({ default: m.AuthoringAdmin })));
 
 export function PlayerApp() {
-  const [path, setPath] = useState(location.pathname);
+  const [route, setRoute] = useState(() => ({ pathname: location.pathname, search: location.search }));
+  const path = route.pathname;
   const authPage = path === "/Login.html" || /^\/play\/(login|register)\/?$/.test(path);
   const [data, setData] = useState(null),
     [error, setError] = useState("");
@@ -73,7 +75,8 @@ export function PlayerApp() {
     if (accountMenu.current) accountMenu.current.open = false;
     if (url === "/play/saves") setSaveSearch("");
     history.pushState({}, "", url);
-    setPath(new URL(url, location.origin).pathname);
+    const target = new URL(url, location.origin);
+    setRoute({ pathname: target.pathname, search: target.search });
     window.scrollTo(0, 0);
   }, []);
   const updateWallet = useCallback((wallet) => {
@@ -120,7 +123,7 @@ export function PlayerApp() {
   }, []);
   useEffect(() => {
     if (!authPage) reload();
-    const pop = () => setPath(location.pathname);
+    const pop = () => setRoute({ pathname: location.pathname, search: location.search });
     window.addEventListener("popstate", pop);
     return () => window.removeEventListener("popstate", pop);
   }, [reload, authPage]);
@@ -169,7 +172,9 @@ export function PlayerApp() {
           <button aria-current={archive ? "page" : undefined} onClick={() => navigate("/play/saves")}>
             <FolderOpen size={18} aria-hidden="true" />我的存档
           </button>
-          {data?.user?.creator && <button aria-current={path.startsWith("/play/authoring") ? "page" : undefined} onClick={() => navigate("/play/authoring")}>我的创作</button>}
+          <button aria-current={path.startsWith("/play/authoring") ? "page" : undefined} onClick={() => navigate("/play/authoring")}>
+            <PenNib size={18} aria-hidden="true" />我的创作
+          </button>
         </div>
         {data?.user && <button className="wallet-link" aria-current={path === "/play/wallet" ? "page" : undefined} onClick={() => navigate("/play/wallet")}>
           <Coins size={19} aria-hidden="true" />
@@ -188,6 +193,7 @@ export function PlayerApp() {
               <summary aria-label="账户菜单"><UserCircle size={22} aria-hidden="true" /><span>账户</span><CaretDown size={12} aria-hidden="true" /></summary>
               <div className="player-account-menu">
                 <strong>{data.user.name}</strong>
+                <button onClick={() => navigate("/play/authoring")}>我的创作</button>
                 <button disabled={signingOut} onClick={logout}>{signingOut ? "正在退出……" : "退出登录 / 切换账号"}</button>
               </div>
             </details>
@@ -209,7 +215,7 @@ export function PlayerApp() {
         )
       ) : !data.user && (saveId || archive || path.startsWith("/play/authoring") || path === "/play/wallet" || path === "/play/manage") ? (
         <main id="player-main" className="player-shell">
-          <Empty title="登录后继续">存档、游玩和积分信息仅对本人开放。</Empty>
+          <Empty title={path.startsWith("/play/authoring") ? "登录后开始创作" : "登录后继续"}>{path.startsWith("/play/authoring") ? "连接创作 Agent、管理私人作品、试玩并提交上架。" : "存档、游玩和积分信息仅对本人开放。"}</Empty>
           <Button onClick={login}>登录后继续</Button>
           <Button quiet onClick={() => navigate("/play")}>浏览故事</Button>
         </main>
@@ -226,7 +232,7 @@ export function PlayerApp() {
           saveTotal={data.save_total ?? data.saves.length}
         />
       ) : path.startsWith("/play/authoring") ? (
-        data.user?.creator ? <Suspense fallback={<Loading />}>{path === "/play/authoring-admin" && data.user.admin ? <AuthoringAdmin navigate={navigate} /> : <Authoring navigate={navigate} admin={data.user.admin} />}</Suspense> : <main id="player-main" className="player-shell"><Notice error>请先取得创作者权限。</Notice></main>
+        <Suspense fallback={<Loading />}>{path === "/play/authoring-admin" && data.user.admin ? <AuthoringAdmin navigate={navigate} /> : <Authoring navigate={navigate} navigation={route} admin={data.user.admin} creator={data.user.creator} refreshAccount={reload} />}</Suspense>
       ) : path === "/play/wallet" ? (
         <Wallet onWalletChange={updateWallet} navigate={navigate} />
       ) : path === "/play/manage" && data.user?.admin ? (
