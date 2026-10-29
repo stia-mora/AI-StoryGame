@@ -30,8 +30,12 @@ def dashboard(request: Request):
         projects = db.execute("select * from authoring_projects where owner_id=%s order by created_at desc limit 100", (user["id"],)).fetchall()
         ledger = db.execute("select id,kind,preview_delta,preview_held_delta,reason,created_at from player_ledger "
                             "where user_id=%s and (preview_delta<>0 or preview_held_delta<>0) order by id desc limit 30", (user["id"],)).fetchall()
+        preview_profile = db.execute("select p.id from app_config c join player_model_profiles p "
+                                     "on p.id=(c.value->>'preview_profile_id')::int "
+                                     "where c.key='authoring' and p.enabled").fetchone()
     return dict(projects=[expose(p) for p in projects], wallet=balance, author=user.get("display_name") or user["username"],
-                ledger=[expose(row) for row in ledger], endpoint=oauth.resource(), scopes=oauth.SCOPES)
+                ledger=[expose(row) for row in ledger], endpoint=oauth.resource(), scopes=oauth.SCOPES,
+                preview_available=bool(preview_profile), limits=get_contract()["limits"])
 
 
 @router.get("/api/authoring/contract")
@@ -52,7 +56,7 @@ async def action(action: str, request: Request):
         user = oauth.session_user(request)
         return service.review(user["id"], int(data["revision_id"]), str(data["rights_note"]))
     if action == "redeem":
-        return wallet.redeem(user["id"], str(data["code"]))
+        return wallet.redeem(user["id"], str(data["code"]), purpose="preview")
     if action == "preview":
         return await preview_action(user, data)
     if action == "import_draft":
@@ -79,7 +83,10 @@ async def preview_action(user, data):
 async def upload_content(upload_id: uuid.UUID, request: Request):
     user = oauth.request_user(request, "authoring:write")
     with connect() as db:
-        total = service.upload(db, user["id"], upload_id)["size"]
+        existing = service.upload(db, user["id"], upload_id)
+        total = existing["size"]
+        if existing["complete"]:
+            return dict(upload_id=str(upload_id), complete=True)
     cap = int(os.getenv("RPG_UPLOAD_BODY_LIMIT_BYTES", "52428800"))
     buffer, part, received = bytearray(), 0, 0
     try:

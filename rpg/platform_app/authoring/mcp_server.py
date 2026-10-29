@@ -109,7 +109,7 @@ async def authoring_get_job(job_id: str) -> CallToolResult:
 
 @server.tool()
 async def authoring_get_draft(project_id: str, version: int | None = None) -> CallToolResult:
-    """读取本人版本、校验、待办、提交状态和浏览器复核链接。"""
+    """读取本人版本、校验、待办、提交状态与已有试玩存档；指定版本时返回对应版本的浏览器复核链接。"""
     return await call("read", service.get_draft, project_id=project_id, version=version)
 
 

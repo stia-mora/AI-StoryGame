@@ -423,7 +423,7 @@ def reap(uid=None):
         release(row["user_id"], str(row["id"]), "租约过期，未提交预留已释放", expired_only=True)
 
 
-def redeem(uid, code):
+def redeem(uid, code, *, purpose=None):
     digest = hashlib.sha256(code.strip().upper().encode()).hexdigest()
     with connect() as db:
         balance = lock_wallet(db, uid)
@@ -438,6 +438,8 @@ def redeem(uid, code):
             or row["used_count"] >= row["max_uses"]
         ):
             raise HTTPException(400, "兑换码无效、已到期或已领完")
+        if purpose is not None and row.get("purpose", "player") != purpose:
+            raise HTTPException(400, "这是普通游玩兑换码，请前往游玩积分页面兑换。")
         if db.execute(
             "select 1 from player_redemptions where code_id=%s and user_id=%s", (row["id"], uid)
         ).fetchone():

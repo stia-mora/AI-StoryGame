@@ -101,6 +101,12 @@ def begin_upload(uid, project_id, size, sha256):
         project(db, uid, project_id, True)
         db.execute("delete from authoring_uploads where created_at<now()-interval '24 hours' and id not in "
                    "(select (input->>'upload_id')::uuid from authoring_jobs where kind='import' and status in ('pending','running'))")
+        existing = db.execute("select id from authoring_uploads where project_id=%s and size=%s and sha256=%s "
+                              "and created_at>now()-interval '24 hours' order by created_at desc limit 1",
+                              (project_id, size, sha256)).fetchone()
+        if existing:
+            return dict(upload_id=str(existing["id"]), chunk_bytes=CHUNK_BYTES,
+                        http_url=f"/api/authoring/uploads/{existing['id']}/content")
         used = db.execute("select count(*) as n from authoring_uploads u join authoring_projects p on p.id=u.project_id "
                           "where p.owner_id=%s", (uid,)).fetchone()["n"]
         if used >= 4:
@@ -312,7 +318,11 @@ def get_draft(uid, project_id, version=None):
                                (project_id, version, version)).fetchall()
         if version is not None and not revisions:
             raise HTTPException(404, "版本不存在")
-        jobs = db.execute("select id,kind,status,error from authoring_jobs where project_id=%s order by created_at desc limit 20", (project_id,)).fetchall()
+        jobs = db.execute("select id,kind,status,progress,error from authoring_jobs where project_id=%s order by created_at desc limit 20", (project_id,)).fetchall()
+        saves = db.execute("select g.id,g.title,g.turn,g.authoring_revision_id as revision_id,g.updated_at "
+                           "from game_saves g join authoring_revisions r on r.id=g.authoring_revision_id "
+                           "where g.user_id=%s and r.project_id=%s and r.id=%s order by g.updated_at desc,g.id desc limit 20",
+                           (uid, project_id, revisions[0]["id"] if revisions else None)).fetchall()
         playtests = db.execute("select id,status,result,error,input->>'revision_id' as revision_id from authoring_jobs "
                               "where project_id=%s and kind='preview' order by created_at desc limit 30", (project_id,)).fetchall()
         submissions = db.execute("select s.* from authoring_submissions s join authoring_revisions r on r.id=s.revision_id where r.project_id=%s order by s.created_at desc limit 50",
@@ -321,7 +331,8 @@ def get_draft(uid, project_id, version=None):
         item["playtests"] = [expose(p) for p in playtests if p["revision_id"] == str(item["id"])]
         item["report"]["checks"]["playtest"] = "passed" if item.pop("played") else "not_run"
     return dict(project=expose(row), revisions=[expose(r) for r in revisions], jobs=[expose(j) for j in jobs],
-                submissions=[expose(s) for s in submissions], url=f"/play/authoring?project={project_id}")
+                submissions=[expose(s) for s in submissions], preview_saves=[expose(s) for s in saves],
+                url=f"/play/authoring?project={project_id}" + (f"&version={version}" if version is not None else ""))
 
 
 def revision(db, uid, revision_id):
